@@ -1,0 +1,17 @@
+[package]
+name = "hybit-precond"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Jacobi, local Cholesky, and weighted Schwarz preconditioners for HyBIT"
+publish = ["crates-io"]
+
+[dependencies]
+hybit-core = { version = "0.5.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.5.0", path = "../hybit-matrix" }

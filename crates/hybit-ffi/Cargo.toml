@@ -1,0 +1,20 @@
+[package]
+name = "hybit-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Stable C ABI for HyBIT"
+publish = false
+
+[lib]
+name = "hybit"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+hybit-core = { version = "0.5.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.5.0", path = "../hybit-matrix" }
+hybit-auto = { version = "0.5.0", path = "../hybit-auto" }

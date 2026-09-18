@@ -1,0 +1,25 @@
+digraph HyBIT {
+    rankdir=TB;
+    graph [fontname="Arial"];
+    node [shape=box, fontname="Arial"];
+    edge [fontname="Arial"];
+
+    api [label="Rust / C / C++ / Fortran"];
+    ffi [label="Stable C ABI\nopaque solver/matrix/prepared handles"];
+    analyze [label="ANALYZE\nMatrixProfile + SPD checks\nsignatures + backend policy"];
+    prepare [label="PREPARE\nJacobi + PCG workspace\nABTM eager only if selected"];
+    solve1 [label="Prepared solve #1\nJacobi-PCG probe"];
+    decision [shape=diamond, label="Good progress?"];
+    diagnostic [label="Residual/risk diagnostics\nhard components + ABTM halo"];
+    factor [label="Bounded local Cholesky\nweighted Schwarz + local scratch"];
+    cache [label="Cache Hybrid factors"];
+    solveN [label="Prepared solve #2..N\nreuse workspace + factors\nno probe / no refactor"];
+    report [label="SolveReport\nsetup / reuse / memory / timing"];
+
+    api -> ffi -> analyze -> prepare -> solve1 -> decision;
+    decision -> report [label="yes"];
+    decision -> diagnostic [label="poor progress"];
+    diagnostic -> factor -> cache -> report;
+    cache -> solveN;
+    solveN -> report;
+}

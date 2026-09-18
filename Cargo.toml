@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hybit-core",
+    "crates/hybit-matrix",
+    "crates/hybit-precond",
+    "crates/hybit-krylov",
+    "crates/hybit-auto",
+    "crates/hybit",
+    "crates/hybit-ffi",
+]
+default-members = ["crates/hybit"]
+
+[workspace.package]
+version = "0.5.0"
+edition = "2021"
+rust-version = "1.73"
+license = "MIT"
+authors = ["HyBIT contributors"]
+repository = "https://github.com/michioga/hybit"
+readme = "README.md"
+keywords = ["sparse", "solver", "linear-algebra", "fem", "hpc"]
+categories = ["algorithms", "mathematics", "science"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

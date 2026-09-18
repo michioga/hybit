@@ -1,0 +1,24 @@
+[package]
+name = "hybit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Autonomous hybrid sparse linear solver with adaptive local direct correction"
+documentation = "https://docs.rs/hybit"
+publish = ["crates-io"]
+
+[dependencies]
+hybit-core = { version = "0.5.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.5.0", path = "../hybit-matrix" }
+hybit-precond = { version = "0.5.0", path = "../hybit-precond" }
+hybit-krylov = { version = "0.5.0", path = "../hybit-krylov" }
+hybit-auto = { version = "0.5.0", path = "../hybit-auto" }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]

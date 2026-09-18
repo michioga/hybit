@@ -1,0 +1,182 @@
+use hybit_core::{dot, l2_norm, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions};
+
+#[derive(Clone, Copy, Debug)]
+pub struct KrylovOutcome {
+    pub status: SolveStatus,
+    pub iterations: usize,
+    pub initial_residual: f64,
+    pub final_residual: f64,
+}
+
+/// Reusable PCG scratch storage. A prepared HyBIT context allocates this once
+/// and reuses it across every Krylov iteration and every subsequent RHS.
+#[derive(Clone, Debug)]
+pub struct PcgWorkspace {
+    ax: Vec<f64>,
+    r: Vec<f64>,
+    z: Vec<f64>,
+    p: Vec<f64>,
+    ap: Vec<f64>,
+}
+
+impl PcgWorkspace {
+    pub fn new(n: usize) -> Self {
+        Self {
+            ax: vec![0.0; n],
+            r: vec![0.0; n],
+            z: vec![0.0; n],
+            p: vec![0.0; n],
+            ap: vec![0.0; n],
+        }
+    }
+
+    pub fn len(&self) -> usize { self.r.len() }
+    pub fn is_empty(&self) -> bool { self.r.is_empty() }
+    pub fn bytes(&self) -> usize { 5 * self.len() * std::mem::size_of::<f64>() }
+
+    fn validate_len(&self, n: usize) -> Result<(), HybitError> {
+        if self.len() != n {
+            return Err(HybitError::DimensionMismatch { expected: n, actual: self.len() });
+        }
+        Ok(())
+    }
+}
+
+pub fn pcg(
+    a: &dyn LinearOperator,
+    m: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+) -> Result<KrylovOutcome, HybitError> {
+    let mut workspace = PcgWorkspace::new(a.rows());
+    pcg_with_workspace(a, m, b, x, options, &mut workspace)
+}
+
+pub fn pcg_with_workspace(
+    a: &dyn LinearOperator,
+    m: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+    workspace: &mut PcgWorkspace,
+) -> Result<KrylovOutcome, HybitError> {
+    options.validate()?;
+    if a.rows() != a.cols() {
+        return Err(HybitError::InvalidMatrix("PCG requires a square operator"));
+    }
+    let n = a.rows();
+    if b.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: b.len() }); }
+    if x.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: x.len() }); }
+    if m.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: m.len() }); }
+    workspace.validate_len(n)?;
+
+    let PcgWorkspace { ax, r, z, p, ap } = workspace;
+    a.apply(x, ax)?;
+    for i in 0..n { r[i] = b[i] - ax[i]; }
+
+    let initial_residual = l2_norm(r);
+    let b_norm = l2_norm(b);
+    let target = options.absolute_tolerance.max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    if initial_residual <= target {
+        return Ok(KrylovOutcome {
+            status: SolveStatus::Converged,
+            iterations: 0,
+            initial_residual,
+            final_residual: initial_residual,
+        });
+    }
+
+    m.apply(r, z)?;
+    p.copy_from_slice(z);
+    let mut rz_old = dot(r, z);
+    if !rz_old.is_finite() || rz_old <= 0.0 {
+        return Err(HybitError::NumericalBreakdown("non-positive r^T M^-1 r; PCG assumptions may be violated"));
+    }
+
+    let mut final_residual = initial_residual;
+    for iter in 1..=options.max_iterations {
+        a.apply(p, ap)?;
+        let denom = dot(p, ap);
+        if !denom.is_finite() || denom <= 0.0 {
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter - 1,
+                initial_residual,
+                final_residual,
+            });
+        }
+        let alpha = rz_old / denom;
+        for i in 0..n {
+            x[i] += alpha * p[i];
+            r[i] -= alpha * ap[i];
+        }
+        final_residual = l2_norm(r);
+        if final_residual <= target {
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Converged,
+                iterations: iter,
+                initial_residual,
+                final_residual,
+            });
+        }
+        m.apply(r, z)?;
+        let rz_new = dot(r, z);
+        if !rz_new.is_finite() || rz_new <= 0.0 {
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual,
+            });
+        }
+        let beta = rz_new / rz_old;
+        for i in 0..n { p[i] = z[i] + beta * p[i]; }
+        rz_old = rz_new;
+    }
+
+    Ok(KrylovOutcome {
+        status: SolveStatus::MaxIterations,
+        iterations: options.max_iterations,
+        initial_residual,
+        final_residual,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hybit_core::LinearOperator;
+
+    struct Identity(usize);
+    impl LinearOperator for Identity {
+        fn rows(&self) -> usize { self.0 }
+        fn cols(&self) -> usize { self.0 }
+        fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+            y.copy_from_slice(x);
+            Ok(())
+        }
+    }
+    struct IdentityPrecond(usize);
+    impl Preconditioner for IdentityPrecond {
+        fn len(&self) -> usize { self.0 }
+        fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
+            z.copy_from_slice(r);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn reusable_workspace_solves_multiple_rhs() {
+        let a = Identity(4);
+        let m = IdentityPrecond(4);
+        let mut ws = PcgWorkspace::new(4);
+        for rhs in [vec![1.0, 2.0, 3.0, 4.0], vec![4.0, 3.0, 2.0, 1.0]] {
+            let mut x = vec![0.0; 4];
+            let out = pcg_with_workspace(&a, &m, &rhs, &mut x, SolverOptions::default(), &mut ws).unwrap();
+            assert_eq!(out.status, SolveStatus::Converged);
+            assert_eq!(x, rhs);
+        }
+        assert_eq!(ws.bytes(), 5 * 4 * 8);
+    }
+}

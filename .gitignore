@@ -1,0 +1,8 @@
+/target
+*.dll
+*.lib
+*.so
+*.dylib
+*.a
+*.mod
+/build

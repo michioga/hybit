@@ -1,0 +1,19 @@
+LIBRARY hybit.dll
+EXPORTS
+    hybit_version_major
+    hybit_version_minor
+    hybit_version_patch
+    hybit_last_error_message
+    hybit_solver_create
+    hybit_solver_destroy
+    hybit_solver_set_tolerances
+    hybit_solver_set_max_iterations
+    hybit_solver_set_backend
+    hybit_solver_set_hybrid_enabled
+    hybit_solver_set_overlap_layers
+    hybit_matrix_create_csr_f64
+    hybit_matrix_destroy
+    hybit_prepare
+    hybit_prepared_destroy
+    hybit_solve_prepared
+    hybit_solve
