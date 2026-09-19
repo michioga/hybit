@@ -7,6 +7,8 @@
 - Keep the sparse operator and rigid-body preconditioner policies independent from the PCG-vector policy, so SpMV, preconditioner, and vector-kernel A/B tests remain isolated.
 - Add `bench-fem-structural-auto-pcg.ps1` for an end-to-end production-path comparison between serial and Auto PCG vector kernels with parallel SpMV/preconditioning fixed.
 - Preserve `solve_csr32` behavior; only the explicit structural solve path can select the new vector policy.
+- Validated the integrated r25 Structural Auto path on the physical-load L-angle system (358065 DOF, 28239653 CSR nnz) at 8 Rayon workers: Graph aggregation, coarse dimension 1398, 220 PCG iterations, verified relative residual `9.378557e-9`, 1.726 s solve, and 2.797 s analysis+prepare+solve.
+- Enter feature freeze for the 0.6.0 structural production path on `develop/0.6.0`; the next milestone is release-candidate regression, packaging, ABI, documentation, and publication-gate validation rather than additional solver features.
 
 ## 0.6.0-r24 development snapshot
 

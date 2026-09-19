@@ -10,13 +10,19 @@ The user-facing Rust crate is:
 
 HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` is intentionally not published to crates.io in 0.6.0.
 
+## Development branch and release candidate
+
+Active 0.6 work is kept on `develop/0.6.0`. Keep `main` at the last validated public release until the 0.6 release candidate passes the full release gate. Once the exact candidate commit is validated, merge that commit to `main`, rerun the gate from the final source tree, and only then create/publish immutable release artifacts.
+
 ## Before publishing
 
 Run the local release gate:
 
 ```powershell
+.\build.ps1
 .\release-gate.ps1
 .\crates-package-gate.ps1
+.\public-release-gate.ps1
 ```
 
 Review `cargo package --list` output and make sure no build directories, local secrets, large generated files, or private data are included.

@@ -34,4 +34,4 @@ By contributing, you agree that your contribution will be licensed under the MIT
 
 ## 0.6 development branch
 
-Active 0.6 work is integrated on `develop/0.6.0`. Keep `main` at the last validated public release until the 0.6 release gate passes. Experimental performance work should be committed separately from validated production-path integrations so it can be reverted independently.
+Active 0.6 work is integrated on `develop/0.6.0`. Keep `main` at the last validated public release until the 0.6 release gate passes. Experimental performance work should be committed separately from validated production-path integrations so it can be reverted independently. The r25 structural production path is currently feature-frozen; until 0.6.0 is released, prefer regression fixes, release-gate work, and documentation corrections over new solver features.

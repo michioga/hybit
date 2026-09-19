@@ -286,6 +286,8 @@ Structural Auto can independently resolve fine-grid SpMV and rigid-body precondi
 
 ## Integrated PCG vector policy (0.6-r25)
 
-The r24 L-angle sweep showed that parallel/fused PCG vector kernels are beneficial once the shared Rayon pool has enough workers: at 8 workers the 220-iteration solve changed from about 1.998 s to 1.790 s, and at 16 workers from about 1.937 s to 1.739 s. At 2 workers the parallel vector path was slower, so Structural Auto r25 requires both a sufficiently large vector (`n >= 131072`) and at least four Rayon workers before enabling it automatically.
+The r24 L-angle sweep showed that parallel/fused PCG vector kernels are beneficial once the shared Rayon pool has enough workers: at 8 workers the 220-iteration experimental solve changed from about 1.998 s to 1.790 s, while the 2-worker path was slower. Structural Auto r25 therefore requires both a sufficiently large vector (`n >= 131072`) and at least four Rayon workers before enabling parallel/fused vector kernels automatically.
 
-Use `bench-fem-structural-auto-pcg.ps1` to compare `Serial` versus `Auto` while holding Graph aggregation, parallel CSR SpMV, and the parallel rigid-body preconditioner fixed.
+The integrated r25 production-path A/B at 8 workers held Graph aggregation, parallel CSR SpMV, and the parallel rigid-body preconditioner fixed. Serial PCG vectors took 1.900 s; Auto selected Parallel PCG vectors and took 1.726 s. Both paths converged in 220 iterations. The Auto run independently verified `||Ax-b||/||b|| = 9.378557e-9`; total analysis+prepare+solve was 2.797 s. These are machine-specific development measurements.
+
+Use `bench-fem-structural-auto-pcg.ps1` to reproduce the `Serial` versus `Auto` comparison. The r25 structural production path is feature-frozen after this checkpoint; the next 0.6 work is release-gate validation.

@@ -1,6 +1,6 @@
 # HyBIT
 
-> **開発状況:** 0.6.0 は現在の開発系列です。crates.io の最新公開版は 0.5.0 です。
+> **開発状況:** 0.6.0 は `develop/0.6.0` で開発中です。crates.io の最新公開版は 0.5.0 です。r25の構造FEM production pathはfeature freezeとし、0.6.0 release gate準備へ移行しています。
 
 **HyBIT — Autonomous Hybrid Sparse Solver** は、FEM/HPCで現れる大規模疎行列を対象としたRust-firstの線形ソルバーフレームワークです。
 
@@ -136,7 +136,7 @@ synthetic SPD regressionでは、単一hard regionでJacobi-PCG 33反復に対�
 
 ## 現在の制約
 
-現在は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。MINRES/GMRES/BiCGStab、coarse correction、MPI、GPU、out-of-coreはまだ未実装です。prepared contextは現段階ではsingle-threaded利用を想定しています。
+現在は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。3次元構造FEM向けには6剛体モードの二段coarse correctionを実装済みですが、一般的なAMGではありません。MINRES/GMRES/BiCGStab、MPI、GPU、out-of-coreはまだ未実装です。prepared contextは現段階ではsingle-threaded利用を想定しています。
 
 したがって、現時点のHyBITは実験的な数値ソフトウェアです。工学的判断へ利用する場合は、残差だけでなく物理量・参照解・独立ソルバー等による検証を行ってください。
 
@@ -199,13 +199,18 @@ MIT Licenseです。詳細は [LICENSE](LICENSE) を参照してください。
 開発版には、scalar Jacobi、3x3 Block-Jacobi、並進のみのaggregationに加え、
 3次元構造問題向けの6剛体モード（Tx/Ty/Tz/Rx/Ry/Rz）粗空間を比較する
 Matrix Marketベンチマークを含みます。Structural Autoはgraph-connected aggregateを
-第一選択とし、graph coarse factorizationが数値的に特異な場合だけRCM順contiguous
+第一選択とし、graph coarse factorizationが数値的に特異な場合、または6剛体モードを構成できないほど小さい非連結componentを含む場合にRCM順contiguous
 aggregationへfallbackします。検証済みの構造FEM経路は
 `HybitSolver::solve_structural_csr32` と再利用可能な
 `HybitPreparedStructuralSystem` に統合しました。generic `solve_csr32` の挙動は変更していません。
 
 
+### 0.6.0 開発チェックポイント
+
+0.6系の作業は `develop/0.6.0` で継続し、`main` は0.6 release gate通過まで直近の公開安定系列として維持します。r25時点で0.6.0に予定していたCPU構造FEM経路、すなわちGraph rigid-body aggregation、packed coarse Cholesky、Parallel CSR SpMV、Parallel rigid-body preconditioner、Parallel/fused PCG vector kernelsのproduction統合まで完了しました。以後0.6.0では新機能追加を止め、release candidateの回帰試験・package/ABI/documentation確認を優先します。
+
+
 ### 0.6 structural execution policy (development)
 Structural Auto は `StructuralSpmvPolicy`、`StructuralPreconditionerPolicy`、`StructuralPcgVectorPolicy` により、CSR SpMV、剛体二段前処理、PCG密ベクトルカーネルを独立に並列化できます。大規模構造問題では並列経路を選択し、小規模問題ではRayonオーバーヘッドを避けるためserialを維持します。PCG vectorの`Auto`は共有Rayon poolが4 worker以上の場合にのみ有効化されます。thread数は`RAYON_NUM_THREADS`等で外部から制御します。
 
-> 開発メモ (0.6 r25): L-angle実問題で220反復を維持したまま、8〜16 Rayon workerでsolve時間を約10%短縮できたため、parallel/fused PCG vector pathをStructural Autoへ統合しました。低thread数やA/B検証用には`StructuralPcgVectorPolicy::Serial`を維持します。
+> 開発チェックポイント (0.6 r25): 358065 DOF / 28.24M nnzのL-angle実荷重問題で、8 Rayon worker時にStructural AutoはGraph aggregation + Parallel CSR SpMV + Parallel rigid-body preconditioner + Parallel/fused PCG vectorsを選択しました。220反復、verified relative residual `9.378557e-9`、solve 1.726秒、analysis+prepare+solve 2.797秒でした（Ryzen 7 7800X3D上の開発測定値であり、一般的な性能保証ではありません）。r25 production pathはfeature freezeとし、次は0.6.0 release gateへ進みます。

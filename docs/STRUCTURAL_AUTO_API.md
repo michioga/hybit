@@ -137,11 +137,13 @@ This machine-specific result is not used as a hard-coded library thread count.
 
 
 ### 0.6 structural execution policy (development)
-Structural Auto can independently select parallel CSR SpMV and parallel rigid-body preconditioner kernels through `StructuralSpmvPolicy` and `StructuralPreconditionerPolicy`. Large CSR structural systems default to parallel execution; small systems remain serial to avoid Rayon overhead. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
+Structural Auto independently resolves `StructuralSpmvPolicy`, `StructuralPreconditionerPolicy`, and `StructuralPcgVectorPolicy`. Large CSR structural systems can therefore use parallel CSR SpMV, parallel 3x3 block-Jacobi/restriction/prolongation, and parallel/fused PCG vector kernels together. Small systems remain serial to avoid Rayon overhead. The packed dense coarse triangular solve remains serial. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
 
 
 ## PCG dense-vector policy (0.6-r25)
 
 Structural solves expose `StructuralPcgVectorPolicy::{Auto, Serial, Parallel}` independently from the sparse SpMV and rigid-body preconditioner policies. The parallel path uses the shared Rayon pool for dot/norm reductions, search-direction updates, and a fused `x += alpha*p`, `r -= alpha*Ap`, `||r||` traversal.
 
-`Auto` is deliberately conservative: it selects the parallel/fused path only for at least 131072 unknowns and at least 4 Rayon workers. The real 358065-DOF L-angle benchmark retained 220 iterations and changed the solution only at roundoff scale while improving the validated 8-thread solve from about 2.00 s to 1.79 s. Explicit `Serial` remains available for low-thread-count execution and controlled A/B tests.
+`Auto` is deliberately conservative: it selects the parallel/fused path only for at least 131072 unknowns and at least 4 Rayon workers. Explicit `Serial` remains available for low-thread-count execution and controlled A/B tests.
+
+At the r25 production checkpoint, the physical-load 358065-DOF / 28239653-nnz L-angle case at 8 Rayon workers resolved to Graph aggregation, Parallel SpMV, Parallel preconditioning, and Parallel PCG vectors. It used 233 aggregates and a 1398-dimensional coarse space, converged in 220 iterations, and independently verified a relative residual of `9.378557e-9`. Measured solve time was 1.726 s; analysis+prepare+solve was 2.797 s on the Ryzen 7 7800X3D development machine. These timings are a reproducible development reference, not a cross-machine performance guarantee.

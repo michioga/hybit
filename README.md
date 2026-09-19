@@ -9,7 +9,7 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
-> **Project status:** HyBIT 0.6.0 is the current development line. The latest published crates.io release is 0.5.0. The automatic solver path is currently restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
+> **Project status:** HyBIT 0.6.0 is the current development line on `develop/0.6.0`. The latest published crates.io release is 0.5.0. The r25 structural production path is feature-frozen pending the 0.6.0 release gate. The automatic solver path is currently restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
@@ -201,7 +201,8 @@ The current 0.6.0 development line intentionally has a narrow numerical scope:
 - up to 8 local regions by default, each limited to 128 DOFs by default;
 - prepared-factor reuse only when matrix structure and coefficient bits are unchanged;
 - prepared contexts are intended for single-threaded use;
-- no MINRES, GMRES, BiCGStab, coarse-grid correction, distributed memory, GPU, or out-of-core execution yet;
+- no MINRES, GMRES, BiCGStab, distributed memory, GPU, or out-of-core execution yet;
+- the geometry-aware rigid-body coarse correction is currently specific to the explicit 3-D structural path and is not a general algebraic multigrid implementation;
 - adaptive region selection is currently heuristic rather than spectral.
 
 The project should therefore be treated as experimental numerical software. Validate residuals and physical results independently before using it in engineering decisions.
@@ -213,7 +214,7 @@ crates/
   hybit-core      common traits, errors, options, reports
   hybit-matrix    CSR32, ABTM, Matrix Market I/O, matrix analysis, masks
   hybit-krylov    PCG and reusable Krylov workspace
-  hybit-precond   Jacobi, local Cholesky, weighted Schwarz
+  hybit-precond   Jacobi, local Cholesky, weighted Schwarz, rigid-body two-level
   hybit-auto      adaptive solver policy and prepared contexts
   hybit           public Rust facade crate
   hybit-ffi       C ABI DLL layer (repository build, not published to crates.io)
@@ -248,7 +249,7 @@ cargo run --release -p hybit --example fem_bench -- --matrix benchmarks/data/poi
 
 Near-term work is focused on real FEM validation, separation of symbolic reuse from numerical refactorization, broader Krylov coverage, stronger diagnostics, and scalable local/coarse corrections. Parallel CPU, GPU, and distributed-memory backends are longer-term directions.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for future work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current 0.6 release-candidate checkpoint.
 
 ## Contributing
 
@@ -273,6 +274,11 @@ path is exposed through `HybitSolver::solve_structural_csr32` and reusable
 `HybitPreparedStructuralSystem`; the generic `solve_csr32` path is unchanged.
 
 
+
+### 0.6.0 development checkpoint
+
+Active 0.6 development is performed on `develop/0.6.0`; `main` remains the last validated public-release line until the 0.6 release gate passes. At the r25 checkpoint the structural production path has completed the planned CPU integration work for this release: Graph rigid-body aggregation, packed coarse Cholesky, parallel CSR SpMV, parallel rigid-body fine/coarse transfer kernels, and parallel/fused PCG vector kernels. The next work item is release-candidate stabilization and regression/release-gate validation rather than additional solver features.
+
 ## RHS parsing diagnostics (0.6 development)
 
 The FEM benchmark RHS reader accepts plain whitespace-separated `f64` values, ignores blank/comment lines (`#` or `%`), tolerates an UTF-8 BOM, and reports the exact line/token for malformed input.
@@ -281,4 +287,4 @@ The FEM benchmark RHS reader accepts plain whitespace-separated `f64` values, ig
 ### 0.6 structural execution policy (development)
 Structural Auto can independently select parallel CSR SpMV, parallel rigid-body preconditioner kernels, and parallel/fused dense PCG vector kernels through `StructuralSpmvPolicy`, `StructuralPreconditionerPolicy`, and `StructuralPcgVectorPolicy`. Large structural systems can use all three paths; small systems remain serial to avoid Rayon overhead. The PCG-vector `Auto` path additionally requires at least four workers in the shared Rayon pool. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
 
-> Development note (0.6 r25): the parallel/fused PCG vector path is now integrated into Structural Auto after the real L-angle benchmark preserved 220 iterations and reduced solve time by about 10% at 8-16 Rayon workers. `StructuralPcgVectorPolicy::Serial` remains available for deterministic A/B and low-thread-count execution.
+> Development checkpoint (0.6 r25): on the 358065-DOF / 28.24M-nnz L-angle physical-load case, Structural Auto selected Graph aggregation, parallel CSR SpMV, the parallel rigid-body preconditioner, and parallel/fused PCG vectors at 8 Rayon workers. It converged in 220 iterations to a verified relative residual of `9.378557e-9`; solve time was 1.726 s and analysis+prepare+solve was 2.797 s on the Ryzen 7 7800X3D development machine. These timings are machine-specific development measurements, not a general performance claim. The r25 production path is now feature-frozen while the 0.6.0 release gate is prepared.

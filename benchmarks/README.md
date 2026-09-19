@@ -52,3 +52,10 @@ The sweep deliberately uses strict `graph` aggregation by default. Compare the
 actual coarse dimension, prepare time, iteration count, solve time, and total
 setup+solve time. The target is a soft budget; power-of-two aggregate sizing and
 graph remainder merging mean the actual coarse dimension can differ slightly.
+
+
+## Structural r25 development checkpoint
+
+The current 0.6 release-candidate baseline uses `target_coarse_dimension=1536` for the development L-angle case. With 8 Rayon workers, Structural Auto selected Graph aggregation, Parallel CSR SpMV, the Parallel rigid-body preconditioner, and Parallel/fused PCG vectors. The 358065-DOF / 28239653-nnz physical-load case used 233 aggregates, coarse dimension 1398, converged in 220 iterations, independently verified relative residual `9.378557e-9`, and measured 1.726 s solve / 2.797 s analysis+prepare+solve on the Ryzen 7 7800X3D development machine.
+
+Treat these numbers as a regression reference for this matrix, RHS, machine, and revision. They are not a general performance guarantee. The structural production path is feature-frozen at r25 while the 0.6.0 release gate is prepared.
