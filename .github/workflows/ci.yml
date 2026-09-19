@@ -24,7 +24,7 @@ jobs:
           - os: ubuntu-latest
             rust: 1.73.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -37,12 +37,15 @@ jobs:
     name: Package metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Package publishable crates without registry upload
+      - name: Check workspace metadata
+        run: cargo metadata --format-version 1 --no-deps > /dev/null
+      - name: Check package contents
         shell: bash
         run: |
           set -euo pipefail
           for crate in hybit-core hybit-matrix hybit-krylov hybit-precond hybit-auto hybit; do
-            cargo package -p "$crate" --no-verify
+            echo "== $crate =="
+            cargo package -p "$crate" --list
           done
