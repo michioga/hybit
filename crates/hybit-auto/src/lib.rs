@@ -2,10 +2,13 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use hybit_core::{
-    l2_norm, HybitError, LinearOperator, MatrixBackend, PreconditionerKind, SolveReport,
+    l2_norm, HybitError, LinearOperator, MatrixBackend, Preconditioner, PreconditionerKind, SolveReport,
     SolveStatus, SolverKind, SolverOptions,
 };
-use hybit_krylov::{pcg_with_workspace, KrylovOutcome, PcgWorkspace};
+use hybit_krylov::{
+    parallel_vector_worker_count, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
+    KrylovOutcome, PcgWorkspace,
+};
 use hybit_matrix::{analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile, ParallelCsr32Operator};
 pub use hybit_precond::RigidBodyAggregation;
 use hybit_precond::{
@@ -79,6 +82,23 @@ pub enum StructuralPreconditionerPolicy {
 /// nonzeros. The dense coarse triangular solve itself remains serial.
 pub const STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ: usize = 1_000_000;
 
+/// Execution policy for dense vector kernels inside structural PCG.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StructuralPcgVectorPolicy {
+    /// Use the parallel/fused vector path only for sufficiently large systems
+    /// when the shared Rayon pool has enough workers to amortize reductions.
+    Auto,
+    /// Use the established serial PCG vector kernels.
+    Serial,
+    /// Force parallel/fused PCG vector kernels.
+    Parallel,
+}
+
+/// Auto threshold for the parallel/fused PCG dense-vector path.
+pub const STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N: usize = 131_072;
+/// r24 showed a 2-worker pool can be slower than serial vector kernels.
+pub const STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS: usize = 4;
+
 #[derive(Clone, Copy, Debug)]
 pub struct StructuralOptions {
     /// Soft upper target for the dense rigid-body coarse space dimension.
@@ -89,6 +109,8 @@ pub struct StructuralOptions {
     pub spmv_policy: StructuralSpmvPolicy,
     /// Execution policy for the rigid-body two-level preconditioner.
     pub preconditioner_policy: StructuralPreconditionerPolicy,
+    /// Execution policy for dense vector kernels inside structural PCG.
+    pub pcg_vector_policy: StructuralPcgVectorPolicy,
 }
 
 impl Default for StructuralOptions {
@@ -98,6 +120,7 @@ impl Default for StructuralOptions {
             aggregation: RigidBodyAggregation::Auto,
             spmv_policy: StructuralSpmvPolicy::Auto,
             preconditioner_policy: StructuralPreconditionerPolicy::Auto,
+            pcg_vector_policy: StructuralPcgVectorPolicy::Auto,
         }
     }
 }
@@ -492,6 +515,7 @@ pub struct HybitPreparedStructuralSystem {
     abtm: Option<AbtmMatrix>,
     effective_spmv_policy: StructuralSpmvPolicy,
     effective_preconditioner_policy: StructuralPreconditionerPolicy,
+    effective_pcg_vector_policy: StructuralPcgVectorPolicy,
     workspace: PcgWorkspace,
     solve_sequence: usize,
 }
@@ -519,6 +543,9 @@ impl HybitPreparedStructuralSystem {
     pub fn structural_preconditioner_policy(&self) -> StructuralPreconditionerPolicy { self.effective_preconditioner_policy }
     pub fn parallel_preconditioner_enabled(&self) -> bool { self.effective_preconditioner_policy == StructuralPreconditionerPolicy::Parallel }
     pub fn parallel_preconditioner_index_bytes(&self) -> usize { self.preconditioner.parallel_index_bytes() }
+    /// Effective dense-vector policy after resolving `StructuralPcgVectorPolicy::Auto`.
+    pub fn pcg_vector_policy(&self) -> StructuralPcgVectorPolicy { self.effective_pcg_vector_policy }
+    pub fn parallel_pcg_vectors_enabled(&self) -> bool { self.effective_pcg_vector_policy == StructuralPcgVectorPolicy::Parallel }
 
     fn validate_matrix(&self, matrix: &Csr32Matrix) -> Result<(), HybitError> {
         let (structure, values) = matrix_signatures(matrix);
@@ -557,7 +584,8 @@ impl HybitPreparedStructuralSystem {
             (StructuralSpmvPolicy::Parallel, StructuralPreconditionerPolicy::Parallel) => {
                 let operator = ParallelCsr32Operator::new(matrix);
                 let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
-                pcg_with_workspace(
+                run_structural_pcg(
+                    self.effective_pcg_vector_policy,
                     &operator,
                     &preconditioner,
                     b,
@@ -568,7 +596,8 @@ impl HybitPreparedStructuralSystem {
             }
             (StructuralSpmvPolicy::Parallel, StructuralPreconditionerPolicy::Serial) => {
                 let operator = ParallelCsr32Operator::new(matrix);
-                pcg_with_workspace(
+                run_structural_pcg(
+                    self.effective_pcg_vector_policy,
                     &operator,
                     &self.preconditioner,
                     b,
@@ -579,7 +608,8 @@ impl HybitPreparedStructuralSystem {
             }
             (StructuralSpmvPolicy::Serial, StructuralPreconditionerPolicy::Parallel) => {
                 let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
-                pcg_with_workspace(
+                run_structural_pcg(
+                    self.effective_pcg_vector_policy,
                     operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
                     &preconditioner,
                     b,
@@ -589,7 +619,8 @@ impl HybitPreparedStructuralSystem {
                 )?
             }
             (StructuralSpmvPolicy::Serial, StructuralPreconditionerPolicy::Serial) => {
-                pcg_with_workspace(
+                run_structural_pcg(
+                    self.effective_pcg_vector_policy,
                     operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
                     &self.preconditioner,
                     b,
@@ -860,6 +891,19 @@ impl HybitSolver {
             // during each solve then reuses this cached index without allocation.
             let _ = ParallelRigidBodyTwoLevelPreconditioner::new(&preconditioner)?;
         }
+        let effective_pcg_vector_policy = match self.structural_options.pcg_vector_policy {
+            StructuralPcgVectorPolicy::Auto => {
+                if matrix.nrows() >= STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N
+                    && parallel_vector_worker_count() >= STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS
+                {
+                    StructuralPcgVectorPolicy::Parallel
+                } else {
+                    StructuralPcgVectorPolicy::Serial
+                }
+            }
+            StructuralPcgVectorPolicy::Serial => StructuralPcgVectorPolicy::Serial,
+            StructuralPcgVectorPolicy::Parallel => StructuralPcgVectorPolicy::Parallel,
+        };
         let workspace = PcgWorkspace::new(matrix.nrows());
         let prepare_seconds = start.elapsed().as_secs_f64();
 
@@ -875,6 +919,7 @@ impl HybitSolver {
             abtm,
             effective_spmv_policy,
             effective_preconditioner_policy,
+            effective_pcg_vector_policy,
             workspace,
             solve_sequence: 0,
         })
@@ -905,6 +950,28 @@ impl HybitSolver {
         let analysis = self.analyze_csr32(matrix)?;
         let mut prepared = self.prepare_csr32(matrix, &analysis)?;
         prepared.solve(matrix, b, x)
+    }
+}
+
+fn run_structural_pcg(
+    vector_policy: StructuralPcgVectorPolicy,
+    operator: &dyn LinearOperator,
+    preconditioner: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+    workspace: &mut PcgWorkspace,
+) -> Result<KrylovOutcome, HybitError> {
+    match vector_policy {
+        StructuralPcgVectorPolicy::Parallel => pcg_with_workspace_parallel_vectors(
+            operator, preconditioner, b, x, options, workspace,
+        ),
+        StructuralPcgVectorPolicy::Serial => pcg_with_workspace(
+            operator, preconditioner, b, x, options, workspace,
+        ),
+        StructuralPcgVectorPolicy::Auto => {
+            unreachable!("structural PCG vector policy is resolved during prepare")
+        }
     }
 }
 

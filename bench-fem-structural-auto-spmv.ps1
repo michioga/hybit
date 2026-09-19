@@ -47,7 +47,8 @@ function Invoke-Case([string]$Spmv) {
         "--target-coarse-dim", $TargetCoarseDimension.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--aggregation", $Aggregation,
         "--spmv", $Spmv,
-        "--precond", "serial"
+        "--precond", "serial",
+        "--pcg-vectors", "serial"
     )
     if (-not [string]::IsNullOrWhiteSpace($Rhs)) { $cargoArgs += @("--rhs", $Rhs) }
 

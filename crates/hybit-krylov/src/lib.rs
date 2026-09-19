@@ -152,6 +152,11 @@ pub fn pcg_with_workspace(
 /// still exposing enough work to the shared pool for large FEM systems.
 pub const PARALLEL_PCG_VECTOR_CHUNK: usize = 16_384;
 
+/// Number of workers in the shared Rayon pool used by parallel Krylov kernels.
+pub fn parallel_vector_worker_count() -> usize {
+    rayon::current_num_threads()
+}
+
 #[inline]
 fn parallel_dot(a: &[f64], b: &[f64]) -> f64 {
     debug_assert_eq!(a.len(), b.len());

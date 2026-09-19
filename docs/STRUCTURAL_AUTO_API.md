@@ -6,7 +6,7 @@ For 3-D structural SPD systems, callers can provide node coordinates explicitly:
 ```rust
 use hybit::{
     HybitSolver, RigidBodyAggregation, SolverOptions, StructuralOptions,
-    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 
 let mut solver = HybitSolver::new();
@@ -20,6 +20,7 @@ solver.set_structural_options(StructuralOptions {
     aggregation: RigidBodyAggregation::Auto,
     spmv_policy: StructuralSpmvPolicy::Auto,
     preconditioner_policy: StructuralPreconditionerPolicy::Auto,
+    pcg_vector_policy: StructuralPcgVectorPolicy::Auto,
 })?;
 
 let report = solver.solve_structural_csr32(&a, &coordinates, &b, &mut x)?;
@@ -137,3 +138,10 @@ This machine-specific result is not used as a hard-coded library thread count.
 
 ### 0.6 structural execution policy (development)
 Structural Auto can independently select parallel CSR SpMV and parallel rigid-body preconditioner kernels through `StructuralSpmvPolicy` and `StructuralPreconditionerPolicy`. Large CSR structural systems default to parallel execution; small systems remain serial to avoid Rayon overhead. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
+
+
+## PCG dense-vector policy (0.6-r25)
+
+Structural solves expose `StructuralPcgVectorPolicy::{Auto, Serial, Parallel}` independently from the sparse SpMV and rigid-body preconditioner policies. The parallel path uses the shared Rayon pool for dot/norm reductions, search-direction updates, and a fused `x += alpha*p`, `r -= alpha*Ap`, `||r||` traversal.
+
+`Auto` is deliberately conservative: it selects the parallel/fused path only for at least 131072 unknowns and at least 4 Rayon workers. The real 358065-DOF L-angle benchmark retained 220 iterations and changed the solution only at roundoff scale while improving the validated 8-thread solve from about 2.00 s to 1.79 s. Explicit `Serial` remains available for low-thread-count execution and controlled A/B tests.

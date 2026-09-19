@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, read_matrix_market, Csr32Matrix, HybitSolver, ParallelCsr32Operator, RigidBodyAggregation, SolverOptions, StructuralOptions, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    analyze_csr32, read_matrix_market, Csr32Matrix, HybitSolver, ParallelCsr32Operator, RigidBodyAggregation, SolverOptions, StructuralOptions, StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 
 #[derive(Debug)]
@@ -20,6 +20,7 @@ struct Args {
     aggregation: RigidBodyAggregation,
     spmv_policy: StructuralSpmvPolicy,
     preconditioner_policy: StructuralPreconditionerPolicy,
+    pcg_vector_policy: StructuralPcgVectorPolicy,
 }
 
 impl Args {
@@ -33,6 +34,7 @@ impl Args {
         let mut aggregation = RigidBodyAggregation::Auto;
         let mut spmv_policy = StructuralSpmvPolicy::Auto;
         let mut preconditioner_policy = StructuralPreconditionerPolicy::Auto;
+        let mut pcg_vector_policy = StructuralPcgVectorPolicy::Auto;
         let mut it = env::args().skip(1);
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -66,6 +68,14 @@ impl Args {
                         other => return Err(format!("unknown preconditioner policy '{other}'; use auto, serial, or parallel").into()),
                     }
                 }
+                "--pcg-vectors" => {
+                    pcg_vector_policy = match next_value(&mut it, "--pcg-vectors")?.to_ascii_lowercase().as_str() {
+                        "auto" => StructuralPcgVectorPolicy::Auto,
+                        "serial" => StructuralPcgVectorPolicy::Serial,
+                        "parallel" => StructuralPcgVectorPolicy::Parallel,
+                        other => return Err(format!("unknown PCG vector policy '{other}'; use auto, serial, or parallel").into()),
+                    }
+                }
                 "-h" | "--help" => {
                     print_usage();
                     std::process::exit(0);
@@ -81,7 +91,7 @@ impl Args {
         }
         if max_iterations == 0 { return Err("--max-iters must be > 0".into()); }
         if target_coarse_dimension < 6 { return Err("--target-coarse-dim must be >= 6".into()); }
-        Ok(Self { matrix, coordinates, rhs, relative_tolerance, max_iterations, target_coarse_dimension, aggregation, spmv_policy, preconditioner_policy })
+        Ok(Self { matrix, coordinates, rhs, relative_tolerance, max_iterations, target_coarse_dimension, aggregation, spmv_policy, preconditioner_policy, pcg_vector_policy })
     }
 }
 
@@ -91,7 +101,7 @@ fn next_value<I: Iterator<Item = String>>(it: &mut I, flag: &str) -> Result<Stri
 
 fn print_usage() {
     println!("HyBIT structural-auto FEM benchmark");
-    println!("Usage: fem_structural_auto --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation auto|contiguous|graph] [--spmv auto|serial|parallel] [--precond auto|serial|parallel]");
+    println!("Usage: fem_structural_auto --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation auto|contiguous|graph] [--spmv auto|serial|parallel] [--precond auto|serial|parallel] [--pcg-vectors auto|serial|parallel]");
 }
 
 fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {
@@ -257,6 +267,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         aggregation: args.aggregation,
         spmv_policy: args.spmv_policy,
         preconditioner_policy: args.preconditioner_policy,
+        pcg_vector_policy: args.pcg_vector_policy,
     })?;
 
     let analysis = solver.analyze_csr32(&matrix)?;
@@ -265,7 +276,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("aggregation        : {:?}", prepared.aggregation());
     println!("SpMV policy        : {:?}", prepared.spmv_policy());
     println!("precond policy     : {:?}", prepared.structural_preconditioner_policy());
-    if prepared.parallel_spmv_enabled() || prepared.parallel_preconditioner_enabled() {
+    println!("PCG vector policy  : {:?}", prepared.pcg_vector_policy());
+    if prepared.parallel_spmv_enabled() || prepared.parallel_preconditioner_enabled() || prepared.parallel_pcg_vectors_enabled() {
         println!("Rayon threads      : {}", ParallelCsr32Operator::new(&matrix).rayon_threads());
     }
     if prepared.parallel_preconditioner_enabled() {

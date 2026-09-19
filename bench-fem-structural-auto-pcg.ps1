@@ -21,7 +21,7 @@ if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path -LiteralPath $R
 if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 if ($RayonThreads -le 0) { throw "RayonThreads must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 integrated structural preconditioner A/B benchmark =="
+Write-Host "== HyBIT 0.6.0 integrated structural PCG-vector A/B benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }
@@ -29,10 +29,10 @@ Write-Host "Aggregation: $Aggregation"
 Write-Host "Target coarse dimension: $TargetCoarseDimension"
 Write-Host "Rayon threads: $RayonThreads"
 
-function Invoke-Case([string]$Precond) {
+function Invoke-Case([string]$PcgVectors) {
     Write-Host ""
     Write-Host "============================================================"
-    Write-Host " Structural preconditioner = $Precond"
+    Write-Host " Structural PCG vectors = $PcgVectors"
     Write-Host "============================================================"
     $cargoArgs = @(
         "run", "--release", "-p", "hybit", "--example", "fem_structural_auto", "--",
@@ -43,12 +43,12 @@ function Invoke-Case([string]$Precond) {
         "--target-coarse-dim", $TargetCoarseDimension.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--aggregation", $Aggregation,
         "--spmv", "parallel",
-        "--precond", $Precond,
-        "--pcg-vectors", "serial"
+        "--precond", "parallel",
+        "--pcg-vectors", $PcgVectors
     )
     if (-not [string]::IsNullOrWhiteSpace($Rhs)) { $cargoArgs += @("--rhs", $Rhs) }
     & cargo @cargoArgs
-    if ($LASTEXITCODE -ne 0) { throw "structural preconditioner '$Precond' benchmark failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "structural PCG-vector '$PcgVectors' benchmark failed with exit code $LASTEXITCODE" }
 }
 
 $oldRayonThreads = $env:RAYON_NUM_THREADS
@@ -62,4 +62,4 @@ finally {
 }
 
 Write-Host ""
-Write-Host "== integrated structural preconditioner A/B benchmark complete =="
+Write-Host "== integrated structural PCG-vector A/B benchmark complete =="

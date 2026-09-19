@@ -282,3 +282,10 @@ isolates preconditioner execution.
 ## Structural parallel execution (0.6-r22 development)
 
 Structural Auto can independently resolve fine-grid SpMV and rigid-body preconditioner execution policies. On large CSR structural systems, Auto selects parallel CSR SpMV and parallel block-Jacobi/restriction/prolongation kernels; the packed dense coarse triangular solve remains serial. The aggregate-to-node index used by the parallel restriction is cached during prepare and reused by solve-many.
+
+
+## Integrated PCG vector policy (0.6-r25)
+
+The r24 L-angle sweep showed that parallel/fused PCG vector kernels are beneficial once the shared Rayon pool has enough workers: at 8 workers the 220-iteration solve changed from about 1.998 s to 1.790 s, and at 16 workers from about 1.937 s to 1.739 s. At 2 workers the parallel vector path was slower, so Structural Auto r25 requires both a sufficiently large vector (`n >= 131072`) and at least four Rayon workers before enabling it automatically.
+
+Use `bench-fem-structural-auto-pcg.ps1` to compare `Serial` versus `Auto` while holding Graph aggregation, parallel CSR SpMV, and the parallel rigid-body preconditioner fixed.

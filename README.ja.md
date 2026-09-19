@@ -206,6 +206,6 @@ aggregationへfallbackします。検証済みの構造FEM経路は
 
 
 ### 0.6 structural execution policy (development)
-Structural Auto can independently select parallel CSR SpMV and parallel rigid-body preconditioner kernels through `StructuralSpmvPolicy` and `StructuralPreconditionerPolicy`. Large CSR structural systems default to parallel execution; small systems remain serial to avoid Rayon overhead. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
+Structural Auto は `StructuralSpmvPolicy`、`StructuralPreconditionerPolicy`、`StructuralPcgVectorPolicy` により、CSR SpMV、剛体二段前処理、PCG密ベクトルカーネルを独立に並列化できます。大規模構造問題では並列経路を選択し、小規模問題ではRayonオーバーヘッドを避けるためserialを維持します。PCG vectorの`Auto`は共有Rayon poolが4 worker以上の場合にのみ有効化されます。thread数は`RAYON_NUM_THREADS`等で外部から制御します。
 
-> 開発メモ (0.6 r24): PCG のベクトル演算を並列化・融合した実験経路をベンチマーク用に追加しています。実 FEM で数値一致と実時間改善を確認するまでは、Structural Auto の本番 PCG 経路は変更しません。
+> 開発メモ (0.6 r25): L-angle実問題で220反復を維持したまま、8〜16 Rayon workerでsolve時間を約10%短縮できたため、parallel/fused PCG vector pathをStructural Autoへ統合しました。低thread数やA/B検証用には`StructuralPcgVectorPolicy::Serial`を維持します。

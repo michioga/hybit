@@ -279,6 +279,6 @@ The FEM benchmark RHS reader accepts plain whitespace-separated `f64` values, ig
 
 
 ### 0.6 structural execution policy (development)
-Structural Auto can independently select parallel CSR SpMV and parallel rigid-body preconditioner kernels through `StructuralSpmvPolicy` and `StructuralPreconditionerPolicy`. Large CSR structural systems default to parallel execution; small systems remain serial to avoid Rayon overhead. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
+Structural Auto can independently select parallel CSR SpMV, parallel rigid-body preconditioner kernels, and parallel/fused dense PCG vector kernels through `StructuralSpmvPolicy`, `StructuralPreconditionerPolicy`, and `StructuralPcgVectorPolicy`. Large structural systems can use all three paths; small systems remain serial to avoid Rayon overhead. The PCG-vector `Auto` path additionally requires at least four workers in the shared Rayon pool. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
 
-> Development note (0.6 r24): an experimental parallel/fused PCG vector-kernel path is available for benchmarking. Production Structural Auto continues to use the established PCG recurrence until the vector path is validated on the real FEM benchmark.
+> Development note (0.6 r25): the parallel/fused PCG vector path is now integrated into Structural Auto after the real L-angle benchmark preserved 220 iterations and reduced solve time by about 10% at 8-16 Rayon workers. `StructuralPcgVectorPolicy::Serial` remains available for deterministic A/B and low-thread-count execution.

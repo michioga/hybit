@@ -2,7 +2,7 @@ use hybit::{
     Csr32Matrix, HybitError, HybitSolver, ParallelRigidBodyTwoLevelPreconditioner,
     Preconditioner, PreconditionerKind, RigidBodyAggregation,
     RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions, StructuralOptions,
-    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 
 fn identity_3d_nodes(nodes: usize) -> Csr32Matrix {
@@ -124,6 +124,7 @@ fn prepared_structural_system_reuses_coarse_factors() {
     // rather than failing the valid SPD solve.
     assert_eq!(prepared.aggregation(), RigidBodyAggregation::Contiguous);
     assert_eq!(prepared.spmv_policy(), StructuralSpmvPolicy::Serial);
+    assert_eq!(prepared.pcg_vector_policy(), StructuralPcgVectorPolicy::Serial);
 
     let mut x1 = vec![0.0; 24];
     let first = prepared.solve(&a, &b, &mut x1).unwrap();
@@ -297,3 +298,35 @@ fn structural_explicit_parallel_preconditioner_is_available() {
     let report = prepared.solve(&a, &b, &mut x).unwrap();
     assert!(report.converged());
 }
+
+#[test]
+fn structural_auto_keeps_tiny_pcg_vectors_serial() {
+    let a = connected_cube_matrix();
+    let coords = cube_coordinates();
+    let solver = HybitSolver::new();
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let prepared = solver.prepare_structural_csr32(&a, &analysis, &coords).unwrap();
+    assert_eq!(prepared.pcg_vector_policy(), StructuralPcgVectorPolicy::Serial);
+    assert!(!prepared.parallel_pcg_vectors_enabled());
+}
+
+#[test]
+fn structural_explicit_parallel_pcg_vectors_are_available() {
+    let a = connected_cube_matrix();
+    let coords = cube_coordinates();
+    let b = vec![1.0; 24];
+    let mut x = vec![0.0; 24];
+    let mut solver = HybitSolver::new();
+    solver.set_structural_options(StructuralOptions {
+        target_coarse_dimension: 6,
+        pcg_vector_policy: StructuralPcgVectorPolicy::Parallel,
+        ..StructuralOptions::default()
+    }).unwrap();
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let mut prepared = solver.prepare_structural_csr32(&a, &analysis, &coords).unwrap();
+    assert_eq!(prepared.pcg_vector_policy(), StructuralPcgVectorPolicy::Parallel);
+    assert!(prepared.parallel_pcg_vectors_enabled());
+    let report = prepared.solve(&a, &b, &mut x).unwrap();
+    assert!(report.converged());
+}
+

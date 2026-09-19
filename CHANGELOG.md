@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0-r25 development snapshot
+
+- Promote the validated parallel/fused PCG dense-vector path into Structural Auto through `StructuralPcgVectorPolicy::{Auto, Serial, Parallel}`.
+- `Auto` enables parallel/fused PCG vector kernels only when the structural system has at least 131072 unknowns and the shared Rayon pool has at least 4 workers; small systems and 1-2 worker pools remain on the established serial vector recurrence.
+- Keep the sparse operator and rigid-body preconditioner policies independent from the PCG-vector policy, so SpMV, preconditioner, and vector-kernel A/B tests remain isolated.
+- Add `bench-fem-structural-auto-pcg.ps1` for an end-to-end production-path comparison between serial and Auto PCG vector kernels with parallel SpMV/preconditioning fixed.
+- Preserve `solve_csr32` behavior; only the explicit structural solve path can select the new vector policy.
+
 ## 0.6.0-r24 development snapshot
 
 - Add an experimental `pcg_with_workspace_parallel_vectors` path using the shared Rayon pool for large dense Krylov vector kernels.
