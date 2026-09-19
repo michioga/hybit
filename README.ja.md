@@ -1,10 +1,12 @@
 # HyBIT
 
+> **開発状況:** 0.6.0 は現在の開発系列です。crates.io の最新公開版は 0.5.0 です。
+
 **HyBIT — Autonomous Hybrid Sparse Solver** は、FEM/HPCで現れる大規模疎行列を対象としたRust-firstの線形ソルバーフレームワークです。
 
 低コストな反復法から開始し、収束状況を観測し、進捗が悪い場合には数値的に難しい自由度を抽出して、限定された局所領域だけをCholesky直接法へ昇格させます。ABTMのbitmap topology metadataは、選択領域の近傍展開や構造処理に内部利用します。利用側は通常のCSR32行列を渡すだけです。
 
-> **現在の位置づけ:** HyBIT 0.5.0 はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
+> **現在の位置づけ:** HyBIT 0.6.0（開発版） はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
 
 ## 主な機能
 
@@ -124,9 +126,9 @@ solve #2..N
 
 PCG反復の途中で前処理器を変更せず、前処理器を強化するときはKrylov系列をrestartする設計です。
 
-## 0.4.1 release gateで確認済みの挙動
+## 0.5.0公開版を基準にした0.6開発
 
-0.5.0は0.4.1で検証した数値・ABI実装を維持し、公開用metadata、文書、パッケージングを整えた版です。
+0.5.0はRust/C ABI/C/C++/Fortranのrelease gateとcrates.io外部smoke testを通過した公開基準版です。0.6.0では、この数値基盤を維持したまま実FEM行列を評価するMatrix Market入出力とベンチマーク経路を追加します。
 
 synthetic SPD regressionでは、単一hard regionでJacobi-PCG 33反復に対してHyBIT Auto 13反復、2つのhard regionでは25反復に対して13反復でした。prepared solve-manyでは、最初の難しいRHSで13反復、2本目ではlocal factorを再利用して1反復となり、2回目のlocal factorizationは発生しませんでした。
 
@@ -137,6 +139,22 @@ synthetic SPD regressionでは、単一hard regionでJacobi-PCG 33反復に対�
 現在は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。MINRES/GMRES/BiCGStab、coarse correction、MPI、GPU、out-of-coreはまだ未実装です。prepared contextは現段階ではsingle-threaded利用を想定しています。
 
 したがって、現時点のHyBITは実験的な数値ソフトウェアです。工学的判断へ利用する場合は、残差だけでなく物理量・参照解・独立ソルバー等による検証を行ってください。
+
+## 実FEM / Matrix Marketベンチマーク
+
+0.6では、拘束条件適用後のSPD剛性行列をMatrix Market (`.mtx`) から読み込み、同じ初期値・許容誤差・最大反復数でplain Jacobi-PCGとHyBIT Autoを比較できます。
+
+```powershell
+.\bench-fem.ps1 D:\path\to\K.mtx
+```
+
+または直接、
+
+```powershell
+cargo run --release -p hybit --example fem_bench -- --matrix D:\path\to\K.mtx
+```
+
+`--rhs`を省略すると `x_exact = 1` として `b=A*x_exact` を生成します。両solverについて `||Ax-b||/||b||` を独立再計算し、反復数、wall-clock、hard DOF、region数、local factor memoryも出力します。詳細は [benchmarks/README.md](benchmarks/README.md) を参照してください。
 
 ## C/C++/Fortran
 
@@ -174,3 +192,20 @@ GitHub/crates.io公開前は、以下を実行します。
 ## License
 
 MIT Licenseです。詳細は [LICENSE](LICENSE) を参照してください。
+
+
+## HyBIT 0.6 構造FEM実験
+
+開発版には、scalar Jacobi、3x3 Block-Jacobi、並進のみのaggregationに加え、
+3次元構造問題向けの6剛体モード（Tx/Ty/Tz/Rx/Ry/Rz）粗空間を比較する
+Matrix Marketベンチマークを含みます。Structural Autoはgraph-connected aggregateを
+第一選択とし、graph coarse factorizationが数値的に特異な場合だけRCM順contiguous
+aggregationへfallbackします。検証済みの構造FEM経路は
+`HybitSolver::solve_structural_csr32` と再利用可能な
+`HybitPreparedStructuralSystem` に統合しました。generic `solve_csr32` の挙動は変更していません。
+
+
+### 0.6 structural execution policy (development)
+Structural Auto can independently select parallel CSR SpMV and parallel rigid-body preconditioner kernels through `StructuralSpmvPolicy` and `StructuralPreconditionerPolicy`. Large CSR structural systems default to parallel execution; small systems remain serial to avoid Rayon overhead. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
+
+> 開発メモ (0.6 r24): PCG のベクトル演算を並列化・融合した実験経路をベンチマーク用に追加しています。実 FEM で数値一致と実時間改善を確認するまでは、Structural Auto の本番 PCG 経路は変更しません。

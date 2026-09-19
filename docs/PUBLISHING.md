@@ -1,4 +1,4 @@
-# Publishing HyBIT 0.5.0
+# Publishing HyBIT 0.6.0
 
 The public repository is:
 
@@ -8,7 +8,7 @@ The user-facing Rust crate is:
 
 `https://crates.io/crates/hybit`
 
-HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` is intentionally not published to crates.io in 0.5.0.
+HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` is intentionally not published to crates.io in 0.6.0.
 
 ## Before publishing
 
@@ -53,8 +53,8 @@ Published crate versions are immutable. If a published package contains a seriou
 After the source is committed and the crate set is published, tag the exact commit:
 
 ```powershell
-git tag -a v0.5.0 -m "HyBIT 0.5.0"
-git push origin v0.5.0
+git tag -a v0.6.0 -m "HyBIT 0.6.0"
+git push origin v0.6.0
 ```
 
-Use `RELEASE_NOTES_0.5.0.md` as the starting point for the GitHub Release text.
+Use `RELEASE_NOTES_0.6.0.md` as the starting point for the GitHub Release text.

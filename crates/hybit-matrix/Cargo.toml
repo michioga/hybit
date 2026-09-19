@@ -13,4 +13,5 @@ description = "CSR32 and ABTM matrix backends for the HyBIT sparse solver"
 publish = ["crates-io"]
 
 [dependencies]
-hybit-core = { version = "0.5.0", path = "../hybit-core" }
+hybit-core = { version = "0.6.0", path = "../hybit-core" }
+rayon = "=1.10.0"

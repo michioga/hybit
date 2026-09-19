@@ -9,8 +9,8 @@ function Invoke-ScriptChecked([string]$Description, [string]$ScriptPath) {
     }
 }
 
-Write-Host "=== HYBIT 0.5.0 PUBLIC RELEASE GATE ==="
+Write-Host "=== HYBIT 0.6.0 PUBLIC RELEASE GATE ==="
 Invoke-ScriptChecked "runtime / ABI release gate" ".\release-gate.ps1"
 Invoke-ScriptChecked "crates.io package gate" ".\crates-package-gate.ps1"
 Write-Host ""
-Write-Host "=== HYBIT 0.5.0 PUBLIC RELEASE GATE PASS ==="
+Write-Host "=== HYBIT 0.6.0 PUBLIC RELEASE GATE PASS ==="

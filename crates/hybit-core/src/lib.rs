@@ -68,6 +68,7 @@ pub enum PreconditionerKind {
     BlockJacobi,
     LocalDirect,
     Hybrid,
+    RigidBodyTwoLevel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

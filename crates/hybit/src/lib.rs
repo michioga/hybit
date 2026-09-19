@@ -1,8 +1,9 @@
 //! HyBIT — Autonomous Hybrid Sparse Solver.
 //!
-//! HyBIT 0.5.0 provides a Rust facade for real SPD sparse systems using
+//! HyBIT 0.6.0 provides a Rust facade for real SPD sparse systems using
 //! CSR32 input, PCG, adaptive selective local Cholesky correction, weighted
-//! overlapping Schwarz, and reusable analyze/prepare/solve-many contexts.
+//! overlapping Schwarz, geometry-aware rigid-body coarse correction for 3-D
+//! structural systems, and reusable analyze/prepare/solve-many contexts.
 //!
 //! # Example
 //!
@@ -27,17 +28,27 @@
 //! The automatic path is currently experimental and restricted to real SPD
 //! systems with PCG. See the repository README for current limitations.
 
-pub use hybit_auto::{BackendPolicy, HybridOptions, HybitAnalysis, HybitPreparedSystem, HybitSolver};
+pub use hybit_auto::{
+    BackendPolicy, HybridOptions, HybitAnalysis, HybitPreparedStructuralSystem, HybitPreparedSystem,
+    HybitSolver, StructuralOptions, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
+};
 pub use hybit_core::{
     HybitError, LinearOperator, MatrixBackend, Preconditioner, PreconditionerKind,
     SolveReport, SolveStatus, SolverKind, SolverOptions,
 };
-pub use hybit_krylov::{pcg, pcg_with_workspace, KrylovOutcome, PcgWorkspace};
+pub use hybit_krylov::{pcg, pcg_with_workspace, pcg_with_workspace_parallel_vectors, KrylovOutcome, PcgWorkspace, PARALLEL_PCG_VECTOR_CHUNK};
 pub use hybit_matrix::{
-    analyze_csr32, AbtmConfig, AbtmMatrix, AbtmStats, Csr32Matrix, MatrixProfile,
-    DofMask, TileDesc, TileKind, TILE_WIDTH,
+    analyze_csr32, read_matrix_market, read_matrix_market_from_reader, write_matrix_market_general, AbtmConfig, AbtmMatrix, AbtmStats, Csr32Matrix, MatrixProfile,
+    DofMask, MatrixMarketError, MatrixMarketInfo, MatrixMarketSymmetry, ParallelCsr32Operator, TileDesc, TileKind, TILE_WIDTH,
 };
-pub use hybit_precond::{HybridPreconditioner, IdentityPreconditioner, JacobiPreconditioner, LocalCholeskyRegion};
+pub use hybit_precond::{
+    recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner, BlockJacobiPreconditioner, HybridPreconditioner,
+    IdentityPreconditioner, JacobiPreconditioner, LocalCholeskyRegion,
+    ParallelRigidBodyTwoLevelPreconditioner, RigidBodyAggregation, RigidBodyApplyProfile,
+    RigidBodyTwoLevelBlockJacobiPreconditioner,
+    TwoLevelBlockJacobiPreconditioner,
+};
 
 pub fn solve(matrix: &Csr32Matrix, b: &[f64]) -> Result<(Vec<f64>, SolveReport), HybitError> {
     let solver = HybitSolver::new();

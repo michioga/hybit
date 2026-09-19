@@ -10,7 +10,7 @@ function Invoke-Step([string]$Description, [scriptblock]$Command) {
     }
 }
 
-Write-Host "=== HYBIT 0.5.0 CRATES.IO PACKAGE GATE ==="
+Write-Host "=== HYBIT 0.6.0 CRATES.IO PACKAGE GATE ==="
 
 Invoke-Step "cargo metadata" { cargo metadata --no-deps --format-version 1 | Out-Null }
 Invoke-Step "workspace release tests" { cargo test --workspace --release }
@@ -24,14 +24,19 @@ $packages = @(
     "hybit"
 )
 
+# Registry-independent package inspection.  Downstream crates cannot be fully
+# packaged before their same-version HyBIT dependencies exist in crates.io, so
+# the normal pre-publication gate checks file lists here instead of pretending
+# the unpublished dependency chain is already indexed.
 foreach ($pkg in $packages) {
-    Invoke-Step "package $pkg" { cargo package -p $pkg --no-verify --allow-dirty }
     Write-Host "-- package contents: $pkg"
     cargo package -p $pkg --list --allow-dirty
     if ($LASTEXITCODE -ne 0) {
         throw "package list failed for $pkg"
     }
 }
+
+Invoke-Step "package hybit-core" { cargo package -p hybit-core --no-verify --allow-dirty }
 
 # hybit-core has no HyBIT registry dependencies, so its dry-run can be checked
 # before any internal crate has been published. Higher crates must be dry-run
@@ -46,4 +51,4 @@ Write-Host "  3. hybit-precond"
 Write-Host "  4. hybit-auto"
 Write-Host "  5. hybit"
 Write-Host ""
-Write-Host "=== HYBIT 0.5.0 CRATES.IO PACKAGE GATE PASS ==="
+Write-Host "=== HYBIT 0.6.0 CRATES.IO PACKAGE GATE PASS ==="

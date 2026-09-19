@@ -32,4 +32,4 @@ This roadmap describes direction, not guaranteed release dates.
 
 ## Non-goals for the immediate release
 
-HyBIT 0.5.0 does not attempt to solve every sparse matrix class, replace every established solver, or claim universal performance improvements. The immediate goal is to establish a transparent adaptive hybrid architecture and validate it progressively on real workloads.
+The 0.6 development line does not attempt to solve every sparse matrix class, replace every established solver, or claim universal performance improvements. The immediate goal is to establish a transparent adaptive hybrid architecture and validate it progressively on real workloads.

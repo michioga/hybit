@@ -49,3 +49,16 @@ Future work can support:
 The prepared PCG path owns its five `n`-length vectors once. Each local Schwarz region also owns two local scratch vectors allocated at factor construction. `Preconditioner::apply()` performs no `Vec` allocation.
 
 Diagnostics during the first adaptive escalation may still allocate temporary masks/region vectors; those are outside the repeated Krylov inner loop.
+
+
+## Structural prepared execution (0.6 development)
+
+Three-dimensional structural systems may provide reduced/ordered node coordinates
+through the geometry-aware API. `HybitSolver::prepare_structural_csr32` builds a
+3x3 block-Jacobi fine level plus six rigid-body modes per aggregate, with the
+aggregate size selected from `StructuralOptions::target_coarse_dimension`.
+
+The returned `HybitPreparedStructuralSystem` owns the coarse Cholesky factor,
+normalized geometry data, optional ABTM operator storage, and reusable PCG
+workspace. Repeated `solve()` calls reuse all of this matrix/geometry-dependent
+state across RHS vectors. The generic prepared path is intentionally unchanged.

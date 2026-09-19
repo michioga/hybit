@@ -6,8 +6,12 @@ use hybit_core::{
     SolveStatus, SolverKind, SolverOptions,
 };
 use hybit_krylov::{pcg_with_workspace, KrylovOutcome, PcgWorkspace};
-use hybit_matrix::{analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile};
-use hybit_precond::{HybridPreconditioner, JacobiPreconditioner};
+use hybit_matrix::{analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile, ParallelCsr32Operator};
+pub use hybit_precond::RigidBodyAggregation;
+use hybit_precond::{
+    recommend_rigid_body_aggregate_nodes, HybridPreconditioner, JacobiPreconditioner,
+    ParallelRigidBodyTwoLevelPreconditioner, RigidBodyTwoLevelBlockJacobiPreconditioner,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendPolicy {
@@ -42,6 +46,70 @@ impl Default for HybridOptions {
             max_local_regions: 8,
             overlap_layers: 1,
         }
+    }
+}
+
+/// Execution policy for the fine-grid CSR SpMV used by structural PCG.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StructuralSpmvPolicy {
+    /// Use parallel CSR only for sufficiently large CSR systems.
+    Auto,
+    /// Always use the ordinary serial CSR/selected backend operator.
+    Serial,
+    /// Force Rayon-parallel CSR SpMV. Requires the CSR32 backend.
+    Parallel,
+}
+
+/// Auto switches to parallel CSR after this many nonzeros. Small matrices stay
+/// serial because Rayon scheduling overhead dominates there.
+pub const STRUCTURAL_PARALLEL_SPMV_MIN_NNZ: usize = 1_000_000;
+
+/// Execution policy for the structural rigid-body two-level preconditioner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StructuralPreconditionerPolicy {
+    /// Use the parallel fine/coarse transfer kernels only for large structural systems.
+    Auto,
+    /// Use the serial preconditioner implementation.
+    Serial,
+    /// Force parallel block-Jacobi, restriction, and prolongation kernels.
+    Parallel,
+}
+
+/// Auto switches to the parallel structural preconditioner after this many
+/// nonzeros. The dense coarse triangular solve itself remains serial.
+pub const STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ: usize = 1_000_000;
+
+#[derive(Clone, Copy, Debug)]
+pub struct StructuralOptions {
+    /// Soft upper target for the dense rigid-body coarse space dimension.
+    pub target_coarse_dimension: usize,
+    /// How structural nodes are grouped into rigid-body coarse aggregates.
+    pub aggregation: RigidBodyAggregation,
+    /// Fine-grid SpMV execution policy for structural PCG.
+    pub spmv_policy: StructuralSpmvPolicy,
+    /// Execution policy for the rigid-body two-level preconditioner.
+    pub preconditioner_policy: StructuralPreconditionerPolicy,
+}
+
+impl Default for StructuralOptions {
+    fn default() -> Self {
+        Self {
+            target_coarse_dimension: 1536,
+            aggregation: RigidBodyAggregation::Auto,
+            spmv_policy: StructuralSpmvPolicy::Auto,
+            preconditioner_policy: StructuralPreconditionerPolicy::Auto,
+        }
+    }
+}
+
+impl StructuralOptions {
+    pub fn validate(&self) -> Result<(), HybitError> {
+        if self.target_coarse_dimension < 6 {
+            return Err(HybitError::InvalidArgument(
+                "target_coarse_dimension must be at least 6",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -80,6 +148,7 @@ pub struct HybitSolver {
     options: SolverOptions,
     backend_policy: BackendPolicy,
     hybrid_options: HybridOptions,
+    structural_options: StructuralOptions,
 }
 
 impl Default for HybitSolver {
@@ -88,6 +157,7 @@ impl Default for HybitSolver {
             options: SolverOptions::default(),
             backend_policy: BackendPolicy::Auto,
             hybrid_options: HybridOptions::default(),
+            structural_options: StructuralOptions::default(),
         }
     }
 }
@@ -409,6 +479,148 @@ impl HybitPreparedSystem {
     }
 }
 
+#[derive(Debug)]
+pub struct HybitPreparedStructuralSystem {
+    options: SolverOptions,
+    backend: MatrixBackend,
+    structure_signature: u64,
+    value_signature: u64,
+    analysis_seconds: f64,
+    prepare_seconds: f64,
+    aggregate_nodes: usize,
+    preconditioner: RigidBodyTwoLevelBlockJacobiPreconditioner,
+    abtm: Option<AbtmMatrix>,
+    effective_spmv_policy: StructuralSpmvPolicy,
+    effective_preconditioner_policy: StructuralPreconditionerPolicy,
+    workspace: PcgWorkspace,
+    solve_sequence: usize,
+}
+
+impl HybitPreparedStructuralSystem {
+    pub fn backend(&self) -> MatrixBackend { self.backend }
+    pub fn analysis_seconds(&self) -> f64 { self.analysis_seconds }
+    pub fn prepare_seconds(&self) -> f64 { self.prepare_seconds }
+    pub fn solve_count(&self) -> usize { self.solve_sequence }
+    pub fn krylov_workspace_bytes(&self) -> usize { self.workspace.bytes() }
+    pub fn aggregate_nodes(&self) -> usize { self.aggregate_nodes }
+    pub fn aggregate_count(&self) -> usize { self.preconditioner.aggregate_count() }
+    pub fn min_aggregate_nodes(&self) -> usize { self.preconditioner.min_aggregate_nodes() }
+    pub fn max_aggregate_nodes(&self) -> usize { self.preconditioner.max_aggregate_nodes() }
+    pub fn aggregation(&self) -> RigidBodyAggregation { self.preconditioner.aggregation() }
+    pub fn coarse_dimension(&self) -> usize { self.preconditioner.coarse_dimension() }
+    pub fn preconditioner_bytes(&self) -> usize { self.preconditioner.factor_bytes() }
+    pub fn base_factor_bytes(&self) -> usize { self.preconditioner.base_factor_bytes() }
+    pub fn coarse_factor_bytes(&self) -> usize { self.preconditioner.coarse_factor_bytes() }
+    pub fn geometry_bytes(&self) -> usize { self.preconditioner.geometry_bytes() }
+    /// Effective execution policy after resolving `StructuralSpmvPolicy::Auto`.
+    pub fn spmv_policy(&self) -> StructuralSpmvPolicy { self.effective_spmv_policy }
+    pub fn parallel_spmv_enabled(&self) -> bool { self.effective_spmv_policy == StructuralSpmvPolicy::Parallel }
+    /// Effective execution policy after resolving `StructuralPreconditionerPolicy::Auto`.
+    pub fn structural_preconditioner_policy(&self) -> StructuralPreconditionerPolicy { self.effective_preconditioner_policy }
+    pub fn parallel_preconditioner_enabled(&self) -> bool { self.effective_preconditioner_policy == StructuralPreconditionerPolicy::Parallel }
+    pub fn parallel_preconditioner_index_bytes(&self) -> usize { self.preconditioner.parallel_index_bytes() }
+
+    fn validate_matrix(&self, matrix: &Csr32Matrix) -> Result<(), HybitError> {
+        let (structure, values) = matrix_signatures(matrix);
+        if structure != self.structure_signature {
+            return Err(HybitError::InvalidArgument(
+                "prepared structural context matrix structure changed; analyze and prepare again",
+            ));
+        }
+        if values != self.value_signature {
+            return Err(HybitError::InvalidArgument(
+                "prepared structural context matrix values changed; prepare again before reusing coarse factors",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn solve(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
+        self.validate_matrix(matrix)?;
+        if b.len() != matrix.nrows() {
+            return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: b.len() });
+        }
+        if x.len() != matrix.ncols() {
+            return Err(HybitError::DimensionMismatch { expected: matrix.ncols(), actual: x.len() });
+        }
+
+        self.solve_sequence += 1;
+        let sequence = self.solve_sequence;
+        let charge_context_setup = sequence == 1;
+        let start = Instant::now();
+        let outcome = match (self.effective_spmv_policy, self.effective_preconditioner_policy) {
+            (StructuralSpmvPolicy::Parallel, StructuralPreconditionerPolicy::Parallel) => {
+                let operator = ParallelCsr32Operator::new(matrix);
+                let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
+                pcg_with_workspace(
+                    &operator,
+                    &preconditioner,
+                    b,
+                    x,
+                    self.options,
+                    &mut self.workspace,
+                )?
+            }
+            (StructuralSpmvPolicy::Parallel, StructuralPreconditionerPolicy::Serial) => {
+                let operator = ParallelCsr32Operator::new(matrix);
+                pcg_with_workspace(
+                    &operator,
+                    &self.preconditioner,
+                    b,
+                    x,
+                    self.options,
+                    &mut self.workspace,
+                )?
+            }
+            (StructuralSpmvPolicy::Serial, StructuralPreconditionerPolicy::Parallel) => {
+                let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
+                pcg_with_workspace(
+                    operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
+                    &preconditioner,
+                    b,
+                    x,
+                    self.options,
+                    &mut self.workspace,
+                )?
+            }
+            (StructuralSpmvPolicy::Serial, StructuralPreconditionerPolicy::Serial) => {
+                pcg_with_workspace(
+                    operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
+                    &self.preconditioner,
+                    b,
+                    x,
+                    self.options,
+                    &mut self.workspace,
+                )?
+            }
+            _ => unreachable!("structural execution policies are resolved during prepare"),
+        };
+        let elapsed = start.elapsed().as_secs_f64();
+        let metrics = ReportMetrics {
+            analysis_seconds: if charge_context_setup { self.analysis_seconds } else { 0.0 },
+            prepare_seconds: if charge_context_setup { self.prepare_seconds } else { 0.0 },
+            restart_seconds: elapsed,
+            preconditioner_reused: sequence > 1,
+            solve_sequence: sequence,
+            krylov_workspace_bytes: self.workspace.bytes(),
+            ..ReportMetrics::default()
+        };
+        Ok(report_from_outcome(
+            outcome,
+            SolverKind::Pcg,
+            PreconditionerKind::RigidBodyTwoLevel,
+            self.backend,
+            b,
+            metrics,
+        ))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct ReportMetrics {
     analysis_seconds: f64,
@@ -432,10 +644,22 @@ struct ReportMetrics {
     krylov_workspace_bytes: usize,
 }
 
+fn structural_graph_auto_can_fallback(error: &HybitError) -> bool {
+    match error {
+        HybitError::NumericalBreakdown(_) => true,
+        HybitError::InvalidArgument(message) => matches!(
+            *message,
+            "a structural graph component contains fewer than three nodes"
+        ),
+        _ => false,
+    }
+}
+
 impl HybitSolver {
     pub fn new() -> Self { Self::default() }
     pub fn options(&self) -> SolverOptions { self.options }
     pub fn hybrid_options(&self) -> HybridOptions { self.hybrid_options }
+    pub fn structural_options(&self) -> StructuralOptions { self.structural_options }
 
     pub fn set_options(&mut self, options: SolverOptions) -> Result<(), HybitError> {
         options.validate()?;
@@ -446,6 +670,12 @@ impl HybitSolver {
     pub fn set_hybrid_options(&mut self, options: HybridOptions) -> Result<(), HybitError> {
         options.validate()?;
         self.hybrid_options = options;
+        Ok(())
+    }
+
+    pub fn set_structural_options(&mut self, options: StructuralOptions) -> Result<(), HybitError> {
+        options.validate()?;
+        self.structural_options = options;
         Ok(())
     }
 
@@ -523,6 +753,152 @@ impl HybitSolver {
     pub fn prepare(&self, matrix: &Csr32Matrix) -> Result<HybitPreparedSystem, HybitError> {
         let analysis = self.analyze_csr32(matrix)?;
         self.prepare_csr32(matrix, &analysis)
+    }
+
+    pub fn prepare_structural_csr32(
+        &self,
+        matrix: &Csr32Matrix,
+        analysis: &HybitAnalysis,
+        coordinates: &[[f64; 3]],
+    ) -> Result<HybitPreparedStructuralSystem, HybitError> {
+        self.options.validate()?;
+        self.structural_options.validate()?;
+        let (structure_signature, value_signature) = matrix_signatures(matrix);
+        if structure_signature != analysis.structure_signature || value_signature != analysis.value_signature {
+            return Err(HybitError::InvalidArgument(
+                "matrix changed between analyze and structural prepare",
+            ));
+        }
+        let expected = coordinates.len().checked_mul(3).ok_or(HybitError::SizeOverflow)?;
+        if matrix.nrows() != expected || matrix.ncols() != expected {
+            return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: expected });
+        }
+
+        let start = Instant::now();
+        let aggregate_nodes = recommend_rigid_body_aggregate_nodes(
+            coordinates.len(),
+            self.structural_options.target_coarse_dimension,
+        )?;
+        let preconditioner = match self.structural_options.aggregation {
+            RigidBodyAggregation::Auto => {
+                match RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32_graph(
+                    matrix,
+                    coordinates,
+                    aggregate_nodes,
+                ) {
+                    Ok(preconditioner) => preconditioner,
+                    Err(err) if structural_graph_auto_can_fallback(&err) => {
+                        // Graph aggregation is an optimization policy, not a
+                        // correctness requirement. Some valid SPD systems have
+                        // disconnected one/two-node graph components, and some
+                        // geometries can make a six-mode graph coarse basis rank
+                        // deficient. Auto falls back to the deterministic
+                        // contiguous baseline in those cases. Explicit Graph
+                        // remains strict and still surfaces the original error.
+                        RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(
+                            matrix,
+                            coordinates,
+                            aggregate_nodes,
+                        )?
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            RigidBodyAggregation::Contiguous => {
+                RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(
+                    matrix,
+                    coordinates,
+                    aggregate_nodes,
+                )?
+            }
+            RigidBodyAggregation::Graph => {
+                RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32_graph(
+                    matrix,
+                    coordinates,
+                    aggregate_nodes,
+                )?
+            }
+        };
+        let abtm = if analysis.backend == MatrixBackend::Abtm {
+            Some(AbtmMatrix::from_csr32(matrix, AbtmConfig::default())?)
+        } else {
+            None
+        };
+        let effective_spmv_policy = match self.structural_options.spmv_policy {
+            StructuralSpmvPolicy::Auto => {
+                if analysis.backend == MatrixBackend::Csr32
+                    && matrix.nnz() >= STRUCTURAL_PARALLEL_SPMV_MIN_NNZ
+                {
+                    StructuralSpmvPolicy::Parallel
+                } else {
+                    StructuralSpmvPolicy::Serial
+                }
+            }
+            StructuralSpmvPolicy::Serial => StructuralSpmvPolicy::Serial,
+            StructuralSpmvPolicy::Parallel => {
+                if analysis.backend != MatrixBackend::Csr32 {
+                    return Err(HybitError::InvalidArgument(
+                        "parallel structural SpMV requires the CSR32 backend",
+                    ));
+                }
+                StructuralSpmvPolicy::Parallel
+            }
+        };
+        let effective_preconditioner_policy = match self.structural_options.preconditioner_policy {
+            StructuralPreconditionerPolicy::Auto => {
+                if matrix.nnz() >= STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ {
+                    StructuralPreconditionerPolicy::Parallel
+                } else {
+                    StructuralPreconditionerPolicy::Serial
+                }
+            }
+            StructuralPreconditionerPolicy::Serial => StructuralPreconditionerPolicy::Serial,
+            StructuralPreconditionerPolicy::Parallel => StructuralPreconditionerPolicy::Parallel,
+        };
+        if effective_preconditioner_policy == StructuralPreconditionerPolicy::Parallel {
+            // Build the aggregate->node index during prepare. The view created
+            // during each solve then reuses this cached index without allocation.
+            let _ = ParallelRigidBodyTwoLevelPreconditioner::new(&preconditioner)?;
+        }
+        let workspace = PcgWorkspace::new(matrix.nrows());
+        let prepare_seconds = start.elapsed().as_secs_f64();
+
+        Ok(HybitPreparedStructuralSystem {
+            options: self.options,
+            backend: analysis.backend,
+            structure_signature,
+            value_signature,
+            analysis_seconds: analysis.analysis_seconds,
+            prepare_seconds,
+            aggregate_nodes,
+            preconditioner,
+            abtm,
+            effective_spmv_policy,
+            effective_preconditioner_policy,
+            workspace,
+            solve_sequence: 0,
+        })
+    }
+
+    pub fn prepare_structural(
+        &self,
+        matrix: &Csr32Matrix,
+        coordinates: &[[f64; 3]],
+    ) -> Result<HybitPreparedStructuralSystem, HybitError> {
+        let analysis = self.analyze_csr32(matrix)?;
+        self.prepare_structural_csr32(matrix, &analysis, coordinates)
+    }
+
+    pub fn solve_structural_csr32(
+        &self,
+        matrix: &Csr32Matrix,
+        coordinates: &[[f64; 3]],
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
+        let analysis = self.analyze_csr32(matrix)?;
+        let mut prepared = self.prepare_structural_csr32(matrix, &analysis, coordinates)?;
+        prepared.solve(matrix, b, x)
     }
 
     pub fn solve_csr32(&self, matrix: &Csr32Matrix, b: &[f64], x: &mut [f64]) -> Result<SolveReport, HybitError> {

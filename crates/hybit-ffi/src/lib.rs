@@ -112,7 +112,14 @@ fn solver_code(kind: SolverKind) -> c_int {
     match kind { SolverKind::Pcg => 1, SolverKind::Minres => 2, SolverKind::Gmres => 3, SolverKind::Bicgstab => 4, SolverKind::Hybrid => 5 }
 }
 fn precond_code(kind: PreconditionerKind) -> c_int {
-    match kind { PreconditionerKind::None => 0, PreconditionerKind::Jacobi => 1, PreconditionerKind::BlockJacobi => 2, PreconditionerKind::LocalDirect => 3, PreconditionerKind::Hybrid => 4 }
+    match kind {
+        PreconditionerKind::None => 0,
+        PreconditionerKind::Jacobi => 1,
+        PreconditionerKind::BlockJacobi => 2,
+        PreconditionerKind::LocalDirect => 3,
+        PreconditionerKind::Hybrid => 4,
+        PreconditionerKind::RigidBodyTwoLevel => 5,
+    }
 }
 fn backend_code(kind: MatrixBackend) -> c_int {
     match kind { MatrixBackend::Csr32 => 1, MatrixBackend::Abtm => 2, MatrixBackend::MatrixFree => 3 }
@@ -155,7 +162,7 @@ fn ffi_report(result: &hybit_core::SolveReport) -> HybitSolveReport {
 #[no_mangle]
 pub extern "C" fn hybit_version_major() -> u32 { 0 }
 #[no_mangle]
-pub extern "C" fn hybit_version_minor() -> u32 { 5 }
+pub extern "C" fn hybit_version_minor() -> u32 { 6 }
 #[no_mangle]
 pub extern "C" fn hybit_version_patch() -> u32 { 0 }
 

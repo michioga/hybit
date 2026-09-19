@@ -9,7 +9,7 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
-> **Project status:** HyBIT 0.5.0 is an experimental pre-1.0 release. The current automatic solver path is restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
+> **Project status:** HyBIT 0.6.0 is the current development line. The latest published crates.io release is 0.5.0. The automatic solver path is currently restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
@@ -17,6 +17,7 @@ HyBIT starts from a low-cost iterative path, observes convergence, identifies nu
 
 - Rust-first implementation with a stable C ABI for C, C++, and Fortran consumers.
 - CSR32 public matrix input; ABTM stays an internal execution/topology backend.
+- Matrix Market coordinate import/export for real FEM benchmark interchange.
 - PCG with reusable Krylov workspaces.
 - Automatic poor-progress probing and selective local direct escalation.
 - Multiple hard regions with weighted overlapping Schwarz correction.
@@ -25,18 +26,15 @@ HyBIT starts from a low-cost iterative path, observes convergence, identifies nu
 - Detailed `SolveReport` diagnostics for convergence, timings, selected regions, factor memory, and reuse.
 - MIT licensed.
 
-## Install from crates.io
+## Install the published release
+
+The current crates.io release is 0.5.0:
 
 ```bash
-cargo add hybit
+cargo add hybit@0.5.0
 ```
 
-or add it manually:
-
-```toml
-[dependencies]
-hybit = "0.5.0"
-```
+The 0.6.0 development tree should be built from this repository until it is release-gated and published.
 
 Rust 1.73 or newer is required.
 
@@ -148,6 +146,19 @@ For a DOF contained in `m_i` local regions, each local term uses weight `1/sqrt(
 
 See [docs/HYBRID_MATH.md](docs/HYBRID_MATH.md) for details.
 
+## Real FEM / Matrix Market benchmark
+
+HyBIT 0.6 adds a Matrix Market path so an assembled, constrained SPD stiffness matrix can be benchmarked without adopting a HyBIT-specific file format.
+
+```powershell
+cargo run --release -p hybit --example fem_bench -- `
+  --matrix D:\path\to\K.mtx `
+  --tol 1e-8 `
+  --max-iters 3000
+```
+
+If `--rhs` is omitted, the benchmark sets `x_exact = 1` and constructs `b = A*x_exact`. It then compares plain Jacobi-PCG with HyBIT Auto and independently recomputes `||Ax-b||/||b||` for both results. See [benchmarks/README.md](benchmarks/README.md).
+
 ## C, C++, and Fortran
 
 The repository contains a C ABI and thin language bindings under `include/` and `fortran/`. On Windows the Rust core builds `hybit.dll`; MinGW consumers use a generated GNU import library.
@@ -163,9 +174,9 @@ The repository contains a C ABI and thin language bindings under `include/` and 
 
 Prepared execution is available through the C ABI functions `hybit_prepare`, `hybit_solve_prepared`, and `hybit_prepared_destroy`. The C++ wrapper provides an RAII `Prepared` object and the Fortran module exposes matching `ISO_C_BINDING` declarations.
 
-## Release-gate validation
+## 0.5.0 release validation baseline
 
-The public 0.5.0 release keeps the numerical and ABI implementation validated by the 0.4.1 release gate; 0.5.0 changes are release packaging, metadata, documentation, and publication tooling.
+The published 0.5.0 release passed the full Rust/C/C++/Fortran release gate. HyBIT 0.6.0 adds the real-matrix benchmark path and must be validated separately before publication.
 
 The Windows release gate passed Rust tests, the C ABI test, Rust examples, and C/C++/Fortran runtime examples. The adaptive synthetic validation produced the following iteration counts:
 
@@ -180,7 +191,7 @@ These are deliberately small synthetic regression problems used to validate cont
 
 ## Current scope and limitations
 
-HyBIT 0.5.0 intentionally has a narrow numerical scope:
+The current 0.6.0 development line intentionally has a narrow numerical scope:
 
 - real `f64` matrices;
 - square SPD systems on the automatic path;
@@ -200,7 +211,7 @@ The project should therefore be treated as experimental numerical software. Vali
 ```text
 crates/
   hybit-core      common traits, errors, options, reports
-  hybit-matrix    CSR32, ABTM, matrix analysis, masks
+  hybit-matrix    CSR32, ABTM, Matrix Market I/O, matrix analysis, masks
   hybit-krylov    PCG and reusable Krylov workspace
   hybit-precond   Jacobi, local Cholesky, weighted Schwarz
   hybit-auto      adaptive solver policy and prepared contexts
@@ -210,6 +221,7 @@ include/          C and C++ headers / Windows .def file
 fortran/          Fortran ISO_C_BINDING module
 docs/             architecture and numerical notes
 examples/         C/C++/Fortran build examples
+benchmarks/       Matrix Market benchmark notes and smoke input
 ```
 
 ## Build and test from source
@@ -229,6 +241,7 @@ cargo test --workspace --release
 cargo run --release -p hybit --example hybrid
 cargo run --release -p hybit --example multiregion
 cargo run --release -p hybit --example prepared
+cargo run --release -p hybit --example fem_bench -- --matrix benchmarks/data/poisson5.mtx
 ```
 
 ## Roadmap
@@ -246,3 +259,26 @@ Bug reports, numerical counterexamples, reproducible matrices, API feedback, and
 HyBIT is licensed under the [MIT License](LICENSE).
 
 Repository: https://github.com/michioga/hybit
+
+
+## HyBIT 0.6 structural FEM experiments
+
+The development branch includes Matrix Market benchmarks for scalar Jacobi,
+3x3 block Jacobi, translation-only aggregation, and a geometry-aware six-mode
+rigid-body coarse space for 3-D structural systems. Structural Auto now prefers
+graph-connected aggregates and falls back to contiguous RCM-order aggregates if
+the graph coarse factorization is numerically singular or graph topology contains
+components too small for a six-mode rigid-body aggregate. The validated structural
+path is exposed through `HybitSolver::solve_structural_csr32` and reusable
+`HybitPreparedStructuralSystem`; the generic `solve_csr32` path is unchanged.
+
+
+## RHS parsing diagnostics (0.6 development)
+
+The FEM benchmark RHS reader accepts plain whitespace-separated `f64` values, ignores blank/comment lines (`#` or `%`), tolerates an UTF-8 BOM, and reports the exact line/token for malformed input.
+
+
+### 0.6 structural execution policy (development)
+Structural Auto can independently select parallel CSR SpMV and parallel rigid-body preconditioner kernels through `StructuralSpmvPolicy` and `StructuralPreconditionerPolicy`. Large CSR structural systems default to parallel execution; small systems remain serial to avoid Rayon overhead. Rayon thread count is controlled externally (for example `RAYON_NUM_THREADS`).
+
+> Development note (0.6 r24): an experimental parallel/fused PCG vector-kernel path is available for benchmarking. Production Structural Auto continues to use the established PCG recurrence until the vector path is validated on the real FEM benchmark.
