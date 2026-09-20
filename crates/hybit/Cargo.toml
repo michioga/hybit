@@ -14,11 +14,11 @@ documentation = "https://docs.rs/hybit"
 publish = ["crates-io"]
 
 [dependencies]
-hybit-core = { version = "0.5.0", path = "../hybit-core" }
-hybit-matrix = { version = "0.5.0", path = "../hybit-matrix" }
-hybit-precond = { version = "0.5.0", path = "../hybit-precond" }
-hybit-krylov = { version = "0.5.0", path = "../hybit-krylov" }
-hybit-auto = { version = "0.5.0", path = "../hybit-auto" }
+hybit-core = { version = "0.6.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.6.0", path = "../hybit-matrix" }
+hybit-precond = { version = "0.6.0", path = "../hybit-precond" }
+hybit-krylov = { version = "0.6.0", path = "../hybit-krylov" }
+hybit-auto = { version = "0.6.0", path = "../hybit-auto" }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]

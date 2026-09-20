@@ -13,4 +13,6 @@ description = "Krylov iterative methods and reusable workspaces for HyBIT"
 publish = ["crates-io"]
 
 [dependencies]
-hybit-core = { version = "0.5.0", path = "../hybit-core" }
+hybit-core = { version = "0.6.0", path = "../hybit-core" }
+rayon = "=1.10.0"
+rayon-core = "=1.12.1"

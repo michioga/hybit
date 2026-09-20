@@ -1,0 +1,11 @@
+# HyBIT free-node coordinates v1
+# units: arbitrary; order: matrix rows [3*i+0,3*i+1,3*i+2]
+8
+0 0 0
+1 0 0
+0 1 0
+1 1 0
+0 0 1
+1 0 1
+0 1 1
+1 1 1

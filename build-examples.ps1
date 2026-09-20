@@ -8,7 +8,7 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     }
 }
 
-Write-Host "== HyBIT 0.5.0 external-language examples =="
+Write-Host "== HyBIT 0.6.0 external-language examples =="
 
 if (-not (Test-Path "target/release/hybit.dll")) {
     Invoke-Checked "build Rust cdylib" { cargo build --release -p hybit-ffi }

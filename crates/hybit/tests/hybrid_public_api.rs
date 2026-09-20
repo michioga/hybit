@@ -15,9 +15,16 @@ fn test_matrix() -> Csr32Matrix {
     }
     for local in 0..hard {
         let i = easy + local;
-        if local > 0 { col_idx.push((i - 1) as u32); values.push(-1.0); }
-        col_idx.push(i as u32); values.push(2.0);
-        if local + 1 < hard { col_idx.push((i + 1) as u32); values.push(-1.0); }
+        if local > 0 {
+            col_idx.push((i - 1) as u32);
+            values.push(-1.0);
+        }
+        col_idx.push(i as u32);
+        values.push(2.0);
+        if local + 1 < hard {
+            col_idx.push((i + 1) as u32);
+            values.push(-1.0);
+        }
         row_ptr.push(col_idx.len() as u32);
     }
     Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap()
@@ -29,11 +36,13 @@ fn public_auto_solver_can_escalate() {
     let b = vec![1.0; 48];
     let mut x = vec![0.0; 48];
     let mut solver = HybitSolver::new();
-    solver.set_options(SolverOptions {
-        relative_tolerance: 1.0e-10,
-        absolute_tolerance: 0.0,
-        max_iterations: 80,
-    }).unwrap();
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-10,
+            absolute_tolerance: 0.0,
+            max_iterations: 80,
+        })
+        .unwrap();
     let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
     assert!(report.converged());
     assert_eq!(report.preconditioner, PreconditionerKind::Hybrid);
@@ -47,11 +56,13 @@ fn public_auto_solver_can_escalate() {
 fn public_prepared_context_reuses_local_factors() {
     let a = test_matrix();
     let mut solver = HybitSolver::new();
-    solver.set_options(SolverOptions {
-        relative_tolerance: 1.0e-10,
-        absolute_tolerance: 0.0,
-        max_iterations: 80,
-    }).unwrap();
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-10,
+            absolute_tolerance: 0.0,
+            max_iterations: 80,
+        })
+        .unwrap();
 
     let analysis = solver.analyze_csr32(&a).unwrap();
     let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();

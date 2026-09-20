@@ -8,7 +8,10 @@ pub struct DofMask {
 
 impl DofMask {
     pub fn new(len: usize) -> Self {
-        Self { len, words: vec![0; (len + 63) / 64] }
+        Self {
+            len,
+            words: vec![0; len.div_ceil(64)],
+        }
     }
 
     pub fn from_indices(len: usize, indices: &[usize]) -> Result<Self, HybitError> {
@@ -19,9 +22,15 @@ impl DofMask {
         Ok(mask)
     }
 
-    pub fn len(&self) -> usize { self.len }
-    pub fn is_empty(&self) -> bool { self.count_ones() == 0 }
-    pub fn words(&self) -> &[u64] { &self.words }
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    pub fn is_empty(&self) -> bool {
+        self.count_ones() == 0
+    }
+    pub fn words(&self) -> &[u64] {
+        &self.words
+    }
 
     pub fn set(&mut self, index: usize, value: bool) -> Result<(), HybitError> {
         if index >= self.len {
@@ -39,7 +48,9 @@ impl DofMask {
 
     #[inline]
     pub fn contains(&self, index: usize) -> bool {
-        if index >= self.len { return false; }
+        if index >= self.len {
+            return false;
+        }
         (self.words[index / 64] & (1u64 << (index % 64))) != 0
     }
 
@@ -49,19 +60,27 @@ impl DofMask {
 
     pub fn union_assign(&mut self, other: &Self) -> Result<(), HybitError> {
         self.ensure_same_len(other)?;
-        for (a, b) in self.words.iter_mut().zip(&other.words) { *a |= *b; }
+        for (a, b) in self.words.iter_mut().zip(&other.words) {
+            *a |= *b;
+        }
         Ok(())
     }
 
     pub fn intersect_assign(&mut self, other: &Self) -> Result<(), HybitError> {
         self.ensure_same_len(other)?;
-        for (a, b) in self.words.iter_mut().zip(&other.words) { *a &= *b; }
+        for (a, b) in self.words.iter_mut().zip(&other.words) {
+            *a &= *b;
+        }
         Ok(())
     }
 
     pub fn intersects(&self, other: &Self) -> Result<bool, HybitError> {
         self.ensure_same_len(other)?;
-        Ok(self.words.iter().zip(&other.words).any(|(a, b)| (a & b) != 0))
+        Ok(self
+            .words
+            .iter()
+            .zip(&other.words)
+            .any(|(a, b)| (a & b) != 0))
     }
 
     pub fn indices(&self) -> Vec<usize> {
@@ -71,7 +90,9 @@ impl DofMask {
             while bits != 0 {
                 let bit = bits.trailing_zeros() as usize;
                 let index = word_index * 64 + bit;
-                if index < self.len { result.push(index); }
+                if index < self.len {
+                    result.push(index);
+                }
                 bits &= bits - 1;
             }
         }
@@ -90,7 +111,10 @@ impl DofMask {
 
     fn ensure_same_len(&self, other: &Self) -> Result<(), HybitError> {
         if self.len != other.len {
-            return Err(HybitError::DimensionMismatch { expected: self.len, actual: other.len });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.len,
+                actual: other.len,
+            });
         }
         Ok(())
     }

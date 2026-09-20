@@ -53,18 +53,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut x2 = vec![0.0; a.nrows()];
     let second = prepared.solve(&a, &b2, &mut x2)?;
 
-    println!("HyBIT {} prepared solve-many demo", env!("CARGO_PKG_VERSION"));
-    println!("analysis          : {:.3} ms", analysis.analysis_seconds() * 1.0e3);
-    println!("prepare           : {:.3} ms", prepared.prepare_seconds() * 1.0e3);
-    println!("workspace         : {:.3} KiB", prepared.krylov_workspace_bytes() as f64 / 1024.0);
-    println!("first solve       : {} iterations, reused={}, factors={} bytes",
-        first.iterations, first.preconditioner_reused, first.local_factor_bytes);
-    println!("second solve      : {} iterations, reused={}, probe={}, factor={:.3} ms",
+    println!(
+        "HyBIT {} prepared solve-many demo",
+        env!("CARGO_PKG_VERSION")
+    );
+    println!(
+        "analysis          : {:.3} ms",
+        analysis.analysis_seconds() * 1.0e3
+    );
+    println!(
+        "prepare           : {:.3} ms",
+        prepared.prepare_seconds() * 1.0e3
+    );
+    println!(
+        "workspace         : {:.3} KiB",
+        prepared.krylov_workspace_bytes() as f64 / 1024.0
+    );
+    println!(
+        "first solve       : {} iterations, reused={}, factors={} bytes",
+        first.iterations, first.preconditioner_reused, first.local_factor_bytes
+    );
+    println!(
+        "second solve      : {} iterations, reused={}, probe={}, factor={:.3} ms",
         second.iterations,
         second.preconditioner_reused,
         second.probe_iterations,
-        second.local_factor_seconds * 1.0e3);
-    println!("solve sequence    : {} -> {}", first.solve_sequence, second.solve_sequence);
+        second.local_factor_seconds * 1.0e3
+    );
+    println!(
+        "solve sequence    : {} -> {}",
+        first.solve_sequence, second.solve_sequence
+    );
 
     Ok(())
 }

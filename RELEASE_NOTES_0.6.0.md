@@ -1,0 +1,59 @@
+# HyBIT 0.6.0 release notes (draft)
+
+> Status: release-candidate documentation draft. Development continues on `develop/0.6.0`; do not treat this file as a published release announcement until the final release gate passes and the release commit is merged to `main`.
+
+HyBIT 0.6.0 extends the 0.5.0 SPD/PCG hybrid solver with a validated geometry-aware path for large 3-D structural FEM systems while keeping the generic `solve_csr32` API behavior unchanged.
+
+## Major additions
+
+- Matrix Market import/export and real-FEM benchmark tooling.
+- `StructuralOptions`, `solve_structural_csr32`, and reusable `HybitPreparedStructuralSystem`.
+- Six rigid-body coarse modes (Tx/Ty/Tz/Rx/Ry/Rz) per structural aggregate.
+- Graph-connected aggregate construction with conservative Auto fallback to contiguous aggregation.
+- Packed lower-triangular storage for the dense structural coarse Cholesky factor.
+- Independent `StructuralSpmvPolicy`, `StructuralPreconditionerPolicy`, and `StructuralPcgVectorPolicy` controls.
+- Rayon-parallel CSR SpMV for large structural systems.
+- Parallel 3x3 block-Jacobi, rigid-body restriction, and prolongation while retaining a serial packed coarse triangular solve.
+- Parallel/fused PCG dense-vector kernels for sufficiently large systems when the shared Rayon pool has at least four workers.
+- Prepared solve-many reuse of coarse factors, geometry/index state, and Krylov workspace.
+- Benchmark scripts for aggregation, coarse-dimension sweeps, kernel profiling, SpMV, preconditioner, and PCG-vector A/B studies.
+
+## Structural development reference
+
+The release-candidate reference problem is the physical-load L-angle reduced system:
+
+- 358065 free DOFs;
+- 28239653 CSR nonzeros;
+- Graph aggregation with 233 aggregates;
+- coarse dimension 1398 (`target_coarse_dimension=1536`);
+- 8 Rayon workers;
+- Parallel CSR SpMV;
+- Parallel rigid-body preconditioner kernels;
+- Parallel/fused PCG vector kernels;
+- 220 PCG iterations;
+- solver-reported relative residual `9.378495e-9`;
+- independently verified relative residual `9.378557e-9`;
+- analysis 326.212 ms;
+- prepare 744.797 ms;
+- solve 1725.863 ms;
+- analysis+prepare+solve 2796.872 ms.
+
+These timings were measured on the Ryzen 7 7800X3D development machine and are included as a reproducible regression reference, not as a universal speed claim.
+
+## Compatibility and scope
+
+- The automatic numerical scope remains real symmetric positive-definite systems with PCG.
+- The new rigid-body coarse path assumes exactly three displacement DOFs per node and requires coordinates in the exact CSR node/DOF ordering.
+- Generic `solve_csr32` behavior remains unchanged by the structural execution policies.
+- The C ABI remains repository-built; `hybit-ffi` is not published to crates.io.
+- All public unsafe C ABI entry points document their pointer/lifetime safety contracts; zero-nnz CSR creation permits null `col_idx`/`values` pointers without constructing null Rust slices.
+- The Rust 1.73 MSRV is preserved by exact `rayon = "=1.10.0"` and `rayon-core = "=1.12.1"` pins in the Rayon-using published crates; this prevents resolution to `rayon-core 1.13.0` (Rust 1.80+).
+- HyBIT remains pre-1.0 experimental numerical software. Independently validate residuals and physical results for engineering use.
+
+## Release gate
+
+The release-candidate source includes a single authoritative `release-candidate-gate.ps1` orchestration script. It verifies a clean release branch, source hashes, package metadata, formatting, Clippy, workspace release tests, the Rust 1.73 MSRV, ABI/C/C++/Fortran runtime examples, crates.io package contents/dry-run, the real L-angle production Auto path, independently verified residual, an iteration-regression guard, and prepared solve-many reuse. Performance timing is recorded but intentionally not used as a release pass/fail threshold.
+
+Rustdoc equations in the structural preconditioner documentation are fenced as text so workspace doctests validate documentation structure without attempting to compile mathematical notation as Rust.
+
+Before publication, the exact candidate commit must pass this complete gate without skip switches. The exact validated source is then merged from `develop/0.6.0` to `main`, the complete gate is rerun on `main`, and only then is `v0.6.0` tagged and published in dependency order.

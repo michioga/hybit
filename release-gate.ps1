@@ -21,7 +21,7 @@ function Show-PeImports([string]$Path) {
     }
 }
 
-Write-Host "=== HYBIT 0.5.0 RELEASE GATE ==="
+Write-Host "=== HYBIT 0.6.0 RELEASE GATE ==="
 & .\build.ps1
 & .\build-examples.ps1
 
@@ -34,4 +34,4 @@ Invoke-Checked "C++ runtime example" { .\build\hybit_cpp.exe }
 Invoke-Checked "Fortran runtime example" { .\build\hybit_fortran.exe }
 
 Write-Host ""
-Write-Host "=== HYBIT 0.5.0 RELEASE GATE PASS ==="
+Write-Host "=== HYBIT 0.6.0 RELEASE GATE PASS ==="

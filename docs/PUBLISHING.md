@@ -1,4 +1,4 @@
-# Publishing HyBIT 0.5.0
+# Publishing HyBIT 0.6.0
 
 The public repository is:
 
@@ -8,15 +8,31 @@ The user-facing Rust crate is:
 
 `https://crates.io/crates/hybit`
 
-HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` is intentionally not published to crates.io in 0.5.0.
+HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` is intentionally not published to crates.io in 0.6.0.
+
+## Development branch and release candidate
+
+Active 0.6 work is kept on `develop/0.6.0`. Keep `main` at the last validated public release until the 0.6 release candidate passes the full release gate. Once the exact candidate commit is validated, merge that commit to `main`, rerun the gate from the final source tree, and only then create/publish immutable release artifacts.
 
 ## Before publishing
 
-Run the local release gate:
+Run the release-candidate gate from a clean `develop/0.6.0` (or final `main`) worktree. The complete gate includes formatting, Clippy, workspace tests, Rust 1.73 MSRV, ABI/language-binding checks, package inspection, source-integrity verification, and the real L-angle structural regression:
 
 ```powershell
+.\release-candidate-gate.ps1 `
+  -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
+  -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
+  -Rhs D:\Work\mf_rhs\L-angle-b.txt `
+  -RayonThreads 8
+```
+
+For an intermediate local check only, `-SkipMsrv` and `-SkipRealFem` are available. A run using either skip switch is **not** eligible for tag/publication. The lower-level gates remain available for diagnosis:
+
+```powershell
+.\build.ps1
 .\release-gate.ps1
 .\crates-package-gate.ps1
+.\public-release-gate.ps1
 ```
 
 Review `cargo package --list` output and make sure no build directories, local secrets, large generated files, or private data are included.
@@ -53,8 +69,8 @@ Published crate versions are immutable. If a published package contains a seriou
 After the source is committed and the crate set is published, tag the exact commit:
 
 ```powershell
-git tag -a v0.5.0 -m "HyBIT 0.5.0"
-git push origin v0.5.0
+git tag -a v0.6.0 -m "HyBIT 0.6.0"
+git push origin v0.6.0
 ```
 
-Use `RELEASE_NOTES_0.5.0.md` as the starting point for the GitHub Release text.
+Use `RELEASE_NOTES_0.6.0.md` as the starting point for the GitHub Release text.

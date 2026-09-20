@@ -1,5 +1,5 @@
-use hybit_core::HybitError;
 use crate::Csr32Matrix;
+use hybit_core::HybitError;
 
 #[derive(Clone, Debug)]
 pub struct MatrixProfile {
@@ -51,7 +51,11 @@ pub fn analyze_csr32(matrix: &Csr32Matrix) -> Result<MatrixProfile, HybitError> 
         square: matrix.nrows() == matrix.ncols(),
         full_diagonal,
         positive_diagonal,
-        avg_nnz_per_row: if matrix.nrows() == 0 { 0.0 } else { matrix.nnz() as f64 / matrix.nrows() as f64 },
+        avg_nnz_per_row: if matrix.nrows() == 0 {
+            0.0
+        } else {
+            matrix.nnz() as f64 / matrix.nrows() as f64
+        },
         max_nnz_per_row,
         csr_metadata_bytes: matrix.metadata_bytes(),
     })
