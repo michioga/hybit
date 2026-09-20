@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0-r26g MSRV dependency pin
+
+- Preserve the declared Rust 1.73 MSRV by pinning `rayon-core = "=1.12.1"` alongside `rayon = "=1.10.0"` in every published HyBIT crate that uses Rayon (`hybit-matrix`, `hybit-krylov`, and `hybit-precond`).
+- Prevent Cargo from resolving Rayon 1.10.0's compatible `rayon-core ^1.12.1` requirement to `rayon-core 1.13.0`, which requires Rust 1.80.
+- Extend the workspace metadata release gate to verify both exact pins so a future manifest change cannot silently raise the effective MSRV.
+- No solver algorithm, numerical operation ordering, or public HyBIT API behavior is changed.
+
 ## 0.6.0-r26f rustdoc/doctest cleanup
 
 - Mark structural two-level preconditioner equations as `text` code fences so rustdoc does not compile mathematical notation as Rust doctests.

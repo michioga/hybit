@@ -62,4 +62,6 @@ These values are a regression reference for this matrix, RHS, machine, and revis
 
 The gate checks source hashes, package metadata, formatting, Clippy, workspace release tests, Rust 1.73 MSRV, ABI/C/C++/Fortran runtime examples, crates.io package contents/dry-run, the real L-angle Auto path, independently verified residual, iteration guard, and prepared solve-many reuse. Runtime performance is reported but is not a pass/fail criterion.
 
+The Rayon-using published crates pin `rayon = "=1.10.0"` and `rayon-core = "=1.12.1"` so the declared Rust 1.73 MSRV is preserved even when Cargo resolves dependencies without a workspace lockfile.
+
 Do not add new solver features before the 0.6.0 release candidate is stabilized. After the complete gate passes without skip switches, record the validated commit hash, merge that exact commit to `main`, rerun the complete gate on `main`, then tag `v0.6.0` and publish in dependency order.

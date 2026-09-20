@@ -16,3 +16,4 @@ publish = ["crates-io"]
 hybit-core = { version = "0.6.0", path = "../hybit-core" }
 hybit-matrix = { version = "0.6.0", path = "../hybit-matrix" }
 rayon = "=1.10.0"
+rayon-core = "=1.12.1"

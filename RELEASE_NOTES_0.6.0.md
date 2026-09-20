@@ -47,6 +47,7 @@ These timings were measured on the Ryzen 7 7800X3D development machine and are i
 - Generic `solve_csr32` behavior remains unchanged by the structural execution policies.
 - The C ABI remains repository-built; `hybit-ffi` is not published to crates.io.
 - All public unsafe C ABI entry points document their pointer/lifetime safety contracts; zero-nnz CSR creation permits null `col_idx`/`values` pointers without constructing null Rust slices.
+- The Rust 1.73 MSRV is preserved by exact `rayon = "=1.10.0"` and `rayon-core = "=1.12.1"` pins in the Rayon-using published crates; this prevents resolution to `rayon-core 1.13.0` (Rust 1.80+).
 - HyBIT remains pre-1.0 experimental numerical software. Independently validate residuals and physical results for engineering use.
 
 ## Release gate
