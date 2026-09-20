@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0-r26 release-gate hardening
+
+- Feature freeze remains in effect; solver algorithms are unchanged from r25.
+- Added `release-candidate-gate.ps1` as the authoritative clean-tree RC orchestration gate.
+- Added source-integrity and workspace-metadata gates.
+- Added a real L-angle FEM regression gate that verifies Auto policy selection, convergence/residual, iteration guard, and prepared solve-many reuse without imposing machine-dependent timing thresholds.
+- Added local Rust 1.73 MSRV verification and stable `cargo fmt`/Clippy checks to the RC gate.
+- CI now runs on `develop/0.6.0` pushes and includes formatting/Clippy checks.
+
+
 ## 0.6.0-r25 development snapshot
 
 - Promote the validated parallel/fused PCG dense-vector path into Structural Auto through `StructuralPcgVectorPolicy::{Auto, Serial, Parallel}`.

@@ -227,13 +227,25 @@ benchmarks/       Matrix Market benchmark notes and smoke input
 
 ## Build and test from source
 
+For ordinary development checks:
+
 ```powershell
 git clone https://github.com/michioga/hybit.git
 cd hybit
-.\public-release-gate.ps1
+.\build.ps1
 ```
 
-The public release gate includes runtime/ABI validation and crates.io packaging checks. See [docs/PUBLISHING.md](docs/PUBLISHING.md) before uploading immutable crate versions.
+For the 0.6.0 release candidate, `release-candidate-gate.ps1` is the authoritative clean-tree gate. It adds source-integrity, metadata, formatting, Clippy, Rust 1.73 MSRV, ABI/language-binding, package, real-FEM residual/iteration, and prepared-reuse validation. The L-angle files are supplied externally rather than stored in the repository:
+
+```powershell
+.\release-candidate-gate.ps1 `
+  -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
+  -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
+  -Rhs D:\Work\mf_rhs\L-angle-b.txt `
+  -RayonThreads 8
+```
+
+See [docs/PUBLISHING.md](docs/PUBLISHING.md) before uploading immutable crate versions.
 
 For Cargo-only development:
 

@@ -16,7 +16,17 @@ Active 0.6 work is kept on `develop/0.6.0`. Keep `main` at the last validated pu
 
 ## Before publishing
 
-Run the local release gate:
+Run the release-candidate gate from a clean `develop/0.6.0` (or final `main`) worktree. The complete gate includes formatting, Clippy, workspace tests, Rust 1.73 MSRV, ABI/language-binding checks, package inspection, source-integrity verification, and the real L-angle structural regression:
+
+```powershell
+.\release-candidate-gate.ps1 `
+  -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
+  -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
+  -Rhs D:\Work\mf_rhs\L-angle-b.txt `
+  -RayonThreads 8
+```
+
+For an intermediate local check only, `-SkipMsrv` and `-SkipRealFem` are available. A run using either skip switch is **not** eligible for tag/publication. The lower-level gates remain available for diagnosis:
 
 ```powershell
 .\build.ps1

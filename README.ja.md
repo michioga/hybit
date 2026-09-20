@@ -181,13 +181,17 @@ API documentation: https://docs.rs/hybit
 
 ## 公開前ゲート
 
-GitHub/crates.io公開前は、以下を実行します。
+0.6.0 release candidateでは `release-candidate-gate.ps1` を正式なclean-tree gateとします。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認します。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
 
 ```powershell
-.\public-release-gate.ps1
+.\release-candidate-gate.ps1 `
+  -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
+  -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
+  -Rhs D:\Work\mf_rhs\L-angle-b.txt `
+  -RayonThreads 8
 ```
 
-このゲートはRust/C ABI/C/C++/Fortranの実行確認に加え、crates.io向けpackage metadataとpackage生成を検証します。公開手順は [docs/PUBLISHING.md](docs/PUBLISHING.md) を参照してください。
+`-SkipMsrv` / `-SkipRealFem` は途中確認用です。skipを使ったrunはtag/publish可能なrelease gate PASSとは扱いません。公開手順は [docs/PUBLISHING.md](docs/PUBLISHING.md) を参照してください。
 
 ## License
 

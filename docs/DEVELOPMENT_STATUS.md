@@ -1,12 +1,12 @@
 # HyBIT 0.6 development status
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 ## Branch and release state
 
 - Active development branch: `develop/0.6.0`
 - Published baseline: 0.5.0
-- Current development checkpoint: 0.6.0-r25
+- Current development checkpoint: 0.6.0-r26 release-gate hardening (solver code remains r25)
 - Structural production path: feature-frozen for 0.6.0 release-candidate validation
 - `main` should remain at the last validated public-release line until the 0.6.0 release gate passes.
 
@@ -48,13 +48,18 @@ Physical-load reduced structural system:
 
 These values are a regression reference for this matrix, RHS, machine, and revision. They are not a general performance guarantee.
 
-## Next session
+## Release-candidate gate
 
-Do not add new solver features before the 0.6.0 release candidate is stabilized. Resume with the release gate:
+`release-candidate-gate.ps1` is now the authoritative local RC gate. From a clean `develop/0.6.0` worktree, run:
 
-1. run release-mode Rust tests and structural regression checks;
-2. validate prepared structural solve-many on the real FEM case;
-3. run C ABI and C/C++/Fortran checks;
-4. run formatting, Clippy, package metadata, and package-content checks;
-5. reconcile documentation with the exact release candidate commit;
-6. only after all gates pass, merge the validated commit to `main`, tag `v0.6.0`, and publish in dependency order.
+```powershell
+.\release-candidate-gate.ps1 `
+  -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
+  -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
+  -Rhs D:\Work\mf_rhs\L-angle-b.txt `
+  -RayonThreads 8
+```
+
+The gate checks source hashes, package metadata, formatting, Clippy, workspace release tests, Rust 1.73 MSRV, ABI/C/C++/Fortran runtime examples, crates.io package contents/dry-run, the real L-angle Auto path, independently verified residual, iteration guard, and prepared solve-many reuse. Runtime performance is reported but is not a pass/fail criterion.
+
+Do not add new solver features before the 0.6.0 release candidate is stabilized. After the complete gate passes without skip switches, record the validated commit hash, merge that exact commit to `main`, rerun the complete gate on `main`, then tag `v0.6.0` and publish in dependency order.
