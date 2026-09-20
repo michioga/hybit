@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0-r26f rustdoc/doctest cleanup
+
+- Mark structural two-level preconditioner equations as `text` code fences so rustdoc does not compile mathematical notation as Rust doctests.
+- Fix the four release-gate doctest failures in `hybit-precond` without changing executable code, public API behavior, or numerical operation ordering.
+- Preserve the r26e rustfmt stabilization and the Clippy-clean workspace state.
+
 ## 0.6.0-r26e rustfmt stabilization
 
 - Rewrite the structural example `--precond` parser arms with an explicit local value so rustfmt cannot oscillate between direct-expression and block-arm forms.

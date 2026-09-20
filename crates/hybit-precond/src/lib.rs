@@ -325,7 +325,9 @@ pub struct TwoLevelBlockJacobiPreconditioner {
 impl TwoLevelBlockJacobiPreconditioner {
     /// Build an SPD additive two-level preconditioner
     ///
-    ///     M^-1 = B^-1 + Z (Z^T A Z)^-1 Z^T,
+    /// ```text
+    /// M^-1 = B^-1 + Z (Z^T A Z)^-1 Z^T
+    /// ```
     ///
     /// where `B^-1` is contiguous block Jacobi and `Z` contains piecewise
     /// constant vector-FEM aggregate modes. Each aggregate contains
@@ -1021,7 +1023,9 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
 
     /// Apply only the Galerkin coarse correction
     ///
-    ///     C r = Z (Z^T A Z)^-1 Z^T r.
+    /// ```text
+    /// C r = Z (Z^T A Z)^-1 Z^T r
+    /// ```
     ///
     /// This is kept separate from the additive preconditioner so experimental
     /// symmetric balanced two-level compositions can reuse exactly the same
@@ -1142,13 +1146,17 @@ struct BalancedRigidScratch {
 ///
 /// With
 ///
-///     C = Z (Z^T A Z)^-1 Z^T,
-///     P = I - C A,
+/// ```text
+/// C = Z (Z^T A Z)^-1 Z^T
+/// P = I - C A
+/// ```
 ///
 /// this applies
 ///
-///     M_bal^-1 = P B^-1 P^T + C
-///              = (I - C A) B^-1 (I - A C) + C,
+/// ```text
+/// M_bal^-1 = P B^-1 P^T + C
+///          = (I - C A) B^-1 (I - A C) + C
+/// ```
 ///
 /// where `B^-1` is the same 3x3 block-Jacobi fine preconditioner used by the
 /// additive rigid-body two-level method. For symmetric positive-definite A, B,

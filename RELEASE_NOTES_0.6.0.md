@@ -53,4 +53,6 @@ These timings were measured on the Ryzen 7 7800X3D development machine and are i
 
 The release-candidate source includes a single authoritative `release-candidate-gate.ps1` orchestration script. It verifies a clean release branch, source hashes, package metadata, formatting, Clippy, workspace release tests, the Rust 1.73 MSRV, ABI/C/C++/Fortran runtime examples, crates.io package contents/dry-run, the real L-angle production Auto path, independently verified residual, an iteration-regression guard, and prepared solve-many reuse. Performance timing is recorded but intentionally not used as a release pass/fail threshold.
 
+Rustdoc equations in the structural preconditioner documentation are fenced as text so workspace doctests validate documentation structure without attempting to compile mathematical notation as Rust.
+
 Before publication, the exact candidate commit must pass this complete gate without skip switches. The exact validated source is then merged from `develop/0.6.0` to `main`, the complete gate is rerun on `main`, and only then is `v0.6.0` tagged and published in dependency order.
