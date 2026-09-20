@@ -1,4 +1,6 @@
-use hybit_core::{dot, l2_norm, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions};
+use hybit_core::{
+    dot, l2_norm, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions,
+};
 use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -31,13 +33,22 @@ impl PcgWorkspace {
         }
     }
 
-    pub fn len(&self) -> usize { self.r.len() }
-    pub fn is_empty(&self) -> bool { self.r.is_empty() }
-    pub fn bytes(&self) -> usize { 5 * self.len() * std::mem::size_of::<f64>() }
+    pub fn len(&self) -> usize {
+        self.r.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.r.is_empty()
+    }
+    pub fn bytes(&self) -> usize {
+        5 * self.len() * std::mem::size_of::<f64>()
+    }
 
     fn validate_len(&self, n: usize) -> Result<(), HybitError> {
         if self.len() != n {
-            return Err(HybitError::DimensionMismatch { expected: n, actual: self.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: n,
+                actual: self.len(),
+            });
         }
         Ok(())
     }
@@ -67,18 +78,37 @@ pub fn pcg_with_workspace(
         return Err(HybitError::InvalidMatrix("PCG requires a square operator"));
     }
     let n = a.rows();
-    if b.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: b.len() }); }
-    if x.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: x.len() }); }
-    if m.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: m.len() }); }
+    if b.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: b.len(),
+        });
+    }
+    if x.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: x.len(),
+        });
+    }
+    if m.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: m.len(),
+        });
+    }
     workspace.validate_len(n)?;
 
     let PcgWorkspace { ax, r, z, p, ap } = workspace;
     a.apply(x, ax)?;
-    for i in 0..n { r[i] = b[i] - ax[i]; }
+    for i in 0..n {
+        r[i] = b[i] - ax[i];
+    }
 
     let initial_residual = l2_norm(r);
     let b_norm = l2_norm(b);
-    let target = options.absolute_tolerance.max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    let target = options
+        .absolute_tolerance
+        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
     if initial_residual <= target {
         return Ok(KrylovOutcome {
             status: SolveStatus::Converged,
@@ -92,7 +122,9 @@ pub fn pcg_with_workspace(
     p.copy_from_slice(z);
     let mut rz_old = dot(r, z);
     if !rz_old.is_finite() || rz_old <= 0.0 {
-        return Err(HybitError::NumericalBreakdown("non-positive r^T M^-1 r; PCG assumptions may be violated"));
+        return Err(HybitError::NumericalBreakdown(
+            "non-positive r^T M^-1 r; PCG assumptions may be violated",
+        ));
     }
 
     let mut final_residual = initial_residual;
@@ -132,7 +164,9 @@ pub fn pcg_with_workspace(
             });
         }
         let beta = rz_new / rz_old;
-        for i in 0..n { p[i] = z[i] + beta * p[i]; }
+        for i in 0..n {
+            p[i] = z[i] + beta * p[i];
+        }
         rz_old = rz_new;
     }
 
@@ -143,7 +177,6 @@ pub fn pcg_with_workspace(
         final_residual,
     })
 }
-
 
 /// Chunk size used by the experimental parallel PCG vector kernels.
 ///
@@ -243,9 +276,24 @@ pub fn pcg_with_workspace_parallel_vectors(
         return Err(HybitError::InvalidMatrix("PCG requires a square operator"));
     }
     let n = a.rows();
-    if b.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: b.len() }); }
-    if x.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: x.len() }); }
-    if m.len() != n { return Err(HybitError::DimensionMismatch { expected: n, actual: m.len() }); }
+    if b.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: b.len(),
+        });
+    }
+    if x.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: x.len(),
+        });
+    }
+    if m.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: m.len(),
+        });
+    }
     workspace.validate_len(n)?;
 
     let PcgWorkspace { ax, r, z, p, ap } = workspace;
@@ -254,7 +302,9 @@ pub fn pcg_with_workspace_parallel_vectors(
 
     let initial_residual = parallel_l2_norm(r);
     let b_norm = parallel_l2_norm(b);
-    let target = options.absolute_tolerance.max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    let target = options
+        .absolute_tolerance
+        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
     if initial_residual <= target {
         return Ok(KrylovOutcome {
             status: SolveStatus::Converged,
@@ -268,7 +318,9 @@ pub fn pcg_with_workspace_parallel_vectors(
     p.copy_from_slice(z);
     let mut rz_old = parallel_dot(r, z);
     if !rz_old.is_finite() || rz_old <= 0.0 {
-        return Err(HybitError::NumericalBreakdown("non-positive r^T M^-1 r; PCG assumptions may be violated"));
+        return Err(HybitError::NumericalBreakdown(
+            "non-positive r^T M^-1 r; PCG assumptions may be violated",
+        ));
     }
 
     let mut final_residual = initial_residual;
@@ -323,8 +375,12 @@ mod tests {
 
     struct Identity(usize);
     impl LinearOperator for Identity {
-        fn rows(&self) -> usize { self.0 }
-        fn cols(&self) -> usize { self.0 }
+        fn rows(&self) -> usize {
+            self.0
+        }
+        fn cols(&self) -> usize {
+            self.0
+        }
         fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
             y.copy_from_slice(x);
             Ok(())
@@ -332,13 +388,14 @@ mod tests {
     }
     struct IdentityPrecond(usize);
     impl Preconditioner for IdentityPrecond {
-        fn len(&self) -> usize { self.0 }
+        fn len(&self) -> usize {
+            self.0
+        }
         fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
             z.copy_from_slice(r);
             Ok(())
         }
     }
-
 
     #[test]
     fn parallel_vector_pcg_matches_serial() {
@@ -350,8 +407,17 @@ mod tests {
         let mut ws_serial = PcgWorkspace::new(rhs.len());
         let mut ws_parallel = PcgWorkspace::new(rhs.len());
         let options = SolverOptions::default();
-        let out_serial = pcg_with_workspace(&a, &m, &rhs, &mut serial, options, &mut ws_serial).unwrap();
-        let out_parallel = pcg_with_workspace_parallel_vectors(&a, &m, &rhs, &mut parallel, options, &mut ws_parallel).unwrap();
+        let out_serial =
+            pcg_with_workspace(&a, &m, &rhs, &mut serial, options, &mut ws_serial).unwrap();
+        let out_parallel = pcg_with_workspace_parallel_vectors(
+            &a,
+            &m,
+            &rhs,
+            &mut parallel,
+            options,
+            &mut ws_parallel,
+        )
+        .unwrap();
         assert_eq!(out_serial.status, SolveStatus::Converged);
         assert_eq!(out_parallel.status, SolveStatus::Converged);
         assert_eq!(out_parallel.iterations, 1);
@@ -367,7 +433,8 @@ mod tests {
         let mut ws = PcgWorkspace::new(4);
         for rhs in [vec![1.0, 2.0, 3.0, 4.0], vec![4.0, 3.0, 2.0, 1.0]] {
             let mut x = vec![0.0; 4];
-            let out = pcg_with_workspace(&a, &m, &rhs, &mut x, SolverOptions::default(), &mut ws).unwrap();
+            let out = pcg_with_workspace(&a, &m, &rhs, &mut x, SolverOptions::default(), &mut ws)
+                .unwrap();
             assert_eq!(out.status, SolveStatus::Converged);
             assert_eq!(x, rhs);
         }

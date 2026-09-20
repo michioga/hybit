@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, read_matrix_market, Csr32Matrix, HybitSolver, ParallelCsr32Operator, RigidBodyAggregation, SolverOptions, StructuralOptions, StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    analyze_csr32, read_matrix_market, Csr32Matrix, HybitSolver, ParallelCsr32Operator,
+    RigidBodyAggregation, SolverOptions, StructuralOptions, StructuralPcgVectorPolicy,
+    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 
 #[derive(Debug)]
@@ -49,35 +51,65 @@ impl Args {
                     target_coarse_dimension = next_value(&mut it, "--target-coarse-dim")?.parse()?
                 }
                 "--aggregation" => {
-                    aggregation = match next_value(&mut it, "--aggregation")?.to_ascii_lowercase().as_str() {
+                    aggregation = match next_value(&mut it, "--aggregation")?
+                        .to_ascii_lowercase()
+                        .as_str()
+                    {
                         "auto" => RigidBodyAggregation::Auto,
                         "contiguous" => RigidBodyAggregation::Contiguous,
                         "graph" => RigidBodyAggregation::Graph,
-                        other => return Err(format!("unknown aggregation '{other}'; use auto, contiguous, or graph").into()),
+                        other => {
+                            return Err(format!(
+                                "unknown aggregation '{other}'; use auto, contiguous, or graph"
+                            )
+                            .into())
+                        }
                     }
                 }
                 "--spmv" => {
-                    spmv_policy = match next_value(&mut it, "--spmv")?.to_ascii_lowercase().as_str() {
+                    spmv_policy = match next_value(&mut it, "--spmv")?.to_ascii_lowercase().as_str()
+                    {
                         "auto" => StructuralSpmvPolicy::Auto,
                         "serial" => StructuralSpmvPolicy::Serial,
                         "parallel" => StructuralSpmvPolicy::Parallel,
-                        other => return Err(format!("unknown SpMV policy '{other}'; use auto, serial, or parallel").into()),
+                        other => {
+                            return Err(format!(
+                                "unknown SpMV policy '{other}'; use auto, serial, or parallel"
+                            )
+                            .into())
+                        }
                     }
                 }
                 "--precond" => {
-                    preconditioner_policy = match next_value(&mut it, "--precond")?.to_ascii_lowercase().as_str() {
+                    preconditioner_policy = match next_value(&mut it, "--precond")?
+                        .to_ascii_lowercase()
+                        .as_str()
+                    {
                         "auto" => StructuralPreconditionerPolicy::Auto,
                         "serial" => StructuralPreconditionerPolicy::Serial,
                         "parallel" => StructuralPreconditionerPolicy::Parallel,
-                        other => return Err(format!("unknown preconditioner policy '{other}'; use auto, serial, or parallel").into()),
+                        other => {
+                            return Err(format!(
+                        "unknown preconditioner policy '{other}'; use auto, serial, or parallel"
+                    )
+                            .into())
+                        }
                     }
                 }
                 "--pcg-vectors" => {
-                    pcg_vector_policy = match next_value(&mut it, "--pcg-vectors")?.to_ascii_lowercase().as_str() {
+                    pcg_vector_policy = match next_value(&mut it, "--pcg-vectors")?
+                        .to_ascii_lowercase()
+                        .as_str()
+                    {
                         "auto" => StructuralPcgVectorPolicy::Auto,
                         "serial" => StructuralPcgVectorPolicy::Serial,
                         "parallel" => StructuralPcgVectorPolicy::Parallel,
-                        other => return Err(format!("unknown PCG vector policy '{other}'; use auto, serial, or parallel").into()),
+                        other => {
+                            return Err(format!(
+                            "unknown PCG vector policy '{other}'; use auto, serial, or parallel"
+                        )
+                            .into())
+                        }
                     }
                 }
                 "--repeats" => repeats = next_value(&mut it, "--repeats")?.parse()?,
@@ -123,8 +155,12 @@ impl Args {
     }
 }
 
-fn next_value<I: Iterator<Item = String>>(it: &mut I, flag: &str) -> Result<String, Box<dyn Error>> {
-    it.next().ok_or_else(|| format!("missing value after {flag}").into())
+fn next_value<I: Iterator<Item = String>>(
+    it: &mut I,
+    flag: &str,
+) -> Result<String, Box<dyn Error>> {
+    it.next()
+        .ok_or_else(|| format!("missing value after {flag}").into())
 }
 
 fn print_usage() {
@@ -146,29 +182,43 @@ fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {
         }
         if expected.is_none() {
             expected = Some(text.parse::<usize>().map_err(|e| {
-                format!("{}:{}: invalid coordinate count: {e}", path.display(), line_no + 1)
+                format!(
+                    "{}:{}: invalid coordinate count: {e}",
+                    path.display(),
+                    line_no + 1
+                )
             })?);
             coordinates.reserve(expected.unwrap());
             continue;
         }
         let fields: Vec<&str> = text.split_whitespace().collect();
         if fields.len() != 3 {
-            return Err(format!("{}:{}: expected three coordinates", path.display(), line_no + 1).into());
+            return Err(format!(
+                "{}:{}: expected three coordinates",
+                path.display(),
+                line_no + 1
+            )
+            .into());
         }
         let x: f64 = fields[0].parse()?;
         let y: f64 = fields[1].parse()?;
         let z: f64 = fields[2].parse()?;
         if !x.is_finite() || !y.is_finite() || !z.is_finite() {
-            return Err(format!("{}:{}: non-finite coordinate", path.display(), line_no + 1).into());
+            return Err(
+                format!("{}:{}: non-finite coordinate", path.display(), line_no + 1).into(),
+            );
         }
         coordinates.push([x, y, z]);
     }
 
-    let expected = expected.ok_or_else(|| format!("{}: missing coordinate count", path.display()))?;
+    let expected =
+        expected.ok_or_else(|| format!("{}: missing coordinate count", path.display()))?;
     if coordinates.len() != expected {
         return Err(format!(
             "{}: coordinate count mismatch: header says {}, read {}",
-            path.display(), expected, coordinates.len()
+            path.display(),
+            expected,
+            coordinates.len()
         )
         .into());
     }
@@ -223,7 +273,11 @@ fn norm2(x: &[f64]) -> f64 {
     x.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
-fn verified_relative_residual(a: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<f64, Box<dyn Error>> {
+fn verified_relative_residual(
+    a: &Csr32Matrix,
+    b: &[f64],
+    x: &[f64],
+) -> Result<f64, Box<dyn Error>> {
     let ax = a.spmv(x)?;
     let sum = b
         .iter()
@@ -234,7 +288,11 @@ fn verified_relative_residual(a: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<f
         })
         .sum::<f64>();
     let denom = norm2(b);
-    Ok(if denom == 0.0 { sum.sqrt() } else { sum.sqrt() / denom })
+    Ok(if denom == 0.0 {
+        sum.sqrt()
+    } else {
+        sum.sqrt() / denom
+    })
 }
 
 fn relative_error_to_ones(x: &[f64]) -> f64 {
@@ -254,7 +312,10 @@ fn mib(bytes: usize) -> f64 {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse()?;
-    println!("HyBIT {} prepared structural solve-many FEM benchmark", env!("CARGO_PKG_VERSION"));
+    println!(
+        "HyBIT {} prepared structural solve-many FEM benchmark",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("matrix             : {}", args.matrix.display());
     println!("coordinates        : {}", args.coordinates.display());
 
@@ -272,13 +333,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("dimensions         : {} x {}", profile.nrows, profile.ncols);
     println!("nnz                : {}", profile.nnz);
-    println!("CSR storage        : {:.3} MiB", mib(matrix.storage_bytes()));
+    println!(
+        "CSR storage        : {:.3} MiB",
+        mib(matrix.storage_bytes())
+    );
     println!("matrix load        : {:.3} ms", matrix_load_seconds * 1.0e3);
     println!("coordinate nodes   : {}", coordinates.len());
     println!("coordinate load    : {:.3} ms", coord_load_seconds * 1.0e3);
 
     if !profile.square || !profile.full_diagonal || !profile.positive_diagonal {
-        return Err("prepared structural PCG requires a square matrix with a complete positive diagonal".into());
+        return Err(
+            "prepared structural PCG requires a square matrix with a complete positive diagonal"
+                .into(),
+        );
     }
     if matrix.nrows() != coordinates.len() * 3 {
         return Err(format!(
@@ -298,7 +365,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let ones = vec![1.0; matrix.ncols()];
         matrix.spmv(&ones)?
     };
-    println!("repeats            : {} (fresh zero initial guess each solve)", args.repeats);
+    println!(
+        "repeats            : {} (fresh zero initial guess each solve)",
+        args.repeats
+    );
 
     let mut solver = HybitSolver::new();
     solver.set_options(SolverOptions {
@@ -320,27 +390,67 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("policy             : StructuralAuto/RigidBodyTwoLevel/Prepared");
     println!("aggregation        : {:?}", prepared.aggregation());
     println!("SpMV policy        : {:?}", prepared.spmv_policy());
-    println!("precond policy     : {:?}", prepared.structural_preconditioner_policy());
+    println!(
+        "precond policy     : {:?}",
+        prepared.structural_preconditioner_policy()
+    );
     println!("PCG vector policy  : {:?}", prepared.pcg_vector_policy());
-    if prepared.parallel_spmv_enabled() || prepared.parallel_preconditioner_enabled() || prepared.parallel_pcg_vectors_enabled() {
-        println!("Rayon threads      : {}", ParallelCsr32Operator::new(&matrix).rayon_threads());
+    if prepared.parallel_spmv_enabled()
+        || prepared.parallel_preconditioner_enabled()
+        || prepared.parallel_pcg_vectors_enabled()
+    {
+        println!(
+            "Rayon threads      : {}",
+            ParallelCsr32Operator::new(&matrix).rayon_threads()
+        );
     }
     if prepared.parallel_preconditioner_enabled() {
-        println!("parallel index     : {:.3} MiB", mib(prepared.parallel_preconditioner_index_bytes()));
+        println!(
+            "parallel index     : {:.3} MiB",
+            mib(prepared.parallel_preconditioner_index_bytes())
+        );
     }
     println!("target coarse dim  : {}", args.target_coarse_dimension);
-    println!("aggregate nodes    : {} (auto-selected)", prepared.aggregate_nodes());
+    println!(
+        "aggregate nodes    : {} (auto-selected)",
+        prepared.aggregate_nodes()
+    );
     println!("aggregate count    : {}", prepared.aggregate_count());
-    println!("aggregate min/max  : {} / {} nodes", prepared.min_aggregate_nodes(), prepared.max_aggregate_nodes());
+    println!(
+        "aggregate min/max  : {} / {} nodes",
+        prepared.min_aggregate_nodes(),
+        prepared.max_aggregate_nodes()
+    );
     println!("modes/aggregate    : 6");
     println!("coarse dimension   : {}", prepared.coarse_dimension());
-    println!("base factor        : {:.3} MiB", mib(prepared.base_factor_bytes()));
-    println!("coarse factor      : {:.3} MiB", mib(prepared.coarse_factor_bytes()));
-    println!("geometry storage   : {:.3} MiB", mib(prepared.geometry_bytes()));
-    println!("total prec storage : {:.3} MiB", mib(prepared.preconditioner_bytes()));
-    println!("Krylov workspace   : {:.3} MiB", mib(prepared.krylov_workspace_bytes()));
-    println!("analysis once      : {:.3} ms", prepared.analysis_seconds() * 1.0e3);
-    println!("prepare once       : {:.3} ms", prepared.prepare_seconds() * 1.0e3);
+    println!(
+        "base factor        : {:.3} MiB",
+        mib(prepared.base_factor_bytes())
+    );
+    println!(
+        "coarse factor      : {:.3} MiB",
+        mib(prepared.coarse_factor_bytes())
+    );
+    println!(
+        "geometry storage   : {:.3} MiB",
+        mib(prepared.geometry_bytes())
+    );
+    println!(
+        "total prec storage : {:.3} MiB",
+        mib(prepared.preconditioner_bytes())
+    );
+    println!(
+        "Krylov workspace   : {:.3} MiB",
+        mib(prepared.krylov_workspace_bytes())
+    );
+    println!(
+        "analysis once      : {:.3} ms",
+        prepared.analysis_seconds() * 1.0e3
+    );
+    println!(
+        "prepare once       : {:.3} ms",
+        prepared.prepare_seconds() * 1.0e3
+    );
 
     let mut total_solve_seconds = 0.0f64;
     for repetition in 1..=args.repeats {
@@ -363,19 +473,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         if generated_rhs {
             println!("relative x error   : {:.6e}", relative_error_to_ones(&x));
         }
-        println!("analysis charged   : {:.3} ms", report.analysis_seconds * 1.0e3);
-        println!("prepare charged    : {:.3} ms", report.prepare_seconds * 1.0e3);
-        println!("solve time         : {:.3} ms", report.solve_seconds * 1.0e3);
+        println!(
+            "analysis charged   : {:.3} ms",
+            report.analysis_seconds * 1.0e3
+        );
+        println!(
+            "prepare charged    : {:.3} ms",
+            report.prepare_seconds * 1.0e3
+        );
+        println!(
+            "solve time         : {:.3} ms",
+            report.solve_seconds * 1.0e3
+        );
         println!("call wall          : {:.3} ms", wall_seconds * 1.0e3);
 
         if repetition == 1 && report.preconditioner_reused {
             return Err("first prepared structural solve unexpectedly reported reuse".into());
         }
         if repetition > 1 && !report.preconditioner_reused {
-            return Err("subsequent prepared structural solve did not report preconditioner reuse".into());
+            return Err(
+                "subsequent prepared structural solve did not report preconditioner reuse".into(),
+            );
         }
         if repetition > 1 && (report.analysis_seconds != 0.0 || report.prepare_seconds != 0.0) {
-            return Err("subsequent prepared structural solve was charged reusable setup cost".into());
+            return Err(
+                "subsequent prepared structural solve was charged reusable setup cost".into(),
+            );
         }
         if !verified.is_finite() {
             return Err("non-finite independently verified residual".into());
@@ -385,7 +508,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!();
     println!("Prepared reuse summary");
     println!("solve count        : {}", prepared.solve_count());
-    println!("one-time setup     : {:.3} ms", (prepared.analysis_seconds() + prepared.prepare_seconds()) * 1.0e3);
+    println!(
+        "one-time setup     : {:.3} ms",
+        (prepared.analysis_seconds() + prepared.prepare_seconds()) * 1.0e3
+    );
     println!("sum solve time     : {:.3} ms", total_solve_seconds * 1.0e3);
     println!(
         "amortized total   : {:.3} ms/solve",

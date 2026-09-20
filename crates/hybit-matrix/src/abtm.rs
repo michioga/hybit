@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use hybit_core::{HybitError, LinearOperator};
 use crate::{Csr32Matrix, DofMask};
+use hybit_core::{HybitError, LinearOperator};
 
 pub const TILE_WIDTH: usize = 64;
 const KIND_SHIFT: u32 = 30;
@@ -24,7 +24,12 @@ pub struct TileDesc {
 }
 
 impl TileDesc {
-    fn new(base_col: usize, value_offset: usize, mask: u64, kind: TileKind) -> Result<Self, HybitError> {
+    fn new(
+        base_col: usize,
+        value_offset: usize,
+        mask: u64,
+        kind: TileKind,
+    ) -> Result<Self, HybitError> {
         let word = base_col / TILE_WIDTH;
         if word > BASE_WORD_MASK as usize || value_offset > u32::MAX as usize {
             return Err(HybitError::SizeOverflow);
@@ -60,14 +65,22 @@ pub struct AbtmConfig {
 
 impl Default for AbtmConfig {
     fn default() -> Self {
-        Self { sparse_max_nnz: 8, dense_min_nnz: 40 }
+        Self {
+            sparse_max_nnz: 8,
+            dense_min_nnz: 40,
+        }
     }
 }
 
 impl AbtmConfig {
     fn validate(self) -> Result<Self, HybitError> {
-        if self.sparse_max_nnz == 0 || self.dense_min_nnz as usize > TILE_WIDTH || self.sparse_max_nnz >= self.dense_min_nnz {
-            return Err(HybitError::InvalidArgument("invalid ABTM density thresholds"));
+        if self.sparse_max_nnz == 0
+            || self.dense_min_nnz as usize > TILE_WIDTH
+            || self.sparse_max_nnz >= self.dense_min_nnz
+        {
+            return Err(HybitError::InvalidArgument(
+                "invalid ABTM density thresholds",
+            ));
         }
         Ok(self)
     }
@@ -88,7 +101,11 @@ pub struct AbtmStats {
 
 impl AbtmStats {
     pub fn metadata_bytes_per_nnz(&self) -> f64 {
-        if self.matrix_nnz == 0 { 0.0 } else { self.metadata_bytes as f64 / self.matrix_nnz as f64 }
+        if self.matrix_nnz == 0 {
+            0.0
+        } else {
+            self.metadata_bytes as f64 / self.matrix_nnz as f64
+        }
     }
     pub fn total_estimated_bytes(&self) -> usize {
         self.metadata_bytes + self.value_slots * std::mem::size_of::<f64>()
@@ -122,21 +139,30 @@ impl AbtmMatrix {
             for p in start..end {
                 let col = csr.col_idx()[p] as usize;
                 let value = csr.values()[p];
-                if value == 0.0 { continue; }
+                if value == 0.0 {
+                    continue;
+                }
                 let block = col / TILE_WIDTH;
                 let offset = (col % TILE_WIDTH) as u8;
                 *blocks.entry(block).or_default().entry(offset).or_default() += value;
             }
 
             for (block, entries) in blocks {
-                let canonical: Vec<(u8, f64)> = entries.into_iter().filter(|(_, v)| *v != 0.0).collect();
-                if canonical.is_empty() { continue; }
+                let canonical: Vec<(u8, f64)> =
+                    entries.into_iter().filter(|(_, v)| *v != 0.0).collect();
+                if canonical.is_empty() {
+                    continue;
+                }
                 let nnz = canonical.len();
                 matrix_nnz += nnz;
-                let base_col = block.checked_mul(TILE_WIDTH).ok_or(HybitError::SizeOverflow)?;
+                let base_col = block
+                    .checked_mul(TILE_WIDTH)
+                    .ok_or(HybitError::SizeOverflow)?;
                 let value_offset = values.len();
                 let mut mask = 0u64;
-                for &(offset, _) in &canonical { mask |= 1u64 << offset; }
+                for &(offset, _) in &canonical {
+                    mask |= 1u64 << offset;
+                }
                 let kind = if nnz <= config.sparse_max_nnz as usize {
                     TileKind::Sparse
                 } else if nnz >= config.dense_min_nnz as usize {
@@ -150,25 +176,41 @@ impl AbtmMatrix {
                     }
                     TileKind::Dense => {
                         let mut dense = [0.0f64; TILE_WIDTH];
-                        for &(offset, value) in &canonical { dense[offset as usize] = value; }
+                        for &(offset, value) in &canonical {
+                            dense[offset as usize] = value;
+                        }
                         values.extend_from_slice(&dense);
                     }
                 }
                 tiles.push(TileDesc::new(base_col, value_offset, mask, kind)?);
             }
-            if tiles.len() > u32::MAX as usize { return Err(HybitError::SizeOverflow); }
+            if tiles.len() > u32::MAX as usize {
+                return Err(HybitError::SizeOverflow);
+            }
             row_tile_ptr.push(tiles.len() as u32);
         }
 
-        Ok(Self { nrows: csr.nrows(), ncols: csr.ncols(), row_tile_ptr, tiles, values, matrix_nnz })
+        Ok(Self {
+            nrows: csr.nrows(),
+            ncols: csr.ncols(),
+            row_tile_ptr,
+            tiles,
+            values,
+            matrix_nnz,
+        })
     }
 
     pub fn expand_mask_one_hop(&self, mask: &DofMask) -> Result<DofMask, HybitError> {
         if self.nrows != self.ncols {
-            return Err(HybitError::InvalidMatrix("mask expansion requires a square ABTM matrix"));
+            return Err(HybitError::InvalidMatrix(
+                "mask expansion requires a square ABTM matrix",
+            ));
         }
         if mask.len() != self.nrows {
-            return Err(HybitError::DimensionMismatch { expected: self.nrows, actual: mask.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.nrows,
+                actual: mask.len(),
+            });
         }
         let mut expanded = mask.clone();
         for row in mask.indices() {
@@ -188,7 +230,8 @@ impl AbtmMatrix {
             matrix_nnz: self.matrix_nnz,
             tiles: self.tiles.len(),
             value_slots: self.values.len(),
-            metadata_bytes: self.row_tile_ptr.len() * std::mem::size_of::<u32>() + self.tiles.len() * std::mem::size_of::<TileDesc>(),
+            metadata_bytes: self.row_tile_ptr.len() * std::mem::size_of::<u32>()
+                + self.tiles.len() * std::mem::size_of::<TileDesc>(),
             ..AbtmStats::default()
         };
         for tile in &self.tiles {
@@ -218,15 +261,25 @@ impl AbtmMatrix {
 }
 
 impl LinearOperator for AbtmMatrix {
-    fn rows(&self) -> usize { self.nrows }
-    fn cols(&self) -> usize { self.ncols }
+    fn rows(&self) -> usize {
+        self.nrows
+    }
+    fn cols(&self) -> usize {
+        self.ncols
+    }
 
     fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
         if x.len() != self.ncols {
-            return Err(HybitError::DimensionMismatch { expected: self.ncols, actual: x.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.ncols,
+                actual: x.len(),
+            });
         }
         if y.len() != self.nrows {
-            return Err(HybitError::DimensionMismatch { expected: self.nrows, actual: y.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.nrows,
+                actual: y.len(),
+            });
         }
         for row in 0..self.nrows {
             let start = self.row_tile_ptr[row] as usize;
@@ -268,7 +321,8 @@ mod tests {
             vec![0, 2, 5, 8, 10],
             vec![0, 1, 0, 1, 2, 1, 2, 3, 2, 3],
             vec![4.0, -1.0, -1.0, 4.0, -1.0, -1.0, 4.0, -1.0, -1.0, 3.0],
-        ).unwrap();
+        )
+        .unwrap();
         let abtm = AbtmMatrix::from_csr32(&csr, AbtmConfig::default()).unwrap();
         let seed = DofMask::from_indices(4, &[1]).unwrap();
         let expanded = abtm.expand_mask_one_hop(&seed).unwrap();
@@ -283,13 +337,16 @@ mod tests {
             vec![0, 2, 5, 8, 10],
             vec![0, 1, 0, 1, 2, 1, 2, 3, 2, 3],
             vec![4.0, -1.0, -1.0, 4.0, -1.0, -1.0, 4.0, -1.0, -1.0, 3.0],
-        ).unwrap();
+        )
+        .unwrap();
         let abtm = AbtmMatrix::from_csr32(&csr, AbtmConfig::default()).unwrap();
         let x = [1.0, 2.0, 3.0, 4.0];
         let mut yc = vec![0.0; 4];
         let mut ya = vec![0.0; 4];
         csr.apply(&x, &mut yc).unwrap();
         abtm.apply(&x, &mut ya).unwrap();
-        for (a, b) in yc.iter().zip(&ya) { assert!((a - b).abs() < 1.0e-12); }
+        for (a, b) in yc.iter().zip(&ya) {
+            assert!((a - b).abs() < 1.0e-12);
+        }
     }
 }

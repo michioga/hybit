@@ -18,17 +18,27 @@ impl Csr32Matrix {
         col_idx: Vec<u32>,
         values: Vec<f64>,
     ) -> Result<Self, HybitError> {
-        let matrix = Self { nrows, ncols, row_ptr, col_idx, values };
+        let matrix = Self {
+            nrows,
+            ncols,
+            row_ptr,
+            col_idx,
+            values,
+        };
         matrix.validate()?;
         Ok(matrix)
     }
 
     pub fn validate(&self) -> Result<(), HybitError> {
         if self.row_ptr.len() != self.nrows + 1 {
-            return Err(HybitError::InvalidMatrix("row_ptr length must equal nrows + 1"));
+            return Err(HybitError::InvalidMatrix(
+                "row_ptr length must equal nrows + 1",
+            ));
         }
         if self.col_idx.len() != self.values.len() {
-            return Err(HybitError::InvalidMatrix("col_idx and values lengths differ"));
+            return Err(HybitError::InvalidMatrix(
+                "col_idx and values lengths differ",
+            ));
         }
         if self.row_ptr.first().copied().unwrap_or(1) != 0 {
             return Err(HybitError::InvalidMatrix("row_ptr[0] must be zero"));
@@ -42,7 +52,9 @@ impl Csr32Matrix {
         }
         for pair in self.row_ptr.windows(2) {
             if pair[0] > pair[1] {
-                return Err(HybitError::InvalidMatrix("row_ptr must be monotonically nondecreasing"));
+                return Err(HybitError::InvalidMatrix(
+                    "row_ptr must be monotonically nondecreasing",
+                ));
             }
         }
         if self.col_idx.iter().any(|&c| c as usize >= self.ncols) {
@@ -54,12 +66,24 @@ impl Csr32Matrix {
         Ok(())
     }
 
-    pub fn nrows(&self) -> usize { self.nrows }
-    pub fn ncols(&self) -> usize { self.ncols }
-    pub fn nnz(&self) -> usize { self.values.len() }
-    pub fn row_ptr(&self) -> &[u32] { &self.row_ptr }
-    pub fn col_idx(&self) -> &[u32] { &self.col_idx }
-    pub fn values(&self) -> &[f64] { &self.values }
+    pub fn nrows(&self) -> usize {
+        self.nrows
+    }
+    pub fn ncols(&self) -> usize {
+        self.ncols
+    }
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+    pub fn row_ptr(&self) -> &[u32] {
+        &self.row_ptr
+    }
+    pub fn col_idx(&self) -> &[u32] {
+        &self.col_idx
+    }
+    pub fn values(&self) -> &[f64] {
+        &self.values
+    }
 
     pub fn storage_bytes(&self) -> usize {
         self.row_ptr.len() * std::mem::size_of::<u32>()
@@ -74,7 +98,9 @@ impl Csr32Matrix {
 
     pub fn diagonal(&self) -> Result<Vec<f64>, HybitError> {
         if self.nrows != self.ncols {
-            return Err(HybitError::InvalidMatrix("diagonal requires a square matrix"));
+            return Err(HybitError::InvalidMatrix(
+                "diagonal requires a square matrix",
+            ));
         }
         let mut diagonal = vec![0.0; self.nrows];
         let mut found = vec![false; self.nrows];
@@ -103,7 +129,6 @@ impl Csr32Matrix {
     }
 }
 
-
 impl Csr32Matrix {
     #[inline(always)]
     unsafe fn dot_row_unchecked(&self, row: usize, x: &[f64]) -> f64 {
@@ -131,10 +156,16 @@ impl Csr32Matrix {
     /// loop to omit repeated bounds checks safely.
     pub fn apply_parallel(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
         if x.len() != self.ncols {
-            return Err(HybitError::DimensionMismatch { expected: self.ncols, actual: x.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.ncols,
+                actual: x.len(),
+            });
         }
         if y.len() != self.nrows {
-            return Err(HybitError::DimensionMismatch { expected: self.nrows, actual: y.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.nrows,
+                actual: y.len(),
+            });
         }
         y.par_iter_mut().enumerate().for_each(|(row, out)| {
             // SAFETY: dimensions are checked above and all CSR indices were
@@ -154,14 +185,24 @@ pub struct ParallelCsr32Operator<'a> {
 }
 
 impl<'a> ParallelCsr32Operator<'a> {
-    pub fn new(matrix: &'a Csr32Matrix) -> Self { Self { matrix } }
-    pub fn matrix(&self) -> &'a Csr32Matrix { self.matrix }
-    pub fn rayon_threads(&self) -> usize { rayon::current_num_threads() }
+    pub fn new(matrix: &'a Csr32Matrix) -> Self {
+        Self { matrix }
+    }
+    pub fn matrix(&self) -> &'a Csr32Matrix {
+        self.matrix
+    }
+    pub fn rayon_threads(&self) -> usize {
+        rayon::current_num_threads()
+    }
 }
 
 impl LinearOperator for ParallelCsr32Operator<'_> {
-    fn rows(&self) -> usize { self.matrix.nrows }
-    fn cols(&self) -> usize { self.matrix.ncols }
+    fn rows(&self) -> usize {
+        self.matrix.nrows
+    }
+    fn cols(&self) -> usize {
+        self.matrix.ncols
+    }
 
     fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
         self.matrix.apply_parallel(x, y)
@@ -169,15 +210,25 @@ impl LinearOperator for ParallelCsr32Operator<'_> {
 }
 
 impl LinearOperator for Csr32Matrix {
-    fn rows(&self) -> usize { self.nrows }
-    fn cols(&self) -> usize { self.ncols }
+    fn rows(&self) -> usize {
+        self.nrows
+    }
+    fn cols(&self) -> usize {
+        self.ncols
+    }
 
     fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
         if x.len() != self.ncols {
-            return Err(HybitError::DimensionMismatch { expected: self.ncols, actual: x.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.ncols,
+                actual: x.len(),
+            });
         }
         if y.len() != self.nrows {
-            return Err(HybitError::DimensionMismatch { expected: self.nrows, actual: y.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.nrows,
+                actual: y.len(),
+            });
         }
         for (row, out) in y.iter_mut().enumerate() {
             // SAFETY: dimensions are checked above and all CSR indices were
@@ -200,7 +251,8 @@ mod tests {
             vec![0, 2, 5, 7],
             vec![0, 1, 0, 1, 2, 1, 2],
             vec![2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0],
-        ).unwrap();
+        )
+        .unwrap();
         let y = a.spmv(&[1.0, 2.0, 3.0]).unwrap();
         assert_eq!(y, vec![0.0, 0.0, 4.0]);
     }
@@ -213,7 +265,8 @@ mod tests {
             vec![0, 2, 5, 7],
             vec![0, 1, 0, 1, 2, 1, 2],
             vec![2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0],
-        ).unwrap();
+        )
+        .unwrap();
         let x = [1.0, 2.0, 3.0];
         let serial = a.spmv(&x).unwrap();
         let mut parallel = vec![0.0; 3];

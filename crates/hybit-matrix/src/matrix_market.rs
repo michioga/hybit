@@ -56,13 +56,16 @@ impl Error for MatrixMarketError {
 }
 
 impl From<std::io::Error> for MatrixMarketError {
-    fn from(value: std::io::Error) -> Self { Self::Io(value) }
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
 }
 
 impl From<HybitError> for MatrixMarketError {
-    fn from(value: HybitError) -> Self { Self::Matrix(value) }
+    fn from(value: HybitError) -> Self {
+        Self::Matrix(value)
+    }
 }
-
 
 pub fn write_matrix_market_general<P: AsRef<Path>>(
     path: P,
@@ -73,7 +76,13 @@ pub fn write_matrix_market_general<P: AsRef<Path>>(
     let mut out = BufWriter::new(file);
     writeln!(out, "%%MatrixMarket matrix coordinate real general")?;
     writeln!(out, "% Written by HyBIT")?;
-    writeln!(out, "{} {} {}", matrix.nrows(), matrix.ncols(), matrix.nnz())?;
+    writeln!(
+        out,
+        "{} {} {}",
+        matrix.nrows(),
+        matrix.ncols(),
+        matrix.nnz()
+    )?;
     for row in 0..matrix.nrows() {
         let start = matrix.row_ptr()[row] as usize;
         let end = matrix.row_ptr()[row + 1] as usize;
@@ -171,7 +180,9 @@ pub fn read_matrix_market_from_reader<R: BufRead>(
     for line in lines {
         let line = line?;
         let t = line.trim();
-        if t.is_empty() || t.starts_with('%') { continue; }
+        if t.is_empty() || t.starts_with('%') {
+            continue;
+        }
         if read_entries >= input_entries {
             return Err(MatrixMarketError::Format(
                 "more data entries than declared in size line".into(),
@@ -190,9 +201,9 @@ pub fn read_matrix_market_from_reader<R: BufRead>(
                 "Matrix Market indices are 1-based and must lie inside matrix dimensions".into(),
             ));
         }
-        let value: f64 = fields[2]
-            .parse()
-            .map_err(|_| MatrixMarketError::Format(format!("invalid numeric value '{}'", fields[2])))?;
+        let value: f64 = fields[2].parse().map_err(|_| {
+            MatrixMarketError::Format(format!("invalid numeric value '{}'", fields[2]))
+        })?;
         if !value.is_finite() {
             return Err(MatrixMarketError::Format("NaN/Inf matrix value".into()));
         }
@@ -293,7 +304,8 @@ mod tests {
             vec![0, 2, 4],
             vec![0, 1, 0, 1],
             vec![2.0, -1.0, -1.0, 3.0],
-        ).unwrap();
+        )
+        .unwrap();
         let mut path = std::env::temp_dir();
         path.push(format!("hybit-mm-{}-{}.mtx", std::process::id(), 1));
         write_matrix_market_general(&path, &a).unwrap();
@@ -307,7 +319,8 @@ mod tests {
 
     #[test]
     fn combines_duplicate_entries() {
-        let text = b"%%MatrixMarket matrix coordinate real general\n2 2 4\n1 1 1\n1 1 2\n2 2 4\n1 2 0\n";
+        let text =
+            b"%%MatrixMarket matrix coordinate real general\n2 2 4\n1 1 1\n1 1 2\n2 2 4\n1 2 0\n";
         let (a, info) = read_matrix_market_from_reader(Cursor::new(text)).unwrap();
         assert_eq!(a.nnz(), 2);
         assert_eq!(info.duplicate_entries_combined, 1);

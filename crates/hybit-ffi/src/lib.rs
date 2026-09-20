@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
-use std::ptr;
 use std::panic::AssertUnwindSafe;
+use std::ptr;
 use std::slice;
 
 use hybit_auto::{BackendPolicy, HybitPreparedSystem, HybitSolver};
@@ -23,7 +23,8 @@ thread_local! {
 fn set_last_error(message: impl AsRef<str>) {
     let sanitized = message.as_ref().replace('\0', " ");
     LAST_ERROR.with(|slot| {
-        *slot.borrow_mut() = CString::new(sanitized).unwrap_or_else(|_| CString::new("HyBIT error").unwrap());
+        *slot.borrow_mut() =
+            CString::new(sanitized).unwrap_or_else(|_| CString::new("HyBIT error").unwrap());
     });
 }
 
@@ -31,7 +32,9 @@ fn map_error(err: &hybit_core::HybitError) -> c_int {
     use hybit_core::HybitError::*;
     match err {
         InvalidArgument(_) | DimensionMismatch { .. } => HYBIT_INVALID_ARGUMENT,
-        InvalidMatrix(_) | MissingDiagonal { .. } | ZeroDiagonal { .. } | SizeOverflow => HYBIT_INVALID_MATRIX,
+        InvalidMatrix(_) | MissingDiagonal { .. } | ZeroDiagonal { .. } | SizeOverflow => {
+            HYBIT_INVALID_MATRIX
+        }
         NotConverged { .. } => HYBIT_NOT_CONVERGED,
         NumericalBreakdown(_) => HYBIT_NUMERICAL_FAILURE,
     }
@@ -109,7 +112,13 @@ fn status_code(status: SolveStatus) -> c_int {
     }
 }
 fn solver_code(kind: SolverKind) -> c_int {
-    match kind { SolverKind::Pcg => 1, SolverKind::Minres => 2, SolverKind::Gmres => 3, SolverKind::Bicgstab => 4, SolverKind::Hybrid => 5 }
+    match kind {
+        SolverKind::Pcg => 1,
+        SolverKind::Minres => 2,
+        SolverKind::Gmres => 3,
+        SolverKind::Bicgstab => 4,
+        SolverKind::Hybrid => 5,
+    }
 }
 fn precond_code(kind: PreconditionerKind) -> c_int {
     match kind {
@@ -122,7 +131,11 @@ fn precond_code(kind: PreconditionerKind) -> c_int {
     }
 }
 fn backend_code(kind: MatrixBackend) -> c_int {
-    match kind { MatrixBackend::Csr32 => 1, MatrixBackend::Abtm => 2, MatrixBackend::MatrixFree => 3 }
+    match kind {
+        MatrixBackend::Csr32 => 1,
+        MatrixBackend::Abtm => 2,
+        MatrixBackend::MatrixFree => 3,
+    }
 }
 
 fn ffi_report(result: &hybit_core::SolveReport) -> HybitSolveReport {
@@ -160,11 +173,17 @@ fn ffi_report(result: &hybit_core::SolveReport) -> HybitSolveReport {
 }
 
 #[no_mangle]
-pub extern "C" fn hybit_version_major() -> u32 { 0 }
+pub extern "C" fn hybit_version_major() -> u32 {
+    0
+}
 #[no_mangle]
-pub extern "C" fn hybit_version_minor() -> u32 { 6 }
+pub extern "C" fn hybit_version_minor() -> u32 {
+    6
+}
 #[no_mangle]
-pub extern "C" fn hybit_version_patch() -> u32 { 0 }
+pub extern "C" fn hybit_version_patch() -> u32 {
+    0
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn hybit_last_error_message(buffer: *mut c_char, capacity: usize) -> usize {
@@ -184,9 +203,14 @@ pub unsafe extern "C" fn hybit_last_error_message(buffer: *mut c_char, capacity:
 
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHandle) -> c_int {
-    if out_solver.is_null() { set_last_error("out_solver is null"); return HYBIT_INVALID_ARGUMENT; }
+    if out_solver.is_null() {
+        set_last_error("out_solver is null");
+        return HYBIT_INVALID_ARGUMENT;
+    }
     ffi_guard(|| {
-        let handle = Box::new(HybitSolverHandle { solver: HybitSolver::new() });
+        let handle = Box::new(HybitSolverHandle {
+            solver: HybitSolver::new(),
+        });
         *out_solver = Box::into_raw(handle);
         Ok(())
     })
@@ -194,7 +218,9 @@ pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHa
 
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_destroy(solver: *mut HybitSolverHandle) {
-    if !solver.is_null() { drop(Box::from_raw(solver)); }
+    if !solver.is_null() {
+        drop(Box::from_raw(solver));
+    }
 }
 
 #[no_mangle]
@@ -203,7 +229,10 @@ pub unsafe extern "C" fn hybit_solver_set_tolerances(
     relative_tolerance: f64,
     absolute_tolerance: f64,
 ) -> c_int {
-    if solver.is_null() { set_last_error("solver is null"); return HYBIT_INVALID_ARGUMENT; }
+    if solver.is_null() {
+        set_last_error("solver is null");
+        return HYBIT_INVALID_ARGUMENT;
+    }
     ffi_guard(|| {
         let handle = &mut *solver;
         let mut options = handle.solver.options();
@@ -214,9 +243,18 @@ pub unsafe extern "C" fn hybit_solver_set_tolerances(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hybit_solver_set_max_iterations(solver: *mut HybitSolverHandle, max_iterations: u64) -> c_int {
-    if solver.is_null() { set_last_error("solver is null"); return HYBIT_INVALID_ARGUMENT; }
-    if max_iterations > usize::MAX as u64 { set_last_error("max_iterations is too large"); return HYBIT_INVALID_ARGUMENT; }
+pub unsafe extern "C" fn hybit_solver_set_max_iterations(
+    solver: *mut HybitSolverHandle,
+    max_iterations: u64,
+) -> c_int {
+    if solver.is_null() {
+        set_last_error("solver is null");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    if max_iterations > usize::MAX as u64 {
+        set_last_error("max_iterations is too large");
+        return HYBIT_INVALID_ARGUMENT;
+    }
     ffi_guard(|| {
         let handle = &mut *solver;
         let mut options = handle.solver.options();
@@ -226,21 +264,36 @@ pub unsafe extern "C" fn hybit_solver_set_max_iterations(solver: *mut HybitSolve
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hybit_solver_set_backend(solver: *mut HybitSolverHandle, backend: c_int) -> c_int {
-    if solver.is_null() { set_last_error("solver is null"); return HYBIT_INVALID_ARGUMENT; }
+pub unsafe extern "C" fn hybit_solver_set_backend(
+    solver: *mut HybitSolverHandle,
+    backend: c_int,
+) -> c_int {
+    if solver.is_null() {
+        set_last_error("solver is null");
+        return HYBIT_INVALID_ARGUMENT;
+    }
     let policy = match backend {
         0 => BackendPolicy::Auto,
         1 => BackendPolicy::Csr32,
         2 => BackendPolicy::Abtm,
-        _ => { set_last_error("backend must be 0 (auto), 1 (CSR32), or 2 (ABTM)"); return HYBIT_INVALID_ARGUMENT; }
+        _ => {
+            set_last_error("backend must be 0 (auto), 1 (CSR32), or 2 (ABTM)");
+            return HYBIT_INVALID_ARGUMENT;
+        }
     };
     (*solver).solver.set_backend_policy(policy);
     HYBIT_OK
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(solver: *mut HybitSolverHandle, enabled: c_int) -> c_int {
-    if solver.is_null() { set_last_error("solver is null"); return HYBIT_INVALID_ARGUMENT; }
+pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(
+    solver: *mut HybitSolverHandle,
+    enabled: c_int,
+) -> c_int {
+    if solver.is_null() {
+        set_last_error("solver is null");
+        return HYBIT_INVALID_ARGUMENT;
+    }
     if enabled != 0 && enabled != 1 {
         set_last_error("enabled must be 0 or 1");
         return HYBIT_INVALID_ARGUMENT;
@@ -254,9 +307,18 @@ pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(solver: *mut HybitSolve
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hybit_solver_set_overlap_layers(solver: *mut HybitSolverHandle, layers: u64) -> c_int {
-    if solver.is_null() { set_last_error("solver is null"); return HYBIT_INVALID_ARGUMENT; }
-    if layers > usize::MAX as u64 { set_last_error("overlap_layers is too large"); return HYBIT_INVALID_ARGUMENT; }
+pub unsafe extern "C" fn hybit_solver_set_overlap_layers(
+    solver: *mut HybitSolverHandle,
+    layers: u64,
+) -> c_int {
+    if solver.is_null() {
+        set_last_error("solver is null");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    if layers > usize::MAX as u64 {
+        set_last_error("overlap_layers is too large");
+        return HYBIT_INVALID_ARGUMENT;
+    }
     ffi_guard(|| {
         let handle = &mut *solver;
         let mut options = handle.solver.hybrid_options();
@@ -276,7 +338,10 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
     index_base: c_int,
     out_matrix: *mut *mut HybitMatrixHandle,
 ) -> c_int {
-    if out_matrix.is_null() || row_ptr.is_null() || (nnz > 0 && (col_idx.is_null() || values.is_null())) {
+    if out_matrix.is_null()
+        || row_ptr.is_null()
+        || (nnz > 0 && (col_idx.is_null() || values.is_null()))
+    {
         set_last_error("null pointer passed to hybit_matrix_create_csr_f64");
         return HYBIT_INVALID_ARGUMENT;
     }
@@ -291,8 +356,22 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
         let base = index_base as u32;
         let mut rp = Vec::with_capacity(rp_src.len());
         let mut ci = Vec::with_capacity(ci_src.len());
-        for &v in rp_src { rp.push(v.checked_sub(base).ok_or(hybit_core::HybitError::InvalidMatrix("row_ptr contains index below index_base"))?); }
-        for &v in ci_src { ci.push(v.checked_sub(base).ok_or(hybit_core::HybitError::InvalidMatrix("col_idx contains index below index_base"))?); }
+        for &v in rp_src {
+            rp.push(
+                v.checked_sub(base)
+                    .ok_or(hybit_core::HybitError::InvalidMatrix(
+                        "row_ptr contains index below index_base",
+                    ))?,
+            );
+        }
+        for &v in ci_src {
+            ci.push(
+                v.checked_sub(base)
+                    .ok_or(hybit_core::HybitError::InvalidMatrix(
+                        "col_idx contains index below index_base",
+                    ))?,
+            );
+        }
         let matrix = Csr32Matrix::new(nrows as usize, ncols as usize, rp, ci, va_src.to_vec())?;
         *out_matrix = Box::into_raw(Box::new(HybitMatrixHandle { matrix }));
         Ok(())
@@ -301,7 +380,9 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
 
 #[no_mangle]
 pub unsafe extern "C" fn hybit_matrix_destroy(matrix: *mut HybitMatrixHandle) {
-    if !matrix.is_null() { drop(Box::from_raw(matrix)); }
+    if !matrix.is_null() {
+        drop(Box::from_raw(matrix));
+    }
 }
 
 #[no_mangle]
@@ -326,7 +407,9 @@ pub unsafe extern "C" fn hybit_prepare(
 
 #[no_mangle]
 pub unsafe extern "C" fn hybit_prepared_destroy(prepared: *mut HybitPreparedHandle) {
-    if !prepared.is_null() { drop(Box::from_raw(prepared)); }
+    if !prepared.is_null() {
+        drop(Box::from_raw(prepared));
+    }
 }
 
 #[no_mangle]
@@ -349,11 +432,16 @@ pub unsafe extern "C" fn hybit_solve_prepared(
         let b_slice = slice::from_raw_parts(b, nrows);
         let x_slice = slice::from_raw_parts_mut(x, ncols);
         let result = prepared.prepared.solve(&matrix.matrix, b_slice, x_slice)?;
-        if !report.is_null() { *report = ffi_report(&result); }
+        if !report.is_null() {
+            *report = ffi_report(&result);
+        }
         if result.converged() {
             Ok(())
         } else {
-            Err(hybit_core::HybitError::NotConverged { iterations: result.iterations, residual: result.final_residual })
+            Err(hybit_core::HybitError::NotConverged {
+                iterations: result.iterations,
+                residual: result.final_residual,
+            })
         }
     })
 }
@@ -377,11 +465,20 @@ pub unsafe extern "C" fn hybit_solve(
         let ncols = matrix.matrix.ncols();
         let b_slice = slice::from_raw_parts(b, nrows);
         let x_slice = slice::from_raw_parts_mut(x, ncols);
-        let result = solver.solver.solve_csr32(&matrix.matrix, b_slice, x_slice)?;
+        let result = solver
+            .solver
+            .solve_csr32(&matrix.matrix, b_slice, x_slice)?;
         if !report.is_null() {
             *report = ffi_report(&result);
         }
-        if result.converged() { Ok(()) } else { Err(hybit_core::HybitError::NotConverged { iterations: result.iterations, residual: result.final_residual }) }
+        if result.converged() {
+            Ok(())
+        } else {
+            Err(hybit_core::HybitError::NotConverged {
+                iterations: result.iterations,
+                residual: result.final_residual,
+            })
+        }
     })
 }
 
@@ -400,16 +497,40 @@ mod tests {
             let mut solver: *mut HybitSolverHandle = ptr::null_mut();
             let mut matrix: *mut HybitMatrixHandle = ptr::null_mut();
             assert_eq!(hybit_solver_create(&mut solver), HYBIT_OK);
-            assert_eq!(hybit_matrix_create_csr_f64(3, 3, 7, row_ptr.as_ptr(), col_idx.as_ptr(), values.as_ptr(), 0, &mut matrix), HYBIT_OK);
+            assert_eq!(
+                hybit_matrix_create_csr_f64(
+                    3,
+                    3,
+                    7,
+                    row_ptr.as_ptr(),
+                    col_idx.as_ptr(),
+                    values.as_ptr(),
+                    0,
+                    &mut matrix
+                ),
+                HYBIT_OK
+            );
             let mut report = HybitSolveReport::default();
-            assert_eq!(hybit_solve(solver, matrix, b.as_ptr(), x.as_mut_ptr(), &mut report), HYBIT_OK);
+            assert_eq!(
+                hybit_solve(solver, matrix, b.as_ptr(), x.as_mut_ptr(), &mut report),
+                HYBIT_OK
+            );
             assert_eq!(report.status, 0);
 
             let mut prepared: *mut HybitPreparedHandle = ptr::null_mut();
             assert_eq!(hybit_prepare(solver, matrix, &mut prepared), HYBIT_OK);
             let mut x2 = [0.0; 3];
             let mut prepared_report = HybitSolveReport::default();
-            assert_eq!(hybit_solve_prepared(prepared, matrix, b.as_ptr(), x2.as_mut_ptr(), &mut prepared_report), HYBIT_OK);
+            assert_eq!(
+                hybit_solve_prepared(
+                    prepared,
+                    matrix,
+                    b.as_ptr(),
+                    x2.as_mut_ptr(),
+                    &mut prepared_report
+                ),
+                HYBIT_OK
+            );
             assert_eq!(prepared_report.status, 0);
             assert_eq!(prepared_report.solve_sequence, 1);
             hybit_prepared_destroy(prepared);

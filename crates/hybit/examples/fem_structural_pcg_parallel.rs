@@ -6,11 +6,10 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
-    read_matrix_market, recommend_rigid_body_aggregate_nodes, Csr32Matrix,
-    ParallelCsr32Operator, ParallelRigidBodyTwoLevelPreconditioner, PcgWorkspace,
-    RigidBodyAggregation, RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions,
-    PARALLEL_PCG_VECTOR_CHUNK,
+    analyze_csr32, pcg_with_workspace, pcg_with_workspace_parallel_vectors, read_matrix_market,
+    recommend_rigid_body_aggregate_nodes, Csr32Matrix, ParallelCsr32Operator,
+    ParallelRigidBodyTwoLevelPreconditioner, PcgWorkspace, RigidBodyAggregation,
+    RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions, PARALLEL_PCG_VECTOR_CHUNK,
 };
 
 #[derive(Debug)]
@@ -144,16 +143,14 @@ fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {
             fields[2].parse::<f64>()?,
         ];
         if xyz.iter().any(|v| !v.is_finite()) {
-            return Err(format!(
-                "{}:{}: non-finite coordinate",
-                path.display(),
-                line_no + 1
-            )
-            .into());
+            return Err(
+                format!("{}:{}: non-finite coordinate", path.display(), line_no + 1).into(),
+            );
         }
         coordinates.push(xyz);
     }
-    let expected = expected.ok_or_else(|| format!("{}: missing coordinate count", path.display()))?;
+    let expected =
+        expected.ok_or_else(|| format!("{}: missing coordinate count", path.display()))?;
     if coordinates.len() != expected {
         return Err(format!(
             "{}: coordinate count mismatch: header says {}, read {}",
@@ -271,15 +268,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         matrix_profile.nrows, matrix_profile.ncols
     );
     println!("nnz                : {}", matrix_profile.nnz);
-    println!("CSR storage        : {:.3} MiB", mib(matrix.storage_bytes()));
+    println!(
+        "CSR storage        : {:.3} MiB",
+        mib(matrix.storage_bytes())
+    );
     println!("matrix load        : {:.3} ms", matrix_load * 1.0e3);
     println!("coordinate nodes   : {}", coordinates.len());
     println!("coordinate load    : {:.3} ms", coord_load * 1.0e3);
     println!("aggregation        : {:?}", args.aggregation);
     println!("target coarse dim  : {}", args.target_coarse_dimension);
 
-    if !matrix_profile.square || !matrix_profile.full_diagonal || !matrix_profile.positive_diagonal {
-        return Err("structural PCG benchmark requires a square matrix with a complete positive diagonal".into());
+    if !matrix_profile.square || !matrix_profile.full_diagonal || !matrix_profile.positive_diagonal
+    {
+        return Err(
+            "structural PCG benchmark requires a square matrix with a complete positive diagonal"
+                .into(),
+        );
     }
     if matrix.nrows() != coordinates.len() * 3 {
         return Err(format!(
@@ -298,10 +302,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         matrix.spmv(&vec![1.0; matrix.ncols()])?
     };
 
-    let aggregate_nodes = recommend_rigid_body_aggregate_nodes(
-        coordinates.len(),
-        args.target_coarse_dimension,
-    )?;
+    let aggregate_nodes =
+        recommend_rigid_body_aggregate_nodes(coordinates.len(), args.target_coarse_dimension)?;
     let setup_start = Instant::now();
     let preconditioner = match args.aggregation {
         RigidBodyAggregation::Graph => {
@@ -311,13 +313,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 aggregate_nodes,
             )?
         }
-        RigidBodyAggregation::Contiguous => {
-            RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(
-                &matrix,
-                &coordinates,
-                aggregate_nodes,
-            )?
-        }
+        RigidBodyAggregation::Contiguous => RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(
+            &matrix,
+            &coordinates,
+            aggregate_nodes,
+        )?,
         RigidBodyAggregation::Auto => unreachable!(),
     };
     let parallel_preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&preconditioner)?;
@@ -327,13 +327,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("aggregate target   : {} nodes", aggregate_nodes);
     println!("aggregate count    : {}", preconditioner.aggregate_count());
     println!("coarse dimension   : {}", preconditioner.coarse_dimension());
-    println!("prec storage       : {:.3} MiB", mib(preconditioner.factor_bytes()));
+    println!(
+        "prec storage       : {:.3} MiB",
+        mib(preconditioner.factor_bytes())
+    );
     println!(
         "parallel index     : {:.3} MiB",
         mib(parallel_preconditioner.index_storage_bytes())
     );
     println!("setup              : {:.3} ms", setup_seconds * 1.0e3);
-    println!("Rayon threads      : {}", parallel_preconditioner.rayon_threads());
+    println!(
+        "Rayon threads      : {}",
+        parallel_preconditioner.rayon_threads()
+    );
     println!("vector chunk       : {} values", PARALLEL_PCG_VECTOR_CHUNK);
 
     let options = SolverOptions {

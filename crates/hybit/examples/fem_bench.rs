@@ -42,22 +42,34 @@ impl Args {
                 "--tol" => relative_tolerance = next_value(&mut it, "--tol")?.parse()?,
                 "--max-iters" => max_iterations = next_value(&mut it, "--max-iters")?.parse()?,
                 "--overlap" => overlap_layers = next_value(&mut it, "--overlap")?.parse()?,
-                "--probe-iters" => probe_iterations = next_value(&mut it, "--probe-iters")?.parse()?,
-                "--max-region" => max_local_region_size = next_value(&mut it, "--max-region")?.parse()?,
-                "--max-regions" => max_local_regions = next_value(&mut it, "--max-regions")?.parse()?,
+                "--probe-iters" => {
+                    probe_iterations = next_value(&mut it, "--probe-iters")?.parse()?
+                }
+                "--max-region" => {
+                    max_local_region_size = next_value(&mut it, "--max-region")?.parse()?
+                }
+                "--max-regions" => {
+                    max_local_regions = next_value(&mut it, "--max-regions")?.parse()?
+                }
                 "--backend" => {
                     backend = match next_value(&mut it, "--backend")?.as_str() {
                         "auto" => BackendPolicy::Auto,
                         "csr" | "csr32" => BackendPolicy::Csr32,
                         "abtm" => BackendPolicy::Abtm,
-                        other => return Err(format!("unknown backend '{other}'; use auto|csr|abtm").into()),
+                        other => {
+                            return Err(
+                                format!("unknown backend '{other}'; use auto|csr|abtm").into()
+                            )
+                        }
                     }
                 }
                 "-h" | "--help" => {
                     print_usage();
                     std::process::exit(0);
                 }
-                other if !other.starts_with('-') && matrix.is_none() => matrix = Some(PathBuf::from(other)),
+                other if !other.starts_with('-') && matrix.is_none() => {
+                    matrix = Some(PathBuf::from(other))
+                }
                 other => return Err(format!("unknown argument '{other}'").into()),
             }
         }
@@ -66,10 +78,18 @@ impl Args {
         if !relative_tolerance.is_finite() || relative_tolerance <= 0.0 {
             return Err("--tol must be finite and > 0".into());
         }
-        if max_iterations == 0 { return Err("--max-iters must be > 0".into()); }
-        if probe_iterations == 0 { return Err("--probe-iters must be > 0".into()); }
-        if max_local_region_size == 0 { return Err("--max-region must be > 0".into()); }
-        if max_local_regions == 0 { return Err("--max-regions must be > 0".into()); }
+        if max_iterations == 0 {
+            return Err("--max-iters must be > 0".into());
+        }
+        if probe_iterations == 0 {
+            return Err("--probe-iters must be > 0".into());
+        }
+        if max_local_region_size == 0 {
+            return Err("--max-region must be > 0".into());
+        }
+        if max_local_regions == 0 {
+            return Err("--max-regions must be > 0".into());
+        }
 
         Ok(Self {
             matrix,
@@ -85,8 +105,12 @@ impl Args {
     }
 }
 
-fn next_value<I: Iterator<Item = String>>(it: &mut I, flag: &str) -> Result<String, Box<dyn Error>> {
-    it.next().ok_or_else(|| format!("missing value after {flag}").into())
+fn next_value<I: Iterator<Item = String>>(
+    it: &mut I,
+    flag: &str,
+) -> Result<String, Box<dyn Error>> {
+    it.next()
+        .ok_or_else(|| format!("missing value after {flag}").into())
 }
 
 fn print_usage() {
@@ -156,7 +180,11 @@ fn norm2(x: &[f64]) -> f64 {
     x.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
-fn verified_relative_residual(a: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<f64, Box<dyn Error>> {
+fn verified_relative_residual(
+    a: &Csr32Matrix,
+    b: &[f64],
+    x: &[f64],
+) -> Result<f64, Box<dyn Error>> {
     let ax = a.spmv(x)?;
     let mut sum = 0.0;
     for i in 0..b.len() {
@@ -164,7 +192,11 @@ fn verified_relative_residual(a: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<f
         sum += r * r;
     }
     let denom = norm2(b);
-    Ok(if denom == 0.0 { sum.sqrt() } else { sum.sqrt() / denom })
+    Ok(if denom == 0.0 {
+        sum.sqrt()
+    } else {
+        sum.sqrt() / denom
+    })
 }
 
 fn relative_error_to_ones(x: &[f64]) -> f64 {
@@ -176,7 +208,9 @@ fn relative_error_to_ones(x: &[f64]) -> f64 {
     diff.sqrt() / (x.len() as f64).sqrt().max(f64::MIN_POSITIVE)
 }
 
-fn mib(bytes: usize) -> f64 { bytes as f64 / (1024.0 * 1024.0) }
+fn mib(bytes: usize) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
 
 fn backend_name(backend: MatrixBackend) -> &'static str {
     match backend {
@@ -197,14 +231,32 @@ fn main() -> Result<(), Box<dyn Error>> {
     let load_seconds = load_start.elapsed().as_secs_f64();
     let profile = analyze_csr32(&matrix)?;
 
-    println!("Matrix Market      : {:?}, {} input entries -> {} CSR nnz", mm.symmetry, mm.input_entries, mm.csr_nnz);
-    println!("coalesced / zeros  : {} / {}", mm.duplicate_entries_combined, mm.zero_entries_removed);
+    println!(
+        "Matrix Market      : {:?}, {} input entries -> {} CSR nnz",
+        mm.symmetry, mm.input_entries, mm.csr_nnz
+    );
+    println!(
+        "coalesced / zeros  : {} / {}",
+        mm.duplicate_entries_combined, mm.zero_entries_removed
+    );
     println!("dimensions         : {} x {}", profile.nrows, profile.ncols);
     println!("nnz                : {}", profile.nnz);
-    println!("avg/max nnz/row    : {:.2} / {}", profile.avg_nnz_per_row, profile.max_nnz_per_row);
-    println!("CSR storage        : {:.3} MiB", mib(matrix.storage_bytes()));
-    println!("CSR metadata       : {:.3} MiB", mib(profile.csr_metadata_bytes));
-    println!("full/+ diagonal    : {} / {}", profile.full_diagonal, profile.positive_diagonal);
+    println!(
+        "avg/max nnz/row    : {:.2} / {}",
+        profile.avg_nnz_per_row, profile.max_nnz_per_row
+    );
+    println!(
+        "CSR storage        : {:.3} MiB",
+        mib(matrix.storage_bytes())
+    );
+    println!(
+        "CSR metadata       : {:.3} MiB",
+        mib(profile.csr_metadata_bytes)
+    );
+    println!(
+        "full/+ diagonal    : {} / {}",
+        profile.full_diagonal, profile.positive_diagonal
+    );
     println!("load time          : {:.3} ms", load_seconds * 1.0e3);
 
     if !profile.square || !profile.full_diagonal || !profile.positive_diagonal {
@@ -238,12 +290,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     let plain_verified = verified_relative_residual(&matrix, &b, &x_plain)?;
     println!("status             : {:?}", plain.status);
     println!("iterations         : {}", plain.iterations);
-    println!("reported residual  : {:.6e}", plain.final_residual / norm2(&b).max(f64::MIN_POSITIVE));
+    println!(
+        "reported residual  : {:.6e}",
+        plain.final_residual / norm2(&b).max(f64::MIN_POSITIVE)
+    );
     println!("verified residual  : {:.6e}", plain_verified);
-    println!("setup / solve      : {:.3} / {:.3} ms", plain_setup_seconds * 1.0e3, plain_solve_seconds * 1.0e3);
-    println!("workspace estimate : {:.3} MiB", mib(6 * matrix.nrows() * std::mem::size_of::<f64>()));
+    println!(
+        "setup / solve      : {:.3} / {:.3} ms",
+        plain_setup_seconds * 1.0e3,
+        plain_solve_seconds * 1.0e3
+    );
+    println!(
+        "workspace estimate : {:.3} MiB",
+        mib(6 * matrix.nrows() * std::mem::size_of::<f64>())
+    );
     if generated_rhs {
-        println!("relative x error   : {:.6e}", relative_error_to_ones(&x_plain));
+        println!(
+            "relative x error   : {:.6e}",
+            relative_error_to_ones(&x_plain)
+        );
     }
 
     println!();
@@ -271,27 +336,64 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("reported residual  : {:.6e}", report.relative_residual);
     println!("verified residual  : {:.6e}", hybit_verified);
     println!("escalations        : {}", report.escalations);
-    println!("probe              : {} iters, {:.3} ms", report.probe_iterations, report.probe_seconds * 1.0e3);
+    println!(
+        "probe              : {} iters, {:.3} ms",
+        report.probe_iterations,
+        report.probe_seconds * 1.0e3
+    );
     println!("hard core DOFs     : {}", report.hard_dofs);
     println!("local regions      : {}", report.local_direct_regions);
     println!("largest region     : {}", report.largest_local_region);
-    println!("factor DOFs        : {} total / {} unique", report.local_factor_dofs, report.unique_local_factor_dofs);
-    println!("factor memory      : {:.3} MiB", mib(report.local_factor_bytes));
-    println!("Krylov workspace   : {:.3} MiB", mib(report.krylov_workspace_bytes));
-    println!("analysis           : {:.3} ms", report.analysis_seconds * 1.0e3);
-    println!("prepare            : {:.3} ms", report.prepare_seconds * 1.0e3);
-    println!("diagnostics        : {:.3} ms", report.diagnostics_seconds * 1.0e3);
-    println!("local factor       : {:.3} ms", report.local_factor_seconds * 1.0e3);
-    println!("solver time        : {:.3} ms", report.solve_seconds * 1.0e3);
+    println!(
+        "factor DOFs        : {} total / {} unique",
+        report.local_factor_dofs, report.unique_local_factor_dofs
+    );
+    println!(
+        "factor memory      : {:.3} MiB",
+        mib(report.local_factor_bytes)
+    );
+    println!(
+        "Krylov workspace   : {:.3} MiB",
+        mib(report.krylov_workspace_bytes)
+    );
+    println!(
+        "analysis           : {:.3} ms",
+        report.analysis_seconds * 1.0e3
+    );
+    println!(
+        "prepare            : {:.3} ms",
+        report.prepare_seconds * 1.0e3
+    );
+    println!(
+        "diagnostics        : {:.3} ms",
+        report.diagnostics_seconds * 1.0e3
+    );
+    println!(
+        "local factor       : {:.3} ms",
+        report.local_factor_seconds * 1.0e3
+    );
+    println!(
+        "solver time        : {:.3} ms",
+        report.solve_seconds * 1.0e3
+    );
     println!("total wall         : {:.3} ms", hybit_wall_seconds * 1.0e3);
     if generated_rhs {
-        println!("relative x error   : {:.6e}", relative_error_to_ones(&x_hybit));
+        println!(
+            "relative x error   : {:.6e}",
+            relative_error_to_ones(&x_hybit)
+        );
     }
 
     println!();
     println!("Comparison");
-    println!("iteration ratio    : {:.3} (HyBIT / plain)", report.iterations as f64 / (plain.iterations.max(1) as f64));
-    println!("solve-time ratio   : {:.3} (HyBIT wall / plain setup+solve)", hybit_wall_seconds / (plain_setup_seconds + plain_solve_seconds).max(f64::MIN_POSITIVE));
+    println!(
+        "iteration ratio    : {:.3} (HyBIT / plain)",
+        report.iterations as f64 / (plain.iterations.max(1) as f64)
+    );
+    println!(
+        "solve-time ratio   : {:.3} (HyBIT wall / plain setup+solve)",
+        hybit_wall_seconds / (plain_setup_seconds + plain_solve_seconds).max(f64::MIN_POSITIVE)
+    );
 
     if !plain_verified.is_finite() || !hybit_verified.is_finite() {
         return Err("non-finite independently verified residual".into());

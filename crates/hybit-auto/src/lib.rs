@@ -2,14 +2,17 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use hybit_core::{
-    l2_norm, HybitError, LinearOperator, MatrixBackend, Preconditioner, PreconditionerKind, SolveReport,
-    SolveStatus, SolverKind, SolverOptions,
+    l2_norm, HybitError, LinearOperator, MatrixBackend, Preconditioner, PreconditionerKind,
+    SolveReport, SolveStatus, SolverKind, SolverOptions,
 };
 use hybit_krylov::{
     parallel_vector_worker_count, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
     KrylovOutcome, PcgWorkspace,
 };
-use hybit_matrix::{analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile, ParallelCsr32Operator};
+use hybit_matrix::{
+    analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
+    ParallelCsr32Operator,
+};
 pub use hybit_precond::RigidBodyAggregation;
 use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, HybridPreconditioner, JacobiPreconditioner,
@@ -142,22 +145,32 @@ impl HybridOptions {
             return Err(HybitError::InvalidArgument("probe_iterations must be > 0"));
         }
         if !self.escalation_residual_ratio.is_finite() || self.escalation_residual_ratio <= 0.0 {
-            return Err(HybitError::InvalidArgument("escalation_residual_ratio must be finite and > 0"));
+            return Err(HybitError::InvalidArgument(
+                "escalation_residual_ratio must be finite and > 0",
+            ));
         }
         if !self.coupling_risk_threshold.is_finite() || self.coupling_risk_threshold < 0.0 {
-            return Err(HybitError::InvalidArgument("coupling_risk_threshold must be finite and >= 0"));
+            return Err(HybitError::InvalidArgument(
+                "coupling_risk_threshold must be finite and >= 0",
+            ));
         }
         if !self.scale_jump_threshold.is_finite() || self.scale_jump_threshold < 1.0 {
-            return Err(HybitError::InvalidArgument("scale_jump_threshold must be finite and >= 1"));
+            return Err(HybitError::InvalidArgument(
+                "scale_jump_threshold must be finite and >= 1",
+            ));
         }
         if !self.residual_seed_fraction.is_finite()
             || self.residual_seed_fraction <= 0.0
             || self.residual_seed_fraction > 1.0
         {
-            return Err(HybitError::InvalidArgument("residual_seed_fraction must be in (0, 1]"));
+            return Err(HybitError::InvalidArgument(
+                "residual_seed_fraction must be in (0, 1]",
+            ));
         }
         if self.max_local_region_size == 0 || self.max_local_regions == 0 {
-            return Err(HybitError::InvalidArgument("local region limits must be > 0"));
+            return Err(HybitError::InvalidArgument(
+                "local region limits must be > 0",
+            ));
         }
         if self.overlap_layers > 8 {
             return Err(HybitError::InvalidArgument("overlap_layers must be <= 8"));
@@ -195,9 +208,15 @@ pub struct HybitAnalysis {
 }
 
 impl HybitAnalysis {
-    pub fn profile(&self) -> &MatrixProfile { &self.profile }
-    pub fn backend(&self) -> MatrixBackend { self.backend }
-    pub fn analysis_seconds(&self) -> f64 { self.analysis_seconds }
+    pub fn profile(&self) -> &MatrixProfile {
+        &self.profile
+    }
+    pub fn backend(&self) -> MatrixBackend {
+        self.backend
+    }
+    pub fn analysis_seconds(&self) -> f64 {
+        self.analysis_seconds
+    }
 }
 
 #[derive(Debug)]
@@ -217,17 +236,31 @@ pub struct HybitPreparedSystem {
 }
 
 impl HybitPreparedSystem {
-    pub fn backend(&self) -> MatrixBackend { self.backend }
-    pub fn analysis_seconds(&self) -> f64 { self.analysis_seconds }
-    pub fn prepare_seconds(&self) -> f64 { self.prepare_seconds }
-    pub fn solve_count(&self) -> usize { self.solve_sequence }
-    pub fn krylov_workspace_bytes(&self) -> usize { self.workspace.bytes() }
-    pub fn has_cached_hybrid(&self) -> bool { self.hybrid.is_some() }
+    pub fn backend(&self) -> MatrixBackend {
+        self.backend
+    }
+    pub fn analysis_seconds(&self) -> f64 {
+        self.analysis_seconds
+    }
+    pub fn prepare_seconds(&self) -> f64 {
+        self.prepare_seconds
+    }
+    pub fn solve_count(&self) -> usize {
+        self.solve_sequence
+    }
+    pub fn krylov_workspace_bytes(&self) -> usize {
+        self.workspace.bytes()
+    }
+    pub fn has_cached_hybrid(&self) -> bool {
+        self.hybrid.is_some()
+    }
 
     fn validate_matrix(&self, matrix: &Csr32Matrix) -> Result<(), HybitError> {
         let (structure, values) = matrix_signatures(matrix);
         if structure != self.structure_signature {
-            return Err(HybitError::InvalidArgument("prepared context matrix structure changed; analyze and prepare again"));
+            return Err(HybitError::InvalidArgument(
+                "prepared context matrix structure changed; analyze and prepare again",
+            ));
         }
         if values != self.value_signature {
             return Err(HybitError::InvalidArgument("prepared context matrix values changed; prepare again before reusing local factors"));
@@ -235,13 +268,24 @@ impl HybitPreparedSystem {
         Ok(())
     }
 
-    pub fn solve(&mut self, matrix: &Csr32Matrix, b: &[f64], x: &mut [f64]) -> Result<SolveReport, HybitError> {
+    pub fn solve(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
         self.validate_matrix(matrix)?;
         if b.len() != matrix.nrows() {
-            return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: b.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.nrows(),
+                actual: b.len(),
+            });
         }
         if x.len() != matrix.ncols() {
-            return Err(HybitError::DimensionMismatch { expected: matrix.ncols(), actual: x.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.ncols(),
+                actual: x.len(),
+            });
         }
         self.solve_sequence += 1;
         let sequence = self.solve_sequence;
@@ -262,8 +306,16 @@ impl HybitPreparedSystem {
             )?;
             let elapsed = start.elapsed().as_secs_f64();
             let metrics = ReportMetrics {
-                analysis_seconds: if charge_context_setup { self.analysis_seconds } else { 0.0 },
-                prepare_seconds: if charge_context_setup { self.prepare_seconds } else { 0.0 },
+                analysis_seconds: if charge_context_setup {
+                    self.analysis_seconds
+                } else {
+                    0.0
+                },
+                prepare_seconds: if charge_context_setup {
+                    self.prepare_seconds
+                } else {
+                    0.0
+                },
                 restart_seconds: elapsed,
                 local_direct_regions: hybrid.region_count(),
                 largest_local_region: hybrid.largest_region(),
@@ -300,7 +352,10 @@ impl HybitPreparedSystem {
         let probe_budget = if self.options.max_iterations <= 1 {
             self.options.max_iterations
         } else {
-            self.hybrid_options.probe_iterations.min(self.options.max_iterations - 1).max(1)
+            self.hybrid_options
+                .probe_iterations
+                .min(self.options.max_iterations - 1)
+                .max(1)
         };
         let mut probe_options = self.options;
         probe_options.max_iterations = probe_budget;
@@ -318,8 +373,16 @@ impl HybitPreparedSystem {
         let probe_iterations = probe.iterations;
         let probe_final_residual = probe.final_residual;
         let base_metrics = ReportMetrics {
-            analysis_seconds: if charge_context_setup { self.analysis_seconds } else { 0.0 },
-            prepare_seconds: if charge_context_setup { self.prepare_seconds } else { 0.0 },
+            analysis_seconds: if charge_context_setup {
+                self.analysis_seconds
+            } else {
+                0.0
+            },
+            prepare_seconds: if charge_context_setup {
+                self.prepare_seconds
+            } else {
+                0.0
+            },
             probe_seconds,
             probe_iterations,
             probe_final_residual,
@@ -329,7 +392,8 @@ impl HybitPreparedSystem {
             ..ReportMetrics::default()
         };
 
-        if probe.status == SolveStatus::Converged || probe.iterations >= self.options.max_iterations {
+        if probe.status == SolveStatus::Converged || probe.iterations >= self.options.max_iterations
+        {
             return Ok(report_from_outcome(
                 probe,
                 SolverKind::Pcg,
@@ -343,7 +407,8 @@ impl HybitPreparedSystem {
         let poor_progress = self.hybrid_options.enabled
             && probe.status == SolveStatus::MaxIterations
             && probe.initial_residual > 0.0
-            && probe.final_residual / probe.initial_residual > self.hybrid_options.escalation_residual_ratio;
+            && probe.final_residual / probe.initial_residual
+                > self.hybrid_options.escalation_residual_ratio;
 
         let remaining = self.options.max_iterations.saturating_sub(probe_iterations);
         if !poor_progress || remaining == 0 {
@@ -375,14 +440,19 @@ impl HybitPreparedSystem {
         let residual = residual(matrix, b, x)?;
         let risk = numerical_risk_mask(matrix, self.hybrid_options)?;
         let seeds = residual_seed_mask(&residual, self.hybrid_options.residual_seed_fraction)?;
-        let selected = select_risk_components(matrix, &risk, &seeds, &residual, self.hybrid_options)?;
+        let selected =
+            select_risk_components(matrix, &risk, &seeds, &residual, self.hybrid_options)?;
         let hard_dofs = selected.count_ones();
         let core_regions = extract_core_regions(matrix, &selected, &residual, self.hybrid_options)?;
         if self.abtm.is_none() {
             self.abtm = Some(AbtmMatrix::from_csr32(matrix, AbtmConfig::default())?);
         }
-        let abtm = self.abtm.as_ref().expect("ABTM topology initialized for hybrid escalation");
-        let regions = expand_regions_with_overlap(abtm, &core_regions, &residual, self.hybrid_options)?;
+        let abtm = self
+            .abtm
+            .as_ref()
+            .expect("ABTM topology initialized for hybrid escalation");
+        let regions =
+            expand_regions_with_overlap(abtm, &core_regions, &residual, self.hybrid_options)?;
         let diagnostics_seconds = diagnostics_start.elapsed().as_secs_f64();
 
         if regions.is_empty() {
@@ -521,31 +591,75 @@ pub struct HybitPreparedStructuralSystem {
 }
 
 impl HybitPreparedStructuralSystem {
-    pub fn backend(&self) -> MatrixBackend { self.backend }
-    pub fn analysis_seconds(&self) -> f64 { self.analysis_seconds }
-    pub fn prepare_seconds(&self) -> f64 { self.prepare_seconds }
-    pub fn solve_count(&self) -> usize { self.solve_sequence }
-    pub fn krylov_workspace_bytes(&self) -> usize { self.workspace.bytes() }
-    pub fn aggregate_nodes(&self) -> usize { self.aggregate_nodes }
-    pub fn aggregate_count(&self) -> usize { self.preconditioner.aggregate_count() }
-    pub fn min_aggregate_nodes(&self) -> usize { self.preconditioner.min_aggregate_nodes() }
-    pub fn max_aggregate_nodes(&self) -> usize { self.preconditioner.max_aggregate_nodes() }
-    pub fn aggregation(&self) -> RigidBodyAggregation { self.preconditioner.aggregation() }
-    pub fn coarse_dimension(&self) -> usize { self.preconditioner.coarse_dimension() }
-    pub fn preconditioner_bytes(&self) -> usize { self.preconditioner.factor_bytes() }
-    pub fn base_factor_bytes(&self) -> usize { self.preconditioner.base_factor_bytes() }
-    pub fn coarse_factor_bytes(&self) -> usize { self.preconditioner.coarse_factor_bytes() }
-    pub fn geometry_bytes(&self) -> usize { self.preconditioner.geometry_bytes() }
+    pub fn backend(&self) -> MatrixBackend {
+        self.backend
+    }
+    pub fn analysis_seconds(&self) -> f64 {
+        self.analysis_seconds
+    }
+    pub fn prepare_seconds(&self) -> f64 {
+        self.prepare_seconds
+    }
+    pub fn solve_count(&self) -> usize {
+        self.solve_sequence
+    }
+    pub fn krylov_workspace_bytes(&self) -> usize {
+        self.workspace.bytes()
+    }
+    pub fn aggregate_nodes(&self) -> usize {
+        self.aggregate_nodes
+    }
+    pub fn aggregate_count(&self) -> usize {
+        self.preconditioner.aggregate_count()
+    }
+    pub fn min_aggregate_nodes(&self) -> usize {
+        self.preconditioner.min_aggregate_nodes()
+    }
+    pub fn max_aggregate_nodes(&self) -> usize {
+        self.preconditioner.max_aggregate_nodes()
+    }
+    pub fn aggregation(&self) -> RigidBodyAggregation {
+        self.preconditioner.aggregation()
+    }
+    pub fn coarse_dimension(&self) -> usize {
+        self.preconditioner.coarse_dimension()
+    }
+    pub fn preconditioner_bytes(&self) -> usize {
+        self.preconditioner.factor_bytes()
+    }
+    pub fn base_factor_bytes(&self) -> usize {
+        self.preconditioner.base_factor_bytes()
+    }
+    pub fn coarse_factor_bytes(&self) -> usize {
+        self.preconditioner.coarse_factor_bytes()
+    }
+    pub fn geometry_bytes(&self) -> usize {
+        self.preconditioner.geometry_bytes()
+    }
     /// Effective execution policy after resolving `StructuralSpmvPolicy::Auto`.
-    pub fn spmv_policy(&self) -> StructuralSpmvPolicy { self.effective_spmv_policy }
-    pub fn parallel_spmv_enabled(&self) -> bool { self.effective_spmv_policy == StructuralSpmvPolicy::Parallel }
+    pub fn spmv_policy(&self) -> StructuralSpmvPolicy {
+        self.effective_spmv_policy
+    }
+    pub fn parallel_spmv_enabled(&self) -> bool {
+        self.effective_spmv_policy == StructuralSpmvPolicy::Parallel
+    }
     /// Effective execution policy after resolving `StructuralPreconditionerPolicy::Auto`.
-    pub fn structural_preconditioner_policy(&self) -> StructuralPreconditionerPolicy { self.effective_preconditioner_policy }
-    pub fn parallel_preconditioner_enabled(&self) -> bool { self.effective_preconditioner_policy == StructuralPreconditionerPolicy::Parallel }
-    pub fn parallel_preconditioner_index_bytes(&self) -> usize { self.preconditioner.parallel_index_bytes() }
+    pub fn structural_preconditioner_policy(&self) -> StructuralPreconditionerPolicy {
+        self.effective_preconditioner_policy
+    }
+    pub fn parallel_preconditioner_enabled(&self) -> bool {
+        self.effective_preconditioner_policy == StructuralPreconditionerPolicy::Parallel
+    }
+    pub fn parallel_preconditioner_index_bytes(&self) -> usize {
+        self.preconditioner.parallel_index_bytes()
+    }
     /// Effective dense-vector policy after resolving `StructuralPcgVectorPolicy::Auto`.
-    pub fn pcg_vector_policy(&self) -> StructuralPcgVectorPolicy { self.effective_pcg_vector_policy }
-    pub fn parallel_pcg_vectors_enabled(&self) -> bool { self.effective_pcg_vector_policy == StructuralPcgVectorPolicy::Parallel }
+    pub fn pcg_vector_policy(&self) -> StructuralPcgVectorPolicy {
+        self.effective_pcg_vector_policy
+    }
+    pub fn parallel_pcg_vectors_enabled(&self) -> bool {
+        self.effective_pcg_vector_policy == StructuralPcgVectorPolicy::Parallel
+    }
 
     fn validate_matrix(&self, matrix: &Csr32Matrix) -> Result<(), HybitError> {
         let (structure, values) = matrix_signatures(matrix);
@@ -570,20 +684,30 @@ impl HybitPreparedStructuralSystem {
     ) -> Result<SolveReport, HybitError> {
         self.validate_matrix(matrix)?;
         if b.len() != matrix.nrows() {
-            return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: b.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.nrows(),
+                actual: b.len(),
+            });
         }
         if x.len() != matrix.ncols() {
-            return Err(HybitError::DimensionMismatch { expected: matrix.ncols(), actual: x.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.ncols(),
+                actual: x.len(),
+            });
         }
 
         self.solve_sequence += 1;
         let sequence = self.solve_sequence;
         let charge_context_setup = sequence == 1;
         let start = Instant::now();
-        let outcome = match (self.effective_spmv_policy, self.effective_preconditioner_policy) {
+        let outcome = match (
+            self.effective_spmv_policy,
+            self.effective_preconditioner_policy,
+        ) {
             (StructuralSpmvPolicy::Parallel, StructuralPreconditionerPolicy::Parallel) => {
                 let operator = ParallelCsr32Operator::new(matrix);
-                let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
+                let preconditioner =
+                    ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
                 run_structural_pcg(
                     self.effective_pcg_vector_policy,
                     &operator,
@@ -607,7 +731,8 @@ impl HybitPreparedStructuralSystem {
                 )?
             }
             (StructuralSpmvPolicy::Serial, StructuralPreconditionerPolicy::Parallel) => {
-                let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
+                let preconditioner =
+                    ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
                 run_structural_pcg(
                     self.effective_pcg_vector_policy,
                     operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
@@ -633,8 +758,16 @@ impl HybitPreparedStructuralSystem {
         };
         let elapsed = start.elapsed().as_secs_f64();
         let metrics = ReportMetrics {
-            analysis_seconds: if charge_context_setup { self.analysis_seconds } else { 0.0 },
-            prepare_seconds: if charge_context_setup { self.prepare_seconds } else { 0.0 },
+            analysis_seconds: if charge_context_setup {
+                self.analysis_seconds
+            } else {
+                0.0
+            },
+            prepare_seconds: if charge_context_setup {
+                self.prepare_seconds
+            } else {
+                0.0
+            },
             restart_seconds: elapsed,
             preconditioner_reused: sequence > 1,
             solve_sequence: sequence,
@@ -687,10 +820,18 @@ fn structural_graph_auto_can_fallback(error: &HybitError) -> bool {
 }
 
 impl HybitSolver {
-    pub fn new() -> Self { Self::default() }
-    pub fn options(&self) -> SolverOptions { self.options }
-    pub fn hybrid_options(&self) -> HybridOptions { self.hybrid_options }
-    pub fn structural_options(&self) -> StructuralOptions { self.structural_options }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn options(&self) -> SolverOptions {
+        self.options
+    }
+    pub fn hybrid_options(&self) -> HybridOptions {
+        self.hybrid_options
+    }
+    pub fn structural_options(&self) -> StructuralOptions {
+        self.structural_options
+    }
 
     pub fn set_options(&mut self, options: SolverOptions) -> Result<(), HybitError> {
         options.validate()?;
@@ -710,7 +851,9 @@ impl HybitSolver {
         Ok(())
     }
 
-    pub fn set_backend_policy(&mut self, policy: BackendPolicy) { self.backend_policy = policy; }
+    pub fn set_backend_policy(&mut self, policy: BackendPolicy) {
+        self.backend_policy = policy;
+    }
 
     pub fn analyze_csr32(&self, matrix: &Csr32Matrix) -> Result<HybitAnalysis, HybitError> {
         self.options.validate()?;
@@ -718,10 +861,14 @@ impl HybitSolver {
         let start = Instant::now();
         let profile = analyze_csr32(matrix)?;
         if !profile.square {
-            return Err(HybitError::InvalidMatrix("AutoSolver currently supports square SPD systems"));
+            return Err(HybitError::InvalidMatrix(
+                "AutoSolver currently supports square SPD systems",
+            ));
         }
         if !profile.full_diagonal || !profile.positive_diagonal {
-            return Err(HybitError::InvalidMatrix("PCG path requires a complete positive diagonal"));
+            return Err(HybitError::InvalidMatrix(
+                "PCG path requires a complete positive diagonal",
+            ));
         }
         let backend = match self.backend_policy {
             BackendPolicy::Auto | BackendPolicy::Csr32 => MatrixBackend::Csr32,
@@ -750,8 +897,12 @@ impl HybitSolver {
         self.options.validate()?;
         self.hybrid_options.validate()?;
         let (structure_signature, value_signature) = matrix_signatures(matrix);
-        if structure_signature != analysis.structure_signature || value_signature != analysis.value_signature {
-            return Err(HybitError::InvalidArgument("matrix changed between analyze and prepare"));
+        if structure_signature != analysis.structure_signature
+            || value_signature != analysis.value_signature
+        {
+            return Err(HybitError::InvalidArgument(
+                "matrix changed between analyze and prepare",
+            ));
         }
         let start = Instant::now();
         let jacobi = JacobiPreconditioner::from_csr32(matrix)?;
@@ -795,14 +946,22 @@ impl HybitSolver {
         self.options.validate()?;
         self.structural_options.validate()?;
         let (structure_signature, value_signature) = matrix_signatures(matrix);
-        if structure_signature != analysis.structure_signature || value_signature != analysis.value_signature {
+        if structure_signature != analysis.structure_signature
+            || value_signature != analysis.value_signature
+        {
             return Err(HybitError::InvalidArgument(
                 "matrix changed between analyze and structural prepare",
             ));
         }
-        let expected = coordinates.len().checked_mul(3).ok_or(HybitError::SizeOverflow)?;
+        let expected = coordinates
+            .len()
+            .checked_mul(3)
+            .ok_or(HybitError::SizeOverflow)?;
         if matrix.nrows() != expected || matrix.ncols() != expected {
-            return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: expected });
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.nrows(),
+                actual: expected,
+            });
         }
 
         let start = Instant::now();
@@ -946,7 +1105,12 @@ impl HybitSolver {
         prepared.solve(matrix, b, x)
     }
 
-    pub fn solve_csr32(&self, matrix: &Csr32Matrix, b: &[f64], x: &mut [f64]) -> Result<SolveReport, HybitError> {
+    pub fn solve_csr32(
+        &self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
         let analysis = self.analyze_csr32(matrix)?;
         let mut prepared = self.prepare_csr32(matrix, &analysis)?;
         prepared.solve(matrix, b, x)
@@ -963,12 +1127,12 @@ fn run_structural_pcg(
     workspace: &mut PcgWorkspace,
 ) -> Result<KrylovOutcome, HybitError> {
     match vector_policy {
-        StructuralPcgVectorPolicy::Parallel => pcg_with_workspace_parallel_vectors(
-            operator, preconditioner, b, x, options, workspace,
-        ),
-        StructuralPcgVectorPolicy::Serial => pcg_with_workspace(
-            operator, preconditioner, b, x, options, workspace,
-        ),
+        StructuralPcgVectorPolicy::Parallel => {
+            pcg_with_workspace_parallel_vectors(operator, preconditioner, b, x, options, workspace)
+        }
+        StructuralPcgVectorPolicy::Serial => {
+            pcg_with_workspace(operator, preconditioner, b, x, options, workspace)
+        }
         StructuralPcgVectorPolicy::Auto => {
             unreachable!("structural PCG vector policy is resolved during prepare")
         }
@@ -1001,12 +1165,15 @@ fn run_continuation(
     if remaining == 0 {
         let r = residual(matrix, b, x)?;
         let norm = l2_norm(&r);
-        return Ok((KrylovOutcome {
-            status: SolveStatus::MaxIterations,
-            iterations: 0,
-            initial_residual: norm,
-            final_residual: norm,
-        }, 0.0));
+        return Ok((
+            KrylovOutcome {
+                status: SolveStatus::MaxIterations,
+                iterations: 0,
+                initial_residual: norm,
+                final_residual: norm,
+            },
+            0.0,
+        ));
     }
     let mut options = base_options;
     options.max_iterations = remaining;
@@ -1097,12 +1264,18 @@ fn matrix_signatures(matrix: &Csr32Matrix) -> (u64, u64) {
     structure = fnv_mix(structure, matrix.nrows() as u64);
     structure = fnv_mix(structure, matrix.ncols() as u64);
     structure = fnv_mix(structure, matrix.nnz() as u64);
-    for &v in matrix.row_ptr() { structure = fnv_mix(structure, v as u64); }
-    for &v in matrix.col_idx() { structure = fnv_mix(structure, v as u64); }
+    for &v in matrix.row_ptr() {
+        structure = fnv_mix(structure, v as u64);
+    }
+    for &v in matrix.col_idx() {
+        structure = fnv_mix(structure, v as u64);
+    }
 
     let mut values = 0xcbf29ce484222325u64;
     values = fnv_mix(values, structure);
-    for &v in matrix.values() { values = fnv_mix(values, v.to_bits()); }
+    for &v in matrix.values() {
+        values = fnv_mix(values, v.to_bits());
+    }
     (structure, values)
 }
 fn residual(matrix: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<Vec<f64>, HybitError> {
@@ -1111,28 +1284,38 @@ fn residual(matrix: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<Vec<f64>, Hybi
     Ok(b.iter().zip(ax).map(|(&bi, ai)| bi - ai).collect())
 }
 
-fn numerical_risk_mask(matrix: &Csr32Matrix, options: HybridOptions) -> Result<DofMask, HybitError> {
+fn numerical_risk_mask(
+    matrix: &Csr32Matrix,
+    options: HybridOptions,
+) -> Result<DofMask, HybitError> {
     let diagonal = matrix.diagonal()?;
     let n = matrix.nrows();
     let mut risk = DofMask::new(n);
     for row in 0..n {
         let diag = diagonal[row].abs();
-        if diag == 0.0 { continue; }
+        if diag == 0.0 {
+            continue;
+        }
         let start = matrix.row_ptr()[row] as usize;
         let end = matrix.row_ptr()[row + 1] as usize;
         let mut offdiag_sum = 0.0;
         let mut max_scale_jump = 1.0f64;
         for p in start..end {
             let col = matrix.col_idx()[p] as usize;
-            if col == row { continue; }
+            if col == row {
+                continue;
+            }
             offdiag_sum += matrix.values()[p].abs();
             let neighbor_diag = diagonal[col].abs();
             if neighbor_diag > 0.0 {
-                max_scale_jump = max_scale_jump.max((diag / neighbor_diag).max(neighbor_diag / diag));
+                max_scale_jump =
+                    max_scale_jump.max((diag / neighbor_diag).max(neighbor_diag / diag));
             }
         }
         let coupling = offdiag_sum / diag;
-        if coupling >= options.coupling_risk_threshold || max_scale_jump >= options.scale_jump_threshold {
+        if coupling >= options.coupling_risk_threshold
+            || max_scale_jump >= options.scale_jump_threshold
+        {
             risk.set(row, true)?;
         }
     }
@@ -1142,10 +1325,14 @@ fn numerical_risk_mask(matrix: &Csr32Matrix, options: HybridOptions) -> Result<D
 fn residual_seed_mask(residual: &[f64], fraction: f64) -> Result<DofMask, HybitError> {
     let max_abs = residual.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
     let mut seeds = DofMask::new(residual.len());
-    if max_abs == 0.0 { return Ok(seeds); }
+    if max_abs == 0.0 {
+        return Ok(seeds);
+    }
     let threshold = fraction * max_abs;
     for (i, &value) in residual.iter().enumerate() {
-        if value.abs() >= threshold { seeds.set(i, true)?; }
+        if value.abs() >= threshold {
+            seeds.set(i, true)?;
+        }
     }
     Ok(seeds)
 }
@@ -1163,7 +1350,9 @@ fn select_risk_components(
     let cap = options.max_local_region_size.max(1);
 
     for start in risk.indices() {
-        if visited[start] { continue; }
+        if visited[start] {
+            continue;
+        }
         let mut queue = VecDeque::new();
         let mut component = Vec::new();
         queue.push_back(start);
@@ -1182,10 +1371,14 @@ fn select_risk_components(
                 }
             }
         }
-        if !touches_seed { continue; }
+        if !touches_seed {
+            continue;
+        }
 
         if component.len() <= cap {
-            for dof in component { selected.set(dof, true)?; }
+            for dof in component {
+                selected.set(dof, true)?;
+            }
         } else {
             let root = *component
                 .iter()
@@ -1197,7 +1390,9 @@ fn select_risk_components(
             local_seen[root] = true;
             let mut count = 0usize;
             while let Some(row) = local_queue.pop_front() {
-                if count >= cap { break; }
+                if count >= cap {
+                    break;
+                }
                 selected.set(row, true)?;
                 count += 1;
                 let rs = matrix.row_ptr()[row] as usize;
@@ -1230,7 +1425,9 @@ fn extract_core_regions(
     let mut regions: Vec<Vec<usize>> = Vec::new();
 
     for start in mask.indices() {
-        if visited[start] { continue; }
+        if visited[start] {
+            continue;
+        }
         let mut queue = VecDeque::new();
         let mut component = Vec::new();
         queue.push_back(start);
@@ -1248,7 +1445,9 @@ fn extract_core_regions(
             }
         }
         for chunk in component.chunks(options.max_local_region_size) {
-            if !chunk.is_empty() { regions.push(chunk.to_vec()); }
+            if !chunk.is_empty() {
+                regions.push(chunk.to_vec());
+            }
         }
     }
 
@@ -1292,11 +1491,12 @@ fn expand_regions_with_overlap(
         }
         expanded.sort_unstable();
         expanded.dedup();
-        if !expanded.is_empty() { result.push(expanded); }
+        if !expanded.is_empty() {
+            result.push(expanded);
+        }
     }
     Ok(result)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1310,37 +1510,63 @@ mod tests {
         let mut values = Vec::new();
         row_ptr.push(0);
         for i in 0..n {
-            if i > 0 { col_idx.push((i - 1) as u32); values.push(-1.0); }
-            col_idx.push(i as u32); values.push(2.0);
-            if i + 1 < n { col_idx.push((i + 1) as u32); values.push(-1.0); }
+            if i > 0 {
+                col_idx.push((i - 1) as u32);
+                values.push(-1.0);
+            }
+            col_idx.push(i as u32);
+            values.push(2.0);
+            if i + 1 < n {
+                col_idx.push((i + 1) as u32);
+                values.push(-1.0);
+            }
             row_ptr.push(col_idx.len() as u32);
         }
         Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap()
     }
 
-    fn block_diagonal(easy_before: usize, hard_sizes: &[usize], easy_between: usize) -> Csr32Matrix {
-        let n = easy_before + hard_sizes.iter().sum::<usize>() + easy_between * hard_sizes.len().saturating_sub(1);
+    fn block_diagonal(
+        easy_before: usize,
+        hard_sizes: &[usize],
+        easy_between: usize,
+    ) -> Csr32Matrix {
+        let n = easy_before
+            + hard_sizes.iter().sum::<usize>()
+            + easy_between * hard_sizes.len().saturating_sub(1);
         let mut row_ptr = Vec::with_capacity(n + 1);
         let mut col_idx = Vec::new();
         let mut values = Vec::new();
         row_ptr.push(0);
         let mut row = 0usize;
         for _ in 0..easy_before {
-            col_idx.push(row as u32); values.push(1.0); row += 1; row_ptr.push(col_idx.len() as u32);
+            col_idx.push(row as u32);
+            values.push(1.0);
+            row += 1;
+            row_ptr.push(col_idx.len() as u32);
         }
         for (bi, &hard) in hard_sizes.iter().enumerate() {
             let base = row;
             for local in 0..hard {
                 let i = base + local;
-                if local > 0 { col_idx.push((i - 1) as u32); values.push(-1.0); }
-                col_idx.push(i as u32); values.push(2.0);
-                if local + 1 < hard { col_idx.push((i + 1) as u32); values.push(-1.0); }
+                if local > 0 {
+                    col_idx.push((i - 1) as u32);
+                    values.push(-1.0);
+                }
+                col_idx.push(i as u32);
+                values.push(2.0);
+                if local + 1 < hard {
+                    col_idx.push((i + 1) as u32);
+                    values.push(-1.0);
+                }
                 row += 1;
                 row_ptr.push(col_idx.len() as u32);
             }
             if bi + 1 < hard_sizes.len() {
                 for _ in 0..easy_between {
-                    col_idx.push(row as u32); values.push(1.0); row += 1; row_ptr.push(col_idx.len() as u32);
+                    col_idx.push(row as u32);
+                    values.push(1.0);
+                    row += 1;
+                    row_ptr.push(col_idx.len() as u32);
                 }
             }
         }
@@ -1374,7 +1600,11 @@ mod tests {
     fn selective_direct_escalation_beats_plain_jacobi_pcg() {
         let a = block_diagonal(32, &[64], 0);
         let b = vec![1.0; a.nrows()];
-        let options = SolverOptions { relative_tolerance: 1.0e-10, absolute_tolerance: 0.0, max_iterations: 100 };
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-10,
+            absolute_tolerance: 0.0,
+            max_iterations: 100,
+        };
         let jacobi = JacobiPreconditioner::from_csr32(&a).unwrap();
         let mut x_plain = vec![0.0; a.nrows()];
         let plain = pcg(&a, &jacobi, &b, &mut x_plain, options).unwrap();
@@ -1392,7 +1622,11 @@ mod tests {
     fn multi_region_overlap_detects_two_hard_blocks() {
         let a = block_diagonal(16, &[48, 48], 8);
         let b = vec![1.0; a.nrows()];
-        let options = SolverOptions { relative_tolerance: 1.0e-10, absolute_tolerance: 0.0, max_iterations: 100 };
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-10,
+            absolute_tolerance: 0.0,
+            max_iterations: 100,
+        };
         let mut solver = HybitSolver::new();
         solver.set_options(options).unwrap();
         let mut x = vec![0.0; a.nrows()];
@@ -1404,7 +1638,9 @@ mod tests {
     #[test]
     fn hybrid_preconditioner_is_positive_on_overlapping_regions() {
         let a = poisson_1d(12);
-        let hybrid = HybridPreconditioner::from_csr32(&a, vec![(0..8).collect(), (4..12).collect()]).unwrap();
+        let hybrid =
+            HybridPreconditioner::from_csr32(&a, vec![(0..8).collect(), (4..12).collect()])
+                .unwrap();
         let r = vec![1.0; 12];
         let mut z = vec![0.0; 12];
         hybrid.apply(&r, &mut z).unwrap();
@@ -1416,7 +1652,13 @@ mod tests {
     fn prepared_context_reuses_hybrid_factor_and_workspace() {
         let a = block_diagonal(32, &[64], 0);
         let mut solver = HybitSolver::new();
-        solver.set_options(SolverOptions { relative_tolerance: 1.0e-10, absolute_tolerance: 0.0, max_iterations: 100 }).unwrap();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-10,
+                absolute_tolerance: 0.0,
+                max_iterations: 100,
+            })
+            .unwrap();
         let analysis = solver.analyze_csr32(&a).unwrap();
         let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
         let workspace_bytes = prepared.krylov_workspace_bytes();

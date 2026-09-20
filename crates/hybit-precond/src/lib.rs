@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use hybit_core::{HybitError, LinearOperator, Preconditioner};
 use hybit_matrix::Csr32Matrix;
@@ -13,14 +13,28 @@ pub struct IdentityPreconditioner {
 }
 
 impl IdentityPreconditioner {
-    pub fn new(n: usize) -> Self { Self { n } }
+    pub fn new(n: usize) -> Self {
+        Self { n }
+    }
 }
 
 impl Preconditioner for IdentityPreconditioner {
-    fn len(&self) -> usize { self.n }
+    fn len(&self) -> usize {
+        self.n
+    }
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
-        if r.len() != self.n { return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() }); }
-        if z.len() != self.n { return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() }); }
+        if r.len() != self.n {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
+        }
+        if z.len() != self.n {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
+        }
         z.copy_from_slice(r);
         Ok(())
     }
@@ -40,25 +54,37 @@ impl JacobiPreconditioner {
                 return Err(HybitError::ZeroDiagonal { row });
             }
             if d < 0.0 {
-                return Err(HybitError::InvalidMatrix("Jacobi-PCG requires a positive diagonal"));
+                return Err(HybitError::InvalidMatrix(
+                    "Jacobi-PCG requires a positive diagonal",
+                ));
             }
             inv_diag.push(1.0 / d);
         }
         Ok(Self { inv_diag })
     }
 
-    pub fn inv_diagonal(&self) -> &[f64] { &self.inv_diag }
+    pub fn inv_diagonal(&self) -> &[f64] {
+        &self.inv_diag
+    }
 }
 
 impl Preconditioner for JacobiPreconditioner {
-    fn len(&self) -> usize { self.inv_diag.len() }
+    fn len(&self) -> usize {
+        self.inv_diag.len()
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.inv_diag.len() {
-            return Err(HybitError::DimensionMismatch { expected: self.inv_diag.len(), actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.inv_diag.len(),
+                actual: r.len(),
+            });
         }
         if z.len() != self.inv_diag.len() {
-            return Err(HybitError::DimensionMismatch { expected: self.inv_diag.len(), actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.inv_diag.len(),
+                actual: z.len(),
+            });
         }
         for ((out, &ri), &d) in z.iter_mut().zip(r).zip(&self.inv_diag) {
             *out = d * ri;
@@ -66,7 +92,6 @@ impl Preconditioner for JacobiPreconditioner {
         Ok(())
     }
 }
-
 
 #[derive(Clone, Debug)]
 struct BlockJacobiFactor {
@@ -93,10 +118,14 @@ impl BlockJacobiPreconditioner {
     /// an exact multiple of `block_size`.
     pub fn from_csr32(matrix: &Csr32Matrix, block_size: usize) -> Result<Self, HybitError> {
         if matrix.nrows() != matrix.ncols() {
-            return Err(HybitError::InvalidMatrix("block Jacobi requires a square matrix"));
+            return Err(HybitError::InvalidMatrix(
+                "block Jacobi requires a square matrix",
+            ));
         }
         if block_size == 0 {
-            return Err(HybitError::InvalidArgument("block Jacobi block_size must be > 0"));
+            return Err(HybitError::InvalidArgument(
+                "block Jacobi block_size must be > 0",
+            ));
         }
 
         let n = matrix.nrows();
@@ -121,12 +150,16 @@ impl BlockJacobiPreconditioner {
             }
 
             let mut scale = 0.0f64;
-            for &v in &dense { scale = scale.max(v.abs()); }
+            for &v in &dense {
+                scale = scale.max(v.abs());
+            }
             let symmetry_tol = 1.0e-11 * scale.max(1.0);
             for i in 0..size {
                 for j in 0..i {
                     if (dense[i * size + j] - dense[j * size + i]).abs() > symmetry_tol {
-                        return Err(HybitError::InvalidMatrix("block Jacobi diagonal block is not symmetric"));
+                        return Err(HybitError::InvalidMatrix(
+                            "block Jacobi diagonal block is not symmetric",
+                        ));
                     }
                 }
             }
@@ -158,12 +191,23 @@ impl BlockJacobiPreconditioner {
             blocks.push(BlockJacobiFactor { start, size, lower });
         }
 
-        Ok(Self { n, block_size, blocks, factor_bytes })
+        Ok(Self {
+            n,
+            block_size,
+            blocks,
+            factor_bytes,
+        })
     }
 
-    pub fn block_size(&self) -> usize { self.block_size }
-    pub fn block_count(&self) -> usize { self.blocks.len() }
-    pub fn factor_bytes(&self) -> usize { self.factor_bytes }
+    pub fn block_size(&self) -> usize {
+        self.block_size
+    }
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+    pub fn factor_bytes(&self) -> usize {
+        self.factor_bytes
+    }
 
     /// Apply independent diagonal blocks in parallel. This is kept separate
     /// from the default trait implementation so existing callers retain the
@@ -171,10 +215,16 @@ impl BlockJacobiPreconditioner {
     #[doc(hidden)]
     pub fn apply_parallel(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
         }
 
         let blocks = &self.blocks;
@@ -205,14 +255,22 @@ impl BlockJacobiPreconditioner {
 }
 
 impl Preconditioner for BlockJacobiPreconditioner {
-    fn len(&self) -> usize { self.n }
+    fn len(&self) -> usize {
+        self.n
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
         }
 
         for block in &self.blocks {
@@ -237,7 +295,6 @@ impl Preconditioner for BlockJacobiPreconditioner {
     }
 }
 
-
 #[derive(Clone, Debug)]
 struct CoarseScratch {
     rhs: Vec<f64>,
@@ -251,7 +308,6 @@ fn packed_lower_len(n: usize) -> Result<usize, HybitError> {
         .map(|v| v / 2)
         .ok_or(HybitError::SizeOverflow)
 }
-
 
 #[derive(Clone, Debug)]
 pub struct TwoLevelBlockJacobiPreconditioner {
@@ -282,7 +338,9 @@ impl TwoLevelBlockJacobiPreconditioner {
         aggregate_nodes: usize,
     ) -> Result<Self, HybitError> {
         if matrix.nrows() != matrix.ncols() {
-            return Err(HybitError::InvalidMatrix("two-level block Jacobi requires a square matrix"));
+            return Err(HybitError::InvalidMatrix(
+                "two-level block Jacobi requires a square matrix",
+            ));
         }
         if dofs_per_node == 0 {
             return Err(HybitError::InvalidArgument("dofs_per_node must be > 0"));
@@ -312,11 +370,7 @@ impl TwoLevelBlockJacobiPreconditioner {
         let mut coarse = vec![0.0f64; coarse_len];
 
         #[inline]
-        fn coarse_index(
-            dof: usize,
-            dofs_per_node: usize,
-            aggregate_nodes: usize,
-        ) -> usize {
+        fn coarse_index(dof: usize, dofs_per_node: usize, aggregate_nodes: usize) -> usize {
             let node = dof / dofs_per_node;
             let component = dof % dofs_per_node;
             (node / aggregate_nodes) * dofs_per_node + component
@@ -341,9 +395,8 @@ impl TwoLevelBlockJacobiPreconditioner {
         // asymmetry in the coarse SPD operator.
         for i in 0..coarse_dimension {
             for j in 0..i {
-                let avg = 0.5
-                    * (coarse[i * coarse_dimension + j]
-                        + coarse[j * coarse_dimension + i]);
+                let avg =
+                    0.5 * (coarse[i * coarse_dimension + j] + coarse[j * coarse_dimension + i]);
                 coarse[i * coarse_dimension + j] = avg;
                 coarse[j * coarse_dimension + i] = avg;
             }
@@ -389,9 +442,7 @@ impl TwoLevelBlockJacobiPreconditioner {
         let factor_bytes = base
             .factor_bytes()
             .checked_add(coarse_lower.len() * std::mem::size_of::<f64>())
-            .and_then(|v| {
-                v.checked_add(2 * coarse_dimension * std::mem::size_of::<f64>())
-            })
+            .and_then(|v| v.checked_add(2 * coarse_dimension * std::mem::size_of::<f64>()))
             .ok_or(HybitError::SizeOverflow)?;
 
         Ok(Self {
@@ -407,12 +458,24 @@ impl TwoLevelBlockJacobiPreconditioner {
         })
     }
 
-    pub fn dofs_per_node(&self) -> usize { self.dofs_per_node }
-    pub fn aggregate_nodes(&self) -> usize { self.aggregate_nodes }
-    pub fn aggregate_count(&self) -> usize { self.aggregate_count }
-    pub fn coarse_dimension(&self) -> usize { self.coarse_dimension }
-    pub fn factor_bytes(&self) -> usize { self.factor_bytes }
-    pub fn base_factor_bytes(&self) -> usize { self.base.factor_bytes() }
+    pub fn dofs_per_node(&self) -> usize {
+        self.dofs_per_node
+    }
+    pub fn aggregate_nodes(&self) -> usize {
+        self.aggregate_nodes
+    }
+    pub fn aggregate_count(&self) -> usize {
+        self.aggregate_count
+    }
+    pub fn coarse_dimension(&self) -> usize {
+        self.coarse_dimension
+    }
+    pub fn factor_bytes(&self) -> usize {
+        self.factor_bytes
+    }
+    pub fn base_factor_bytes(&self) -> usize {
+        self.base.factor_bytes()
+    }
     pub fn coarse_factor_bytes(&self) -> usize {
         self.coarse_lower.len() * std::mem::size_of::<f64>()
     }
@@ -443,18 +506,25 @@ impl TwoLevelBlockJacobiPreconditioner {
             sol[i] = sum / self.coarse_lower[i * n + i];
         }
     }
-
 }
 
 impl Preconditioner for TwoLevelBlockJacobiPreconditioner {
-    fn len(&self) -> usize { self.n }
+    fn len(&self) -> usize {
+        self.n
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
         }
 
         // Fine/local SPD term.
@@ -475,7 +545,6 @@ impl Preconditioner for TwoLevelBlockJacobiPreconditioner {
         Ok(())
     }
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RigidBodyAggregation {
@@ -603,7 +672,10 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         let node_count = coordinates.len();
         let n = node_count.checked_mul(3).ok_or(HybitError::SizeOverflow)?;
         if matrix.nrows() != n {
-            return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: n });
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.nrows(),
+                actual: n,
+            });
         }
         if coordinates.iter().flatten().any(|v| !v.is_finite()) {
             return Err(HybitError::InvalidArgument(
@@ -611,10 +683,14 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
             ));
         }
         if aggregate_of_node.len() != node_count || aggregate_count == 0 {
-            return Err(HybitError::InvalidArgument("invalid rigid-body aggregate assignment"));
+            return Err(HybitError::InvalidArgument(
+                "invalid rigid-body aggregate assignment",
+            ));
         }
         if aggregate_of_node.iter().any(|&a| a >= aggregate_count) {
-            return Err(HybitError::InvalidArgument("rigid-body aggregate id is out of range"));
+            return Err(HybitError::InvalidArgument(
+                "rigid-body aggregate id is out of range",
+            ));
         }
 
         let mut counts = vec![0usize; aggregate_count];
@@ -720,16 +796,17 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
 
         for i in 0..coarse_dimension {
             for j in 0..i {
-                let avg = 0.5
-                    * (coarse[i * coarse_dimension + j]
-                        + coarse[j * coarse_dimension + i]);
+                let avg =
+                    0.5 * (coarse[i * coarse_dimension + j] + coarse[j * coarse_dimension + i]);
                 coarse[i * coarse_dimension + j] = avg;
                 coarse[j * coarse_dimension + i] = avg;
             }
         }
 
         let mut scale = 0.0f64;
-        for &v in &coarse { scale = scale.max(v.abs()); }
+        for &v in &coarse {
+            scale = scale.max(v.abs());
+        }
         if !scale.is_finite() || scale == 0.0 {
             return Err(HybitError::NumericalBreakdown(
                 "rigid-body coarse operator is zero or non-finite",
@@ -755,8 +832,7 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
                 let j_base = coarse_row_start[j];
                 let mut sum = coarse[i * coarse_dimension + j];
                 for k in 0..j {
-                    sum -= coarse_lower_packed[i_base + k]
-                        * coarse_lower_packed[j_base + k];
+                    sum -= coarse_lower_packed[i_base + k] * coarse_lower_packed[j_base + k];
                 }
                 if i == j {
                     if !sum.is_finite() || sum <= pivot_tol {
@@ -766,8 +842,7 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
                     }
                     coarse_lower_packed[i_base + i] = sum.sqrt();
                 } else {
-                    coarse_lower_packed[i_base + j] =
-                        sum / coarse_lower_packed[j_base + j];
+                    coarse_lower_packed[i_base + j] = sum / coarse_lower_packed[j_base + j];
                 }
             }
         }
@@ -805,16 +880,36 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         })
     }
 
-    pub fn node_count(&self) -> usize { self.node_count }
-    pub fn aggregate_nodes(&self) -> usize { self.aggregate_nodes }
-    pub fn aggregate_count(&self) -> usize { self.aggregate_count }
-    pub fn min_aggregate_nodes(&self) -> usize { self.min_aggregate_nodes }
-    pub fn max_aggregate_nodes(&self) -> usize { self.max_aggregate_nodes }
-    pub fn aggregation(&self) -> RigidBodyAggregation { self.aggregation }
-    pub fn coarse_dimension(&self) -> usize { self.coarse_dimension }
-    pub fn modes_per_aggregate(&self) -> usize { 6 }
-    pub fn factor_bytes(&self) -> usize { self.factor_bytes }
-    pub fn base_factor_bytes(&self) -> usize { self.base.factor_bytes() }
+    pub fn node_count(&self) -> usize {
+        self.node_count
+    }
+    pub fn aggregate_nodes(&self) -> usize {
+        self.aggregate_nodes
+    }
+    pub fn aggregate_count(&self) -> usize {
+        self.aggregate_count
+    }
+    pub fn min_aggregate_nodes(&self) -> usize {
+        self.min_aggregate_nodes
+    }
+    pub fn max_aggregate_nodes(&self) -> usize {
+        self.max_aggregate_nodes
+    }
+    pub fn aggregation(&self) -> RigidBodyAggregation {
+        self.aggregation
+    }
+    pub fn coarse_dimension(&self) -> usize {
+        self.coarse_dimension
+    }
+    pub fn modes_per_aggregate(&self) -> usize {
+        6
+    }
+    pub fn factor_bytes(&self) -> usize {
+        self.factor_bytes
+    }
+    pub fn base_factor_bytes(&self) -> usize {
+        self.base.factor_bytes()
+    }
     pub fn coarse_factor_bytes(&self) -> usize {
         self.coarse_lower_packed.len() * std::mem::size_of::<f64>()
     }
@@ -838,7 +933,10 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         let mut aggregate_node_ptr = Vec::with_capacity(self.aggregate_count + 1);
         aggregate_node_ptr.push(0usize);
         for &count in &counts {
-            let next = aggregate_node_ptr.last().copied().unwrap_or(0)
+            let next = aggregate_node_ptr
+                .last()
+                .copied()
+                .unwrap_or(0)
                 .checked_add(count)
                 .ok_or(HybitError::SizeOverflow)?;
             aggregate_node_ptr.push(next);
@@ -853,9 +951,15 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
             next[aggregate] += 1;
         }
 
-        let built = ParallelRigidBodyIndex { aggregate_node_ptr, aggregate_nodes_order };
+        let built = ParallelRigidBodyIndex {
+            aggregate_node_ptr,
+            aggregate_nodes_order,
+        };
         let _ = self.parallel_index.set(built);
-        Ok(self.parallel_index.get().expect("parallel rigid-body index initialized"))
+        Ok(self
+            .parallel_index
+            .get()
+            .expect("parallel rigid-body index initialized"))
     }
 
     pub fn parallel_index_bytes(&self) -> usize {
@@ -872,9 +976,18 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         let [x, y, z] = self.normalized_offsets[node];
         let aggregate = self.aggregate_of_node[node];
         match component {
-            0 => ([aggregate * 6, aggregate * 6 + 4, aggregate * 6 + 5], [1.0, z, -y]),
-            1 => ([aggregate * 6 + 1, aggregate * 6 + 3, aggregate * 6 + 5], [1.0, -z, x]),
-            2 => ([aggregate * 6 + 2, aggregate * 6 + 3, aggregate * 6 + 4], [1.0, y, -x]),
+            0 => (
+                [aggregate * 6, aggregate * 6 + 4, aggregate * 6 + 5],
+                [1.0, z, -y],
+            ),
+            1 => (
+                [aggregate * 6 + 1, aggregate * 6 + 3, aggregate * 6 + 5],
+                [1.0, -z, x],
+            ),
+            2 => (
+                [aggregate * 6 + 2, aggregate * 6 + 3, aggregate * 6 + 4],
+                [1.0, y, -x],
+            ),
             _ => unreachable!(),
         }
     }
@@ -906,7 +1019,6 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         }
     }
 
-
     /// Apply only the Galerkin coarse correction
     ///
     ///     C r = Z (Z^T A Z)^-1 Z^T r.
@@ -926,16 +1038,25 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         repeats: usize,
     ) -> Result<RigidBodyApplyProfile, HybitError> {
         if r.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
         }
         if repeats == 0 {
             return Err(HybitError::InvalidArgument("profile repeats must be > 0"));
         }
 
-        let mut profile = RigidBodyApplyProfile { repeats, ..RigidBodyApplyProfile::default() };
+        let mut profile = RigidBodyApplyProfile {
+            repeats,
+            ..RigidBodyApplyProfile::default()
+        };
         for _ in 0..repeats {
             let start = Instant::now();
             self.base.apply(r, z)?;
@@ -976,10 +1097,16 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
 
     fn apply_coarse_only(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
         }
 
         let mut scratch = self.scratch.borrow_mut();
@@ -1046,7 +1173,9 @@ impl<'a> BalancedRigidBodyTwoLevelBlockJacobiPreconditioner<'a> {
         aggregate_nodes: usize,
     ) -> Result<Self, HybitError> {
         let inner = RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(
-            matrix, coordinates, aggregate_nodes,
+            matrix,
+            coordinates,
+            aggregate_nodes,
         )?;
         Self::from_inner(matrix, inner)
     }
@@ -1057,7 +1186,9 @@ impl<'a> BalancedRigidBodyTwoLevelBlockJacobiPreconditioner<'a> {
         target_aggregate_nodes: usize,
     ) -> Result<Self, HybitError> {
         let inner = RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32_graph(
-            matrix, coordinates, target_aggregate_nodes,
+            matrix,
+            coordinates,
+            target_aggregate_nodes,
         )?;
         Self::from_inner(matrix, inner)
     }
@@ -1084,38 +1215,70 @@ impl<'a> BalancedRigidBodyTwoLevelBlockJacobiPreconditioner<'a> {
         })
     }
 
-    pub fn aggregation(&self) -> RigidBodyAggregation { self.inner.aggregation() }
-    pub fn aggregate_nodes(&self) -> usize { self.inner.aggregate_nodes() }
-    pub fn aggregate_count(&self) -> usize { self.inner.aggregate_count() }
-    pub fn min_aggregate_nodes(&self) -> usize { self.inner.min_aggregate_nodes() }
-    pub fn max_aggregate_nodes(&self) -> usize { self.inner.max_aggregate_nodes() }
-    pub fn coarse_dimension(&self) -> usize { self.inner.coarse_dimension() }
-    pub fn base_factor_bytes(&self) -> usize { self.inner.base_factor_bytes() }
-    pub fn coarse_factor_bytes(&self) -> usize { self.inner.coarse_factor_bytes() }
-    pub fn geometry_bytes(&self) -> usize { self.inner.geometry_bytes() }
-    pub fn factor_bytes(&self) -> usize { self.inner.factor_bytes() }
+    pub fn aggregation(&self) -> RigidBodyAggregation {
+        self.inner.aggregation()
+    }
+    pub fn aggregate_nodes(&self) -> usize {
+        self.inner.aggregate_nodes()
+    }
+    pub fn aggregate_count(&self) -> usize {
+        self.inner.aggregate_count()
+    }
+    pub fn min_aggregate_nodes(&self) -> usize {
+        self.inner.min_aggregate_nodes()
+    }
+    pub fn max_aggregate_nodes(&self) -> usize {
+        self.inner.max_aggregate_nodes()
+    }
+    pub fn coarse_dimension(&self) -> usize {
+        self.inner.coarse_dimension()
+    }
+    pub fn base_factor_bytes(&self) -> usize {
+        self.inner.base_factor_bytes()
+    }
+    pub fn coarse_factor_bytes(&self) -> usize {
+        self.inner.coarse_factor_bytes()
+    }
+    pub fn geometry_bytes(&self) -> usize {
+        self.inner.geometry_bytes()
+    }
+    pub fn factor_bytes(&self) -> usize {
+        self.inner.factor_bytes()
+    }
     pub fn workspace_bytes(&self) -> usize {
         3 * self.inner.n * std::mem::size_of::<f64>()
     }
 }
 
 impl Preconditioner for BalancedRigidBodyTwoLevelBlockJacobiPreconditioner<'_> {
-    fn len(&self) -> usize { self.inner.n }
+    fn len(&self) -> usize {
+        self.inner.n
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         let n = self.inner.n;
         if r.len() != n {
-            return Err(HybitError::DimensionMismatch { expected: n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: n,
+                actual: r.len(),
+            });
         }
         if z.len() != n {
-            return Err(HybitError::DimensionMismatch { expected: n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: n,
+                actual: z.len(),
+            });
         }
 
         // q = C r. Keep q directly in the output buffer until the final sum.
         self.inner.apply_coarse_only(r, z)?;
 
         let mut scratch = self.scratch.borrow_mut();
-        let BalancedRigidScratch { aq_or_ay, projected_or_coarse, fine } = &mut *scratch;
+        let BalancedRigidScratch {
+            aq_or_ay,
+            projected_or_coarse,
+            fine,
+        } = &mut *scratch;
 
         // t = P^T r = (I - A C) r.
         self.matrix.apply(z, aq_or_ay)?;
@@ -1129,7 +1292,8 @@ impl Preconditioner for BalancedRigidBodyTwoLevelBlockJacobiPreconditioner<'_> {
         // cAy = C A y. Reuse the two temporary vectors now that t is no
         // longer needed.
         self.matrix.apply(fine, aq_or_ay)?;
-        self.inner.apply_coarse_only(aq_or_ay, projected_or_coarse)?;
+        self.inner
+            .apply_coarse_only(aq_or_ay, projected_or_coarse)?;
 
         // z = C r + (I - C A) y.
         for i in 0..n {
@@ -1145,7 +1309,10 @@ fn build_structural_node_adjacency(
 ) -> Result<Vec<Vec<usize>>, HybitError> {
     let expected = node_count.checked_mul(3).ok_or(HybitError::SizeOverflow)?;
     if matrix.nrows() != expected || matrix.ncols() != expected {
-        return Err(HybitError::DimensionMismatch { expected: matrix.nrows(), actual: expected });
+        return Err(HybitError::DimensionMismatch {
+            expected: matrix.nrows(),
+            actual: expected,
+        });
     }
     let mut adjacency = Vec::with_capacity(node_count);
     for node in 0..node_count {
@@ -1156,7 +1323,9 @@ fn build_structural_node_adjacency(
             let re = matrix.row_ptr()[row + 1] as usize;
             for p in rs..re {
                 let other = matrix.col_idx()[p] as usize / 3;
-                if other != node { neighbors.push(other); }
+                if other != node {
+                    neighbors.push(other);
+                }
             }
         }
         neighbors.sort_unstable();
@@ -1183,14 +1352,20 @@ fn build_graph_aggregates(
     let mut members = Vec::<usize>::with_capacity(target_size);
 
     for seed in 0..n {
-        if aggregate_of_node[seed] != unassigned { continue; }
+        if aggregate_of_node[seed] != unassigned {
+            continue;
+        }
         queue.clear();
         members.clear();
         queue.push_back(seed);
 
         while members.len() < target_size {
-            let Some(node) = queue.pop_front() else { break; };
-            if aggregate_of_node[node] != unassigned { continue; }
+            let Some(node) = queue.pop_front() else {
+                break;
+            };
+            if aggregate_of_node[node] != unassigned {
+                continue;
+            }
             aggregate_of_node[node] = aggregate_count;
             members.push(node);
             for &neighbor in &adjacency[node] {
@@ -1227,8 +1402,13 @@ fn build_graph_aggregates(
         }
     }
 
-    if aggregate_of_node.iter().any(|&a| a == unassigned || a >= aggregate_count) {
-        return Err(HybitError::InvalidArgument("graph aggregation left unassigned nodes"));
+    if aggregate_of_node
+        .iter()
+        .any(|&a| a == unassigned || a >= aggregate_count)
+    {
+        return Err(HybitError::InvalidArgument(
+            "graph aggregation left unassigned nodes",
+        ));
     }
 
     // Greedy capped BFS can leave small connected islands after neighboring
@@ -1240,19 +1420,25 @@ fn build_graph_aggregates(
     // three nodes and otherwise one quarter of the requested aggregate size.
     let merge_floor = (target_size / 4).max(3);
     let mut counts = vec![0usize; aggregate_count];
-    for &a in &aggregate_of_node { counts[a] += 1; }
+    for &a in &aggregate_of_node {
+        counts[a] += 1;
+    }
 
     loop {
         let mut merged_any = false;
         for small in 0..aggregate_count {
-            if counts[small] == 0 || counts[small] >= merge_floor { continue; }
+            if counts[small] == 0 || counts[small] >= merge_floor {
+                continue;
+            }
 
             // Prefer the neighboring aggregate with the most graph edges back
             // to this small island. Ties go to the smaller target aggregate and
             // then the lower aggregate id for deterministic behavior.
             let mut edge_counts = HashMap::<usize, usize>::new();
             for node in 0..n {
-                if aggregate_of_node[node] != small { continue; }
+                if aggregate_of_node[node] != small {
+                    continue;
+                }
                 for &neighbor in &adjacency[node] {
                     let other = aggregate_of_node[neighbor];
                     if other != small && other < aggregate_count && counts[other] > 0 {
@@ -1275,16 +1461,22 @@ fn build_graph_aggregates(
             // nonexistent edge. Leave such a component intact if it already has
             // at least three nodes; from_assignment will still validate its
             // geometry and coarse factorization explicitly.
-            let Some(replacement) = replacement else { continue; };
+            let Some(replacement) = replacement else {
+                continue;
+            };
 
             for a in &mut aggregate_of_node {
-                if *a == small { *a = replacement; }
+                if *a == small {
+                    *a = replacement;
+                }
             }
             counts[replacement] += counts[small];
             counts[small] = 0;
             merged_any = true;
         }
-        if !merged_any { break; }
+        if !merged_any {
+            break;
+        }
     }
 
     // Compact aggregate ids after merges.
@@ -1296,19 +1488,29 @@ fn build_graph_aggregates(
             compact_count += 1;
         }
     }
-    for a in &mut aggregate_of_node { *a = remap[*a]; }
+    for a in &mut aggregate_of_node {
+        *a = remap[*a];
+    }
     Ok((aggregate_of_node, compact_count))
 }
 
 impl Preconditioner for RigidBodyTwoLevelBlockJacobiPreconditioner {
-    fn len(&self) -> usize { self.n }
+    fn len(&self) -> usize {
+        self.n
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.n {
-            return Err(HybitError::DimensionMismatch { expected: self.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
         }
 
         self.base.apply(r, z)?;
@@ -1356,29 +1558,51 @@ impl<'a> ParallelRigidBodyTwoLevelPreconditioner<'a> {
         Ok(Self { inner })
     }
 
-    pub fn rayon_threads(&self) -> usize { rayon::current_num_threads() }
-    pub fn index_storage_bytes(&self) -> usize { self.inner.parallel_index_bytes() }
-    pub fn aggregate_count(&self) -> usize { self.inner.aggregate_count() }
-    pub fn coarse_dimension(&self) -> usize { self.inner.coarse_dimension() }
-    pub fn factor_bytes(&self) -> usize { self.inner.factor_bytes() }
+    pub fn rayon_threads(&self) -> usize {
+        rayon::current_num_threads()
+    }
+    pub fn index_storage_bytes(&self) -> usize {
+        self.inner.parallel_index_bytes()
+    }
+    pub fn aggregate_count(&self) -> usize {
+        self.inner.aggregate_count()
+    }
+    pub fn coarse_dimension(&self) -> usize {
+        self.inner.coarse_dimension()
+    }
+    pub fn factor_bytes(&self) -> usize {
+        self.inner.factor_bytes()
+    }
 }
 
 impl Preconditioner for ParallelRigidBodyTwoLevelPreconditioner<'_> {
-    fn len(&self) -> usize { self.inner.n }
+    fn len(&self) -> usize {
+        self.inner.n
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.inner.n {
-            return Err(HybitError::DimensionMismatch { expected: self.inner.n, actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.inner.n,
+                actual: r.len(),
+            });
         }
         if z.len() != self.inner.n {
-            return Err(HybitError::DimensionMismatch { expected: self.inner.n, actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.inner.n,
+                actual: z.len(),
+            });
         }
 
         self.inner.base.apply_parallel(r, z)?;
 
         let offsets = self.inner.normalized_offsets.as_slice();
         let aggregate_of_node = self.inner.aggregate_of_node.as_slice();
-        let index = self.inner.parallel_index.get().expect("parallel rigid-body index initialized");
+        let index = self
+            .inner
+            .parallel_index
+            .get()
+            .expect("parallel rigid-body index initialized");
         let node_ptr = index.aggregate_node_ptr.as_slice();
         let node_order = index.aggregate_nodes_order.as_slice();
         let mut scratch = self.inner.scratch.borrow_mut();
@@ -1415,16 +1639,14 @@ impl Preconditioner for ParallelRigidBodyTwoLevelPreconditioner<'_> {
         }
 
         let coarse_sol = scratch.sol.as_slice();
-        z.par_chunks_mut(3)
-            .enumerate()
-            .for_each(|(node, z_node)| {
-                let aggregate = aggregate_of_node[node];
-                let c = &coarse_sol[aggregate * 6..aggregate * 6 + 6];
-                let [x, y, zc] = offsets[node];
-                z_node[0] += c[0] + zc * c[4] - y * c[5];
-                z_node[1] += c[1] - zc * c[3] + x * c[5];
-                z_node[2] += c[2] + y * c[3] - x * c[4];
-            });
+        z.par_chunks_mut(3).enumerate().for_each(|(node, z_node)| {
+            let aggregate = aggregate_of_node[node];
+            let c = &coarse_sol[aggregate * 6..aggregate * 6 + 6];
+            let [x, y, zc] = offsets[node];
+            z_node[0] += c[0] + zc * c[4] - y * c[5];
+            z_node[1] += c[1] - zc * c[3] + x * c[5];
+            z_node[2] += c[2] + y * c[3] - x * c[4];
+        });
         Ok(())
     }
 }
@@ -1438,23 +1660,36 @@ pub struct LocalCholeskyRegion {
 impl LocalCholeskyRegion {
     pub fn from_csr32(matrix: &Csr32Matrix, indices: &[usize]) -> Result<Self, HybitError> {
         if indices.is_empty() {
-            return Err(HybitError::InvalidArgument("local Cholesky region may not be empty"));
+            return Err(HybitError::InvalidArgument(
+                "local Cholesky region may not be empty",
+            ));
         }
         let mut canonical = indices.to_vec();
         canonical.sort_unstable();
         canonical.dedup();
         if canonical.len() != indices.len() {
-            return Err(HybitError::InvalidArgument("local Cholesky region contains duplicate DOFs"));
+            return Err(HybitError::InvalidArgument(
+                "local Cholesky region contains duplicate DOFs",
+            ));
         }
         if canonical.iter().any(|&i| i >= matrix.nrows()) {
-            return Err(HybitError::InvalidArgument("local Cholesky DOF is out of range"));
+            return Err(HybitError::InvalidArgument(
+                "local Cholesky DOF is out of range",
+            ));
         }
         if matrix.nrows() != matrix.ncols() {
-            return Err(HybitError::InvalidMatrix("local Cholesky requires a square matrix"));
+            return Err(HybitError::InvalidMatrix(
+                "local Cholesky requires a square matrix",
+            ));
         }
 
         let n = canonical.len();
-        let local_of: HashMap<usize, usize> = canonical.iter().copied().enumerate().map(|(i, g)| (g, i)).collect();
+        let local_of: HashMap<usize, usize> = canonical
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, g)| (g, i))
+            .collect();
         let mut dense = vec![0.0; n * n];
         for (li, &global_row) in canonical.iter().enumerate() {
             let start = matrix.row_ptr()[global_row] as usize;
@@ -1470,12 +1705,16 @@ impl LocalCholeskyRegion {
         // Local direct correction is currently an SPD path. Require the local
         // principal matrix to be numerically symmetric before factorization.
         let mut scale = 0.0f64;
-        for &v in &dense { scale = scale.max(v.abs()); }
+        for &v in &dense {
+            scale = scale.max(v.abs());
+        }
         let symmetry_tol = 1.0e-11 * scale.max(1.0);
         for i in 0..n {
             for j in 0..i {
                 if (dense[i * n + j] - dense[j * n + i]).abs() > symmetry_tol {
-                    return Err(HybitError::InvalidMatrix("local Cholesky region is not symmetric"));
+                    return Err(HybitError::InvalidMatrix(
+                        "local Cholesky region is not symmetric",
+                    ));
                 }
             }
         }
@@ -1490,7 +1729,9 @@ impl LocalCholeskyRegion {
                 }
                 if i == j {
                     if !sum.is_finite() || sum <= pivot_tol {
-                        return Err(HybitError::NumericalBreakdown("local Cholesky encountered a non-positive pivot"));
+                        return Err(HybitError::NumericalBreakdown(
+                            "local Cholesky encountered a non-positive pivot",
+                        ));
                     }
                     lower[i * n + i] = sum.sqrt();
                 } else {
@@ -1499,12 +1740,21 @@ impl LocalCholeskyRegion {
             }
         }
 
-        Ok(Self { indices: canonical, lower })
+        Ok(Self {
+            indices: canonical,
+            lower,
+        })
     }
 
-    pub fn len(&self) -> usize { self.indices.len() }
-    pub fn is_empty(&self) -> bool { self.indices.is_empty() }
-    pub fn indices(&self) -> &[usize] { &self.indices }
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+    pub fn indices(&self) -> &[usize] {
+        &self.indices
+    }
 
     fn solve_local(&self, rhs: &[f64], out: &mut [f64]) {
         let n = self.indices.len();
@@ -1568,12 +1818,16 @@ impl HybridPreconditioner {
         let mut canonical_regions = Vec::with_capacity(regions.len());
         let mut multiplicity = vec![0u16; matrix.nrows()];
         for mut region in regions {
-            if region.is_empty() { continue; }
+            if region.is_empty() {
+                continue;
+            }
             region.sort_unstable();
             region.dedup();
             for &dof in &region {
                 if dof >= matrix.nrows() {
-                    return Err(HybitError::InvalidArgument("hybrid preconditioner DOF is out of range"));
+                    return Err(HybitError::InvalidArgument(
+                        "hybrid preconditioner DOF is out of range",
+                    ));
                 }
                 multiplicity[dof] = multiplicity[dof]
                     .checked_add(1)
@@ -1582,7 +1836,9 @@ impl HybridPreconditioner {
             canonical_regions.push(region);
         }
         if canonical_regions.is_empty() {
-            return Err(HybitError::InvalidArgument("hybrid preconditioner requires at least one local region"));
+            return Err(HybitError::InvalidArgument(
+                "hybrid preconditioner requires at least one local region",
+            ));
         }
 
         let unique_local_dofs = multiplicity.iter().filter(|&&m| m > 0).count();
@@ -1598,35 +1854,67 @@ impl HybridPreconditioner {
                 .collect();
             largest_region = largest_region.max(factor.len());
             let n = factor.len();
-            let scratch = RegionScratch { rhs: vec![0.0; n], sol: vec![0.0; n] };
+            let scratch = RegionScratch {
+                rhs: vec![0.0; n],
+                sol: vec![0.0; n],
+            };
             factor_bytes += factor.factor_bytes()
                 + weights.len() * std::mem::size_of::<f64>()
                 + 2 * n * std::mem::size_of::<f64>();
-            factors.push(WeightedLocalRegion { factor, weights, scratch: RefCell::new(scratch) });
+            factors.push(WeightedLocalRegion {
+                factor,
+                weights,
+                scratch: RefCell::new(scratch),
+            });
         }
 
-        Ok(Self { jacobi, regions: factors, multiplicity, largest_region, unique_local_dofs, factor_bytes })
+        Ok(Self {
+            jacobi,
+            regions: factors,
+            multiplicity,
+            largest_region,
+            unique_local_dofs,
+            factor_bytes,
+        })
     }
 
-    pub fn region_count(&self) -> usize { self.regions.len() }
-    pub fn largest_region(&self) -> usize { self.largest_region }
-    pub fn local_dofs(&self) -> usize { self.regions.iter().map(|r| r.factor.len()).sum() }
-    pub fn unique_local_dofs(&self) -> usize { self.unique_local_dofs }
-    pub fn factor_bytes(&self) -> usize { self.factor_bytes }
+    pub fn region_count(&self) -> usize {
+        self.regions.len()
+    }
+    pub fn largest_region(&self) -> usize {
+        self.largest_region
+    }
+    pub fn local_dofs(&self) -> usize {
+        self.regions.iter().map(|r| r.factor.len()).sum()
+    }
+    pub fn unique_local_dofs(&self) -> usize {
+        self.unique_local_dofs
+    }
+    pub fn factor_bytes(&self) -> usize {
+        self.factor_bytes
+    }
     pub fn regions(&self) -> impl Iterator<Item = &LocalCholeskyRegion> {
         self.regions.iter().map(|r| &r.factor)
     }
 }
 
 impl Preconditioner for HybridPreconditioner {
-    fn len(&self) -> usize { self.jacobi.len() }
+    fn len(&self) -> usize {
+        self.jacobi.len()
+    }
 
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
         if r.len() != self.len() {
-            return Err(HybitError::DimensionMismatch { expected: self.len(), actual: r.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.len(),
+                actual: r.len(),
+            });
         }
         if z.len() != self.len() {
-            return Err(HybitError::DimensionMismatch { expected: self.len(), actual: z.len() });
+            return Err(HybitError::DimensionMismatch {
+                expected: self.len(),
+                actual: z.len(),
+            });
         }
 
         // Base Jacobi acts only outside all selected local factors.
@@ -1644,11 +1932,23 @@ impl Preconditioner for HybridPreconditioner {
         for region in &self.regions {
             let mut scratch = region.scratch.borrow_mut();
             let RegionScratch { rhs, sol } = &mut *scratch;
-            for (i, (&gi, &w)) in region.factor.indices().iter().zip(&region.weights).enumerate() {
+            for (i, (&gi, &w)) in region
+                .factor
+                .indices()
+                .iter()
+                .zip(&region.weights)
+                .enumerate()
+            {
                 rhs[i] = w * r[gi];
             }
             region.factor.solve_local(rhs, sol);
-            for (i, (&gi, &w)) in region.factor.indices().iter().zip(&region.weights).enumerate() {
+            for (i, (&gi, &w)) in region
+                .factor
+                .indices()
+                .iter()
+                .zip(&region.weights)
+                .enumerate()
+            {
                 z[gi] += w * sol[i];
             }
         }
@@ -1666,9 +1966,16 @@ mod tests {
         let mut values = Vec::new();
         row_ptr.push(0);
         for i in 0..n {
-            if i > 0 { col_idx.push((i - 1) as u32); values.push(-1.0); }
-            col_idx.push(i as u32); values.push(2.0);
-            if i + 1 < n { col_idx.push((i + 1) as u32); values.push(-1.0); }
+            if i > 0 {
+                col_idx.push((i - 1) as u32);
+                values.push(-1.0);
+            }
+            col_idx.push(i as u32);
+            values.push(2.0);
+            if i + 1 < n {
+                col_idx.push((i + 1) as u32);
+                values.push(-1.0);
+            }
             row_ptr.push(col_idx.len() as u32);
         }
         Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap()
@@ -1682,7 +1989,9 @@ mod tests {
         let mut z = vec![0.0; 4];
         region.solve_local(&r, &mut z);
         let y = a.spmv(&z).unwrap();
-        for (yi, ri) in y.iter().zip(&r) { assert!((yi - ri).abs() < 1.0e-12); }
+        for (yi, ri) in y.iter().zip(&r) {
+            assert!((yi - ri).abs() < 1.0e-12);
+        }
     }
 
     #[test]
@@ -1693,14 +2002,10 @@ mod tests {
             vec![0, 2, 5, 7, 9, 12, 14],
             vec![0, 1, 0, 1, 2, 1, 2, 3, 4, 3, 4, 5, 4, 5],
             vec![
-                4.0, -1.0,
-                -1.0, 4.0, -1.0,
-                -1.0, 4.0,
-                4.0, -1.0,
-                -1.0, 4.0, -1.0,
-                -1.0, 4.0,
+                4.0, -1.0, -1.0, 4.0, -1.0, -1.0, 4.0, 4.0, -1.0, -1.0, 4.0, -1.0, -1.0, 4.0,
             ],
-        ).unwrap();
+        )
+        .unwrap();
         let bj = BlockJacobiPreconditioner::from_csr32(&a, 3).unwrap();
         let r = vec![1.0, 2.0, 3.0, -1.0, 0.5, 2.0];
         let mut z = vec![0.0; 6];
@@ -1736,16 +2041,17 @@ mod tests {
         let mut z = vec![0.0; 4];
         hybrid.apply(&r, &mut z).unwrap();
         let y = a.spmv(&z).unwrap();
-        for (yi, ri) in y.iter().zip(&r) { assert!((yi - ri).abs() < 1.0e-12); }
+        for (yi, ri) in y.iter().zip(&r) {
+            assert!((yi - ri).abs() < 1.0e-12);
+        }
     }
 
     #[test]
     fn overlapping_weighted_schwarz_is_positive() {
         let a = poisson_1d(8);
-        let hybrid = HybridPreconditioner::from_csr32(
-            &a,
-            vec![vec![0, 1, 2, 3, 4], vec![3, 4, 5, 6, 7]],
-        ).unwrap();
+        let hybrid =
+            HybridPreconditioner::from_csr32(&a, vec![vec![0, 1, 2, 3, 4], vec![3, 4, 5, 6, 7]])
+                .unwrap();
         let r = vec![1.0, -0.5, 0.25, 2.0, -1.0, 0.75, 1.5, -0.25];
         let mut z = vec![0.0; 8];
         hybrid.apply(&r, &mut z).unwrap();
@@ -1756,7 +2062,6 @@ mod tests {
         assert!(hybrid.factor_bytes() > 0);
     }
 }
-
 
 #[cfg(test)]
 mod rigid_body_two_level_tests {
@@ -1778,10 +2083,14 @@ mod rigid_body_two_level_tests {
     #[test]
     fn rigid_body_coarse_space_builds_on_cube() {
         let coords = vec![
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0], [1.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0], [1.0, 0.0, 1.0],
-            [0.0, 1.0, 1.0], [1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
         ];
         let a = identity(coords.len() * 3);
         let p = RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(&a, &coords, 8).unwrap();
@@ -1793,19 +2102,21 @@ mod rigid_body_two_level_tests {
         assert!(z.iter().all(|v| v.is_finite()));
     }
 
-
     #[test]
     fn balanced_rigid_body_identity_is_exact() {
         let coords = vec![
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0], [1.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0], [1.0, 0.0, 1.0],
-            [0.0, 1.0, 1.0], [1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
         ];
         let a = identity(coords.len() * 3);
-        let p = BalancedRigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(
-            &a, &coords, 8,
-        ).unwrap();
+        let p =
+            BalancedRigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32(&a, &coords, 8).unwrap();
         let r: Vec<f64> = (0..a.nrows())
             .map(|i| ((i * 11 + 5) as f64).sin())
             .collect();
@@ -1828,7 +2139,9 @@ mod rigid_body_two_level_tests {
         }
         let (assignment, count) = build_graph_aggregates(&adjacency, 16).unwrap();
         let mut counts = vec![0usize; count];
-        for a in assignment { counts[a] += 1; }
+        for a in assignment {
+            counts[a] += 1;
+        }
         assert_eq!(count, 2);
         assert_eq!(counts.iter().sum::<usize>(), n);
         assert!(*counts.iter().min().unwrap() >= 16);
@@ -1838,36 +2151,58 @@ mod rigid_body_two_level_tests {
     #[test]
     fn graph_rigid_body_aggregation_builds_connected_cube_regions() {
         let coords = vec![
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0], [1.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0], [1.0, 0.0, 1.0],
-            [0.0, 1.0, 1.0], [1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
         ];
         let edges = [
-            (0usize,1usize),(0,2),(0,4),(1,3),(1,5),(2,3),
-            (2,6),(3,7),(4,5),(4,6),(5,7),(6,7),
+            (0usize, 1usize),
+            (0, 2),
+            (0, 4),
+            (1, 3),
+            (1, 5),
+            (2, 3),
+            (2, 6),
+            (3, 7),
+            (4, 5),
+            (4, 6),
+            (5, 7),
+            (6, 7),
         ];
         let nodes = coords.len();
         let n = nodes * 3;
-        let mut rows = vec![Vec::<(usize,f64)>::new(); n];
+        let mut rows = vec![Vec::<(usize, f64)>::new(); n];
         for node in 0..nodes {
-            for c in 0..3 { rows[node*3+c].push((node*3+c, 4.0)); }
-        }
-        for &(a_node,b_node) in &edges {
             for c in 0..3 {
-                rows[a_node*3+c].push((b_node*3+c, -1.0));
-                rows[b_node*3+c].push((a_node*3+c, -1.0));
+                rows[node * 3 + c].push((node * 3 + c, 4.0));
             }
         }
-        let mut row_ptr=Vec::with_capacity(n+1); let mut col_idx=Vec::new(); let mut values=Vec::new();
+        for &(a_node, b_node) in &edges {
+            for c in 0..3 {
+                rows[a_node * 3 + c].push((b_node * 3 + c, -1.0));
+                rows[b_node * 3 + c].push((a_node * 3 + c, -1.0));
+            }
+        }
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::new();
+        let mut values = Vec::new();
         row_ptr.push(0);
         for row in &mut rows {
             row.sort_unstable_by_key(|e| e.0);
-            for &(c,v) in row.iter() { col_idx.push(c as u32); values.push(v); }
+            for &(c, v) in row.iter() {
+                col_idx.push(c as u32);
+                values.push(v);
+            }
             row_ptr.push(col_idx.len() as u32);
         }
-        let a = Csr32Matrix::new(n,n,row_ptr,col_idx,values).unwrap();
-        let p = RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32_graph(&a, &coords, 4).unwrap();
+        let a = Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap();
+        let p =
+            RigidBodyTwoLevelBlockJacobiPreconditioner::from_csr32_graph(&a, &coords, 4).unwrap();
         assert_eq!(p.aggregation(), RigidBodyAggregation::Graph);
         assert_eq!(p.aggregate_count(), 2);
         assert!(p.min_aggregate_nodes() >= 3);
@@ -1876,7 +2211,7 @@ mod rigid_body_two_level_tests {
         let r: Vec<f64> = (0..n).map(|i| (i as f64 * 0.17).sin()).collect();
         let mut z = vec![0.0; n];
         p.apply(&r, &mut z).unwrap();
-        let rz: f64 = r.iter().zip(&z).map(|(ri,zi)| ri*zi).sum();
+        let rz: f64 = r.iter().zip(&z).map(|(ri, zi)| ri * zi).sum();
         assert!(rz > 0.0 && z.iter().all(|v| v.is_finite()));
     }
 }
@@ -1908,9 +2243,7 @@ pub fn recommend_rigid_body_aggregate_nodes(
     // an over-large requested coarse space from creating rank-deficient tail
     // aggregates on small problems.
     let max_aggregates = (node_count / 3).max(1);
-    let target_aggregates = (target_coarse_dimension / 6)
-        .max(1)
-        .min(max_aggregates);
+    let target_aggregates = (target_coarse_dimension / 6).max(1).min(max_aggregates);
     let minimum_nodes = node_count
         .checked_add(target_aggregates - 1)
         .ok_or(HybitError::SizeOverflow)?

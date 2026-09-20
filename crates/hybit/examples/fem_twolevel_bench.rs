@@ -30,13 +30,19 @@ impl Args {
                 "--matrix" => matrix = Some(PathBuf::from(next_value(&mut it, "--matrix")?)),
                 "--tol" => relative_tolerance = next_value(&mut it, "--tol")?.parse()?,
                 "--max-iters" => max_iterations = next_value(&mut it, "--max-iters")?.parse()?,
-                "--dofs-per-node" => dofs_per_node = next_value(&mut it, "--dofs-per-node")?.parse()?,
-                "--aggregate-nodes" => aggregate_nodes = next_value(&mut it, "--aggregate-nodes")?.parse()?,
+                "--dofs-per-node" => {
+                    dofs_per_node = next_value(&mut it, "--dofs-per-node")?.parse()?
+                }
+                "--aggregate-nodes" => {
+                    aggregate_nodes = next_value(&mut it, "--aggregate-nodes")?.parse()?
+                }
                 "-h" | "--help" => {
                     print_usage();
                     std::process::exit(0);
                 }
-                other if !other.starts_with('-') && matrix.is_none() => matrix = Some(PathBuf::from(other)),
+                other if !other.starts_with('-') && matrix.is_none() => {
+                    matrix = Some(PathBuf::from(other))
+                }
                 other => return Err(format!("unknown argument '{other}'").into()),
             }
         }
@@ -44,15 +50,31 @@ impl Args {
         if !relative_tolerance.is_finite() || relative_tolerance <= 0.0 {
             return Err("--tol must be finite and > 0".into());
         }
-        if max_iterations == 0 { return Err("--max-iters must be > 0".into()); }
-        if dofs_per_node == 0 { return Err("--dofs-per-node must be > 0".into()); }
-        if aggregate_nodes == 0 { return Err("--aggregate-nodes must be > 0".into()); }
-        Ok(Self { matrix, relative_tolerance, max_iterations, dofs_per_node, aggregate_nodes })
+        if max_iterations == 0 {
+            return Err("--max-iters must be > 0".into());
+        }
+        if dofs_per_node == 0 {
+            return Err("--dofs-per-node must be > 0".into());
+        }
+        if aggregate_nodes == 0 {
+            return Err("--aggregate-nodes must be > 0".into());
+        }
+        Ok(Self {
+            matrix,
+            relative_tolerance,
+            max_iterations,
+            dofs_per_node,
+            aggregate_nodes,
+        })
     }
 }
 
-fn next_value<I: Iterator<Item = String>>(it: &mut I, flag: &str) -> Result<String, Box<dyn Error>> {
-    it.next().ok_or_else(|| format!("missing value after {flag}").into())
+fn next_value<I: Iterator<Item = String>>(
+    it: &mut I,
+    flag: &str,
+) -> Result<String, Box<dyn Error>> {
+    it.next()
+        .ok_or_else(|| format!("missing value after {flag}").into())
 }
 
 fn print_usage() {
@@ -64,45 +86,73 @@ fn norm2(x: &[f64]) -> f64 {
     x.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
-fn verified_relative_residual(a: &Csr32Matrix, b: &[f64], x: &[f64]) -> Result<f64, Box<dyn Error>> {
+fn verified_relative_residual(
+    a: &Csr32Matrix,
+    b: &[f64],
+    x: &[f64],
+) -> Result<f64, Box<dyn Error>> {
     let ax = a.spmv(x)?;
-    let sum = b.iter().zip(ax.iter()).map(|(&bi, &ai)| {
-        let r = bi - ai;
-        r * r
-    }).sum::<f64>();
+    let sum = b
+        .iter()
+        .zip(ax.iter())
+        .map(|(&bi, &ai)| {
+            let r = bi - ai;
+            r * r
+        })
+        .sum::<f64>();
     let denom = norm2(b);
-    Ok(if denom == 0.0 { sum.sqrt() } else { sum.sqrt() / denom })
+    Ok(if denom == 0.0 {
+        sum.sqrt()
+    } else {
+        sum.sqrt() / denom
+    })
 }
 
 fn relative_error_to_ones(x: &[f64]) -> f64 {
-    let diff = x.iter().map(|&xi| {
-        let d = xi - 1.0;
-        d * d
-    }).sum::<f64>();
+    let diff = x
+        .iter()
+        .map(|&xi| {
+            let d = xi - 1.0;
+            d * d
+        })
+        .sum::<f64>();
     diff.sqrt() / (x.len() as f64).sqrt().max(f64::MIN_POSITIVE)
 }
 
-fn mib(bytes: usize) -> f64 { bytes as f64 / (1024.0 * 1024.0) }
+fn mib(bytes: usize) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse()?;
-    println!("HyBIT {} two-level FEM benchmark", env!("CARGO_PKG_VERSION"));
+    println!(
+        "HyBIT {} two-level FEM benchmark",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("matrix             : {}", args.matrix.display());
 
     let load_start = Instant::now();
     let (matrix, mm) = read_matrix_market(&args.matrix)?;
     let load_seconds = load_start.elapsed().as_secs_f64();
     let profile = analyze_csr32(&matrix)?;
-    println!("Matrix Market      : {:?}, {} input entries -> {} CSR nnz", mm.symmetry, mm.input_entries, mm.csr_nnz);
+    println!(
+        "Matrix Market      : {:?}, {} input entries -> {} CSR nnz",
+        mm.symmetry, mm.input_entries, mm.csr_nnz
+    );
     println!("dimensions         : {} x {}", profile.nrows, profile.ncols);
     println!("nnz                : {}", profile.nnz);
-    println!("CSR storage        : {:.3} MiB", mib(matrix.storage_bytes()));
+    println!(
+        "CSR storage        : {:.3} MiB",
+        mib(matrix.storage_bytes())
+    );
     println!("load time          : {:.3} ms", load_seconds * 1.0e3);
     println!("DOFs per node      : {}", args.dofs_per_node);
     println!("aggregate nodes    : {}", args.aggregate_nodes);
 
     if !profile.square || !profile.full_diagonal || !profile.positive_diagonal {
-        return Err("two-level PCG requires a square matrix with a complete positive diagonal".into());
+        return Err(
+            "two-level PCG requires a square matrix with a complete positive diagonal".into(),
+        );
     }
     if matrix.nrows() % args.dofs_per_node != 0 {
         return Err("matrix dimension is not divisible by --dofs-per-node".into());
@@ -123,9 +173,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("fine block size    : {}", precond.dofs_per_node());
     println!("aggregate count    : {}", precond.aggregate_count());
     println!("coarse dimension   : {}", precond.coarse_dimension());
-    println!("base factor        : {:.3} MiB", mib(precond.base_factor_bytes()));
-    println!("coarse factor      : {:.3} MiB", mib(precond.coarse_factor_bytes()));
-    println!("total prec storage : {:.3} MiB", mib(precond.factor_bytes()));
+    println!(
+        "base factor        : {:.3} MiB",
+        mib(precond.base_factor_bytes())
+    );
+    println!(
+        "coarse factor      : {:.3} MiB",
+        mib(precond.coarse_factor_bytes())
+    );
+    println!(
+        "total prec storage : {:.3} MiB",
+        mib(precond.factor_bytes())
+    );
     println!("setup              : {:.3} ms", setup_seconds * 1.0e3);
 
     let options = SolverOptions {
@@ -143,11 +202,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Two-level Block-Jacobi + aggregation coarse PCG");
     println!("status             : {:?}", outcome.status);
     println!("iterations         : {}", outcome.iterations);
-    println!("reported residual  : {:.6e}", outcome.final_residual / b_norm);
+    println!(
+        "reported residual  : {:.6e}",
+        outcome.final_residual / b_norm
+    );
     println!("verified residual  : {:.6e}", verified);
     println!("relative x error   : {:.6e}", relative_error_to_ones(&x));
     println!("solve time         : {:.3} ms", solve_seconds * 1.0e3);
-    println!("total setup+solve  : {:.3} ms", (setup_seconds + solve_seconds) * 1.0e3);
+    println!(
+        "total setup+solve  : {:.3} ms",
+        (setup_seconds + solve_seconds) * 1.0e3
+    );
 
     if !verified.is_finite() {
         return Err("non-finite independently verified residual".into());

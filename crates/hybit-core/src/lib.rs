@@ -23,10 +23,19 @@ impl Display for HybitError {
             }
             Self::MissingDiagonal { row } => write!(f, "missing diagonal entry at row {row}"),
             Self::ZeroDiagonal { row } => write!(f, "zero diagonal entry at row {row}"),
-            Self::SizeOverflow => write!(f, "matrix or index size exceeds the selected representation"),
+            Self::SizeOverflow => write!(
+                f,
+                "matrix or index size exceeds the selected representation"
+            ),
             Self::NumericalBreakdown(msg) => write!(f, "numerical breakdown: {msg}"),
-            Self::NotConverged { iterations, residual } => {
-                write!(f, "solver did not converge after {iterations} iterations; residual={residual:e}")
+            Self::NotConverged {
+                iterations,
+                residual,
+            } => {
+                write!(
+                    f,
+                    "solver did not converge after {iterations} iterations; residual={residual:e}"
+                )
             }
         }
     }
@@ -98,13 +107,19 @@ impl Default for SolverOptions {
 impl SolverOptions {
     pub fn validate(&self) -> Result<(), HybitError> {
         if !self.relative_tolerance.is_finite() || self.relative_tolerance < 0.0 {
-            return Err(HybitError::InvalidArgument("relative_tolerance must be finite and >= 0"));
+            return Err(HybitError::InvalidArgument(
+                "relative_tolerance must be finite and >= 0",
+            ));
         }
         if !self.absolute_tolerance.is_finite() || self.absolute_tolerance < 0.0 {
-            return Err(HybitError::InvalidArgument("absolute_tolerance must be finite and >= 0"));
+            return Err(HybitError::InvalidArgument(
+                "absolute_tolerance must be finite and >= 0",
+            ));
         }
         if self.relative_tolerance == 0.0 && self.absolute_tolerance == 0.0 {
-            return Err(HybitError::InvalidArgument("at least one tolerance must be > 0"));
+            return Err(HybitError::InvalidArgument(
+                "at least one tolerance must be > 0",
+            ));
         }
         if self.max_iterations == 0 {
             return Err(HybitError::InvalidArgument("max_iterations must be > 0"));

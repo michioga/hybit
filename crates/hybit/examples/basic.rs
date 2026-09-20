@@ -12,10 +12,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (x, report) = solve(&a, &b)?;
     println!("HyBIT {}", env!("CARGO_PKG_VERSION"));
     println!("x = {x:?}");
-    println!("status = {:?}, iterations = {}, residual = {:.3e}", report.status, report.iterations, report.final_residual);
-    println!("solver = {:?}, preconditioner = {:?}, escalations = {}", report.solver, report.preconditioner, report.escalations);
+    println!(
+        "status = {:?}, iterations = {}, residual = {:.3e}",
+        report.status, report.iterations, report.final_residual
+    );
+    println!(
+        "solver = {:?}, preconditioner = {:?}, escalations = {}",
+        report.solver, report.preconditioner, report.escalations
+    );
     if report.escalations > 0 {
-        println!("hard DOFs = {}, local regions = {}, largest region = {}", report.hard_dofs, report.local_direct_regions, report.largest_local_region);
+        println!(
+            "hard DOFs = {}, local regions = {}, largest region = {}",
+            report.hard_dofs, report.local_direct_regions, report.largest_local_region
+        );
     }
     Ok(())
 }
