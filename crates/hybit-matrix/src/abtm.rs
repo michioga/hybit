@@ -281,7 +281,7 @@ impl LinearOperator for AbtmMatrix {
                 actual: y.len(),
             });
         }
-        for row in 0..self.nrows {
+        for (row, yi) in y.iter_mut().enumerate() {
             let start = self.row_tile_ptr[row] as usize;
             let end = self.row_tile_ptr[row + 1] as usize;
             let mut sum = 0.0;
@@ -298,7 +298,7 @@ impl LinearOperator for AbtmMatrix {
                     }
                 }
             }
-            y[row] = sum;
+            *yi = sum;
         }
         Ok(())
     }

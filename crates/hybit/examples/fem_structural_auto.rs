@@ -79,20 +79,18 @@ impl Args {
                     }
                 }
                 "--precond" => {
-                    preconditioner_policy = match next_value(&mut it, "--precond")?
-                        .to_ascii_lowercase()
-                        .as_str()
-                    {
+                    let value = next_value(&mut it, "--precond")?;
+                    preconditioner_policy = match value.to_ascii_lowercase().as_str() {
                         "auto" => StructuralPreconditionerPolicy::Auto,
                         "serial" => StructuralPreconditionerPolicy::Serial,
                         "parallel" => StructuralPreconditionerPolicy::Parallel,
                         other => {
                             return Err(format!(
-                        "unknown preconditioner policy '{other}'; use auto, serial, or parallel"
-                    )
+                                "unknown preconditioner policy '{other}'; use auto, serial, or parallel"
+                            )
                             .into())
                         }
-                    }
+                    };
                 }
                 "--pcg-vectors" => {
                     pcg_vector_policy = match next_value(&mut it, "--pcg-vectors")?
@@ -104,8 +102,8 @@ impl Args {
                         "parallel" => StructuralPcgVectorPolicy::Parallel,
                         other => {
                             return Err(format!(
-                            "unknown PCG vector policy '{other}'; use auto, serial, or parallel"
-                        )
+                                "unknown PCG vector policy '{other}'; use auto, serial, or parallel"
+                            )
                             .into())
                         }
                     }

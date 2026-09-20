@@ -114,8 +114,8 @@ impl Csr32Matrix {
                 }
             }
         }
-        for row in 0..self.nrows {
-            if !found[row] {
+        for (row, &was_found) in found.iter().enumerate() {
+            if !was_found {
                 return Err(HybitError::MissingDiagonal { row });
             }
         }

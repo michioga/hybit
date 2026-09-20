@@ -6,3 +6,5 @@
 *.a
 *.mod
 /build
+
+*.log

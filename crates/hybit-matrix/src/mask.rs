@@ -10,7 +10,7 @@ impl DofMask {
     pub fn new(len: usize) -> Self {
         Self {
             len,
-            words: vec![0; (len + 63) / 64],
+            words: vec![0; len.div_ceil(64)],
         }
     }
 

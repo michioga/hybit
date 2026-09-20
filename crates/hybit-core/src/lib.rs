@@ -51,6 +51,11 @@ pub trait LinearOperator {
 
 pub trait Preconditioner {
     fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError>;
 }
 

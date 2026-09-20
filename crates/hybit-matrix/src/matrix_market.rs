@@ -221,7 +221,7 @@ pub fn read_matrix_market_from_reader<R: BufRead>(
         )));
     }
 
-    entries.sort_unstable_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    entries.sort_unstable_by_key(|a| (a.0, a.1));
     let mut duplicate_entries_combined = 0usize;
     let mut compact: Vec<(u32, u32, f64)> = Vec::with_capacity(entries.len());
     for (row, col, value) in entries {

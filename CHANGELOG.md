@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0-r26e rustfmt stabilization
+
+- Rewrite the structural example `--precond` parser arms with an explicit local value so rustfmt cannot oscillate between direct-expression and block-arm forms.
+- Preserve parser behavior, solver algorithms, structural Auto policy, and numerical operation ordering.
+- Carry forward the r26d FFI safety documentation/fix and the Clippy-clean workspace state.
+
+## 0.6.0-r26d RC FFI safety cleanup
+
+- Synchronize the two remaining structural example parser forms with the Windows rustfmt output used by the release-candidate gate.
+- Document explicit `# Safety` contracts for all 14 public `unsafe extern "C"` entry points in `hybit-ffi`.
+- Make `hybit_matrix_create_csr_f64` safely honor its existing zero-nnz API behavior by avoiding `slice::from_raw_parts` on null `col_idx`/`values` pointers when `nnz == 0`.
+- Keep solver algorithms, structural Auto policy, and numerical operation ordering unchanged.
+
+## 0.6.0-r26c RC lint follow-up
+
+- Apply the remaining rustfmt changes reported by the Windows release-candidate gate.
+- Keep the internal `run_continuation` helper unchanged and narrowly allow Clippy's `too_many_arguments` lint rather than refactoring release-candidate control flow.
+- No solver algorithm, numerical operation ordering, structural Auto policy, or public API behavior is changed.
+
+## 0.6.0-r26b RC lint cleanup
+
+- Apply the full workspace `rustfmt` normalization required by the 0.6.0 release-candidate gate.
+- Complete the public `Preconditioner` collection-style API with a default `is_empty()` implementation.
+- Resolve current stable Clippy `-D warnings` findings in matrix and preconditioner code using semantics-preserving iterator forms, `div_ceil`, and `sort_unstable_by_key`.
+- Keep solver algorithms, structural Auto policy, and numerical operation ordering unchanged.
+
 ## 0.6.0-r26 release-gate hardening
 
 - Feature freeze remains in effect; solver algorithms are unchanged from r25.

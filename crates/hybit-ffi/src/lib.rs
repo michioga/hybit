@@ -185,6 +185,12 @@ pub extern "C" fn hybit_version_patch() -> u32 {
     0
 }
 
+/// Copies the thread-local last-error message into a caller-provided buffer.
+///
+/// # Safety
+/// If `buffer` is non-null and `capacity > 0`, it must point to at least `capacity`
+/// writable bytes for the duration of this call. A null `buffer` is permitted when
+/// the caller only wants to query the required byte count.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_last_error_message(buffer: *mut c_char, capacity: usize) -> usize {
     LAST_ERROR.with(|slot| {
@@ -201,6 +207,12 @@ pub unsafe extern "C" fn hybit_last_error_message(buffer: *mut c_char, capacity:
     })
 }
 
+/// Creates a solver handle.
+///
+/// # Safety
+/// `out_solver` must be non-null, properly aligned, and valid for writing one
+/// `*mut HybitSolverHandle`. The pointed-to storage must remain writable for the
+/// duration of this call.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHandle) -> c_int {
     if out_solver.is_null() {
@@ -216,6 +228,12 @@ pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHa
     })
 }
 
+/// Destroys a solver handle created by [`hybit_solver_create`].
+///
+/// # Safety
+/// `solver` must either be null or be a live handle returned by
+/// [`hybit_solver_create`] that has not already been destroyed. After this call,
+/// the handle must not be used again.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_destroy(solver: *mut HybitSolverHandle) {
     if !solver.is_null() {
@@ -223,6 +241,12 @@ pub unsafe extern "C" fn hybit_solver_destroy(solver: *mut HybitSolverHandle) {
     }
 }
 
+/// Updates solver tolerance settings.
+///
+/// # Safety
+/// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
+/// The caller must have exclusive access to that handle for the duration of this
+/// call.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_set_tolerances(
     solver: *mut HybitSolverHandle,
@@ -242,6 +266,12 @@ pub unsafe extern "C" fn hybit_solver_set_tolerances(
     })
 }
 
+/// Updates the solver iteration limit.
+///
+/// # Safety
+/// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
+/// The caller must have exclusive access to that handle for the duration of this
+/// call.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_set_max_iterations(
     solver: *mut HybitSolverHandle,
@@ -263,6 +293,12 @@ pub unsafe extern "C" fn hybit_solver_set_max_iterations(
     })
 }
 
+/// Selects the sparse-matrix backend used by a solver handle.
+///
+/// # Safety
+/// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
+/// The caller must have exclusive access to that handle for the duration of this
+/// call.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_set_backend(
     solver: *mut HybitSolverHandle,
@@ -285,6 +321,12 @@ pub unsafe extern "C" fn hybit_solver_set_backend(
     HYBIT_OK
 }
 
+/// Enables or disables the hybrid solver policy.
+///
+/// # Safety
+/// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
+/// The caller must have exclusive access to that handle for the duration of this
+/// call.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(
     solver: *mut HybitSolverHandle,
@@ -306,6 +348,12 @@ pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(
     })
 }
 
+/// Updates the hybrid overlap-layer setting.
+///
+/// # Safety
+/// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
+/// The caller must have exclusive access to that handle for the duration of this
+/// call.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solver_set_overlap_layers(
     solver: *mut HybitSolverHandle,
@@ -327,6 +375,15 @@ pub unsafe extern "C" fn hybit_solver_set_overlap_layers(
     })
 }
 
+/// Creates an owned CSR matrix by copying caller-provided arrays.
+///
+/// # Safety
+/// `out_matrix` must be non-null, properly aligned, and valid for writing one
+/// `*mut HybitMatrixHandle`. `row_ptr` must point to `nrows + 1` readable `u32`
+/// values. When `nnz > 0`, `col_idx` and `values` must point to `nnz` readable
+/// elements of their respective types; when `nnz == 0`, those two pointers may be
+/// null. All non-null pointers must be properly aligned and valid for the duration
+/// of this call. The output storage must not overlap the input arrays.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
     nrows: u32,
@@ -351,8 +408,16 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
     }
     ffi_guard(|| {
         let rp_src = slice::from_raw_parts(row_ptr, nrows as usize + 1);
-        let ci_src = slice::from_raw_parts(col_idx, nnz as usize);
-        let va_src = slice::from_raw_parts(values, nnz as usize);
+        let ci_src: &[u32] = if nnz == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(col_idx, nnz as usize)
+        };
+        let va_src: &[f64] = if nnz == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(values, nnz as usize)
+        };
         let base = index_base as u32;
         let mut rp = Vec::with_capacity(rp_src.len());
         let mut ci = Vec::with_capacity(ci_src.len());
@@ -378,6 +443,12 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
     })
 }
 
+/// Destroys a matrix handle created by [`hybit_matrix_create_csr_f64`].
+///
+/// # Safety
+/// `matrix` must either be null or be a live handle returned by
+/// [`hybit_matrix_create_csr_f64`] that has not already been destroyed. After this
+/// call, the handle must not be used again.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_matrix_destroy(matrix: *mut HybitMatrixHandle) {
     if !matrix.is_null() {
@@ -385,6 +456,14 @@ pub unsafe extern "C" fn hybit_matrix_destroy(matrix: *mut HybitMatrixHandle) {
     }
 }
 
+/// Prepares reusable solver state for a matrix.
+///
+/// # Safety
+/// `solver` must be a live solver handle and be exclusively accessible for this
+/// call. `matrix` must be a live matrix handle and remain valid for the duration of
+/// the call. `out_prepared` must be non-null, properly aligned, and valid for
+/// writing one `*mut HybitPreparedHandle`. These objects must not alias in a way
+/// that violates Rust's mutable-access rules.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_prepare(
     solver: *mut HybitSolverHandle,
@@ -405,6 +484,12 @@ pub unsafe extern "C" fn hybit_prepare(
     })
 }
 
+/// Destroys a prepared handle created by [`hybit_prepare`].
+///
+/// # Safety
+/// `prepared` must either be null or be a live handle returned by [`hybit_prepare`]
+/// that has not already been destroyed. After this call, the handle must not be
+/// used again.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_prepared_destroy(prepared: *mut HybitPreparedHandle) {
     if !prepared.is_null() {
@@ -412,6 +497,15 @@ pub unsafe extern "C" fn hybit_prepared_destroy(prepared: *mut HybitPreparedHand
     }
 }
 
+/// Solves a system using previously prepared solver state.
+///
+/// # Safety
+/// `prepared` must be a live prepared handle and be exclusively accessible for this
+/// call. `matrix` must be a live matrix handle matching the prepared state. `b`
+/// must point to at least `matrix.nrows()` readable `f64` values, and `x` must point
+/// to at least `matrix.ncols()` writable `f64` values. The `b` and `x` ranges must
+/// not overlap. If `report` is non-null, it must be properly aligned and writable
+/// for one `HybitSolveReport`, and it must not overlap any other live argument.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solve_prepared(
     prepared: *mut HybitPreparedHandle,
@@ -446,6 +540,15 @@ pub unsafe extern "C" fn hybit_solve_prepared(
     })
 }
 
+/// Solves a system using a solver handle.
+///
+/// # Safety
+/// `solver` must be a live solver handle and be exclusively accessible for this
+/// call. `matrix` must be a live matrix handle. `b` must point to at least
+/// `matrix.nrows()` readable `f64` values, and `x` must point to at least
+/// `matrix.ncols()` writable `f64` values. The `b` and `x` ranges must not overlap.
+/// If `report` is non-null, it must be properly aligned and writable for one
+/// `HybitSolveReport`, and it must not overlap any other live argument.
 #[no_mangle]
 pub unsafe extern "C" fn hybit_solve(
     solver: *mut HybitSolverHandle,

@@ -1151,6 +1151,7 @@ fn operator_for_backend<'a>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_continuation(
     matrix: &Csr32Matrix,
     abtm: Option<&AbtmMatrix>,

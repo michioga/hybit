@@ -46,6 +46,7 @@ These timings were measured on the Ryzen 7 7800X3D development machine and are i
 - The new rigid-body coarse path assumes exactly three displacement DOFs per node and requires coordinates in the exact CSR node/DOF ordering.
 - Generic `solve_csr32` behavior remains unchanged by the structural execution policies.
 - The C ABI remains repository-built; `hybit-ffi` is not published to crates.io.
+- All public unsafe C ABI entry points document their pointer/lifetime safety contracts; zero-nnz CSR creation permits null `col_idx`/`values` pointers without constructing null Rust slices.
 - HyBIT remains pre-1.0 experimental numerical software. Independently validate residuals and physical results for engineering use.
 
 ## Release gate

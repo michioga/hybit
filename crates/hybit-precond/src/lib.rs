@@ -129,7 +129,7 @@ impl BlockJacobiPreconditioner {
         }
 
         let n = matrix.nrows();
-        let mut blocks = Vec::with_capacity((n + block_size - 1) / block_size);
+        let mut blocks = Vec::with_capacity(n.div_ceil(block_size));
         let mut factor_bytes = 0usize;
 
         for start in (0..n).step_by(block_size) {
@@ -237,15 +237,15 @@ impl BlockJacobiPreconditioner {
                 debug_assert_eq!(z_block.len(), n);
                 for i in 0..n {
                     let mut sum = r[start + i];
-                    for k in 0..i {
-                        sum -= block.lower[i * n + k] * z_block[k];
+                    for (k, &zk) in z_block.iter().take(i).enumerate() {
+                        sum -= block.lower[i * n + k] * zk;
                     }
                     z_block[i] = sum / block.lower[i * n + i];
                 }
                 for i in (0..n).rev() {
                     let mut sum = z_block[i];
-                    for k in (i + 1)..n {
-                        sum -= block.lower[k * n + i] * z_block[k];
+                    for (k, &zk) in z_block.iter().enumerate().skip(i + 1) {
+                        sum -= block.lower[k * n + i] * zk;
                     }
                     z_block[i] = sum / block.lower[i * n + i];
                 }
@@ -493,15 +493,15 @@ impl TwoLevelBlockJacobiPreconditioner {
         debug_assert_eq!(sol.len(), n);
         for i in 0..n {
             let mut sum = rhs[i];
-            for k in 0..i {
-                sum -= self.coarse_lower[i * n + k] * sol[k];
+            for (k, &sk) in sol.iter().take(i).enumerate() {
+                sum -= self.coarse_lower[i * n + k] * sk;
             }
             sol[i] = sum / self.coarse_lower[i * n + i];
         }
         for i in (0..n).rev() {
             let mut sum = sol[i];
-            for k in (i + 1)..n {
-                sum -= self.coarse_lower[k * n + i] * sol[k];
+            for (k, &sk) in sol.iter().enumerate().skip(i + 1) {
+                sum -= self.coarse_lower[k * n + i] * sk;
             }
             sol[i] = sum / self.coarse_lower[i * n + i];
         }
@@ -1001,8 +1001,8 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         for i in 0..n {
             let i_base = self.coarse_row_start[i];
             let mut sum = rhs[i];
-            for k in 0..i {
-                sum -= self.coarse_lower_packed[i_base + k] * sol[k];
+            for (k, &sk) in sol.iter().take(i).enumerate() {
+                sum -= self.coarse_lower_packed[i_base + k] * sk;
             }
             sol[i] = sum / self.coarse_lower_packed[i_base + i];
         }
@@ -1011,9 +1011,9 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         for i in (0..n).rev() {
             let i_base = self.coarse_row_start[i];
             let mut sum = sol[i];
-            for k in (i + 1)..n {
+            for (k, &sk) in sol.iter().enumerate().skip(i + 1) {
                 let k_base = self.coarse_row_start[k];
-                sum -= self.coarse_lower_packed[k_base + i] * sol[k];
+                sum -= self.coarse_lower_packed[k_base + i] * sk;
             }
             sol[i] = sum / self.coarse_lower_packed[i_base + i];
         }
@@ -1762,15 +1762,15 @@ impl LocalCholeskyRegion {
         debug_assert_eq!(out.len(), n);
         for i in 0..n {
             let mut sum = rhs[i];
-            for k in 0..i {
-                sum -= self.lower[i * n + k] * out[k];
+            for (k, &ok) in out.iter().take(i).enumerate() {
+                sum -= self.lower[i * n + k] * ok;
             }
             out[i] = sum / self.lower[i * n + i];
         }
         for i in (0..n).rev() {
             let mut sum = out[i];
-            for k in (i + 1)..n {
-                sum -= self.lower[k * n + i] * out[k];
+            for (k, &ok) in out.iter().enumerate().skip(i + 1) {
+                sum -= self.lower[k * n + i] * ok;
             }
             out[i] = sum / self.lower[i * n + i];
         }
@@ -2278,7 +2278,7 @@ mod structural_auto_tests {
     fn l_angle_sized_problem_selects_512_nodes_for_1536_target() {
         let aggregate = recommend_rigid_body_aggregate_nodes(119_355, 1_536).unwrap();
         assert_eq!(aggregate, 512);
-        let aggregates = (119_355 + aggregate - 1) / aggregate;
+        let aggregates = 119_355_usize.div_ceil(aggregate);
         assert_eq!(aggregates * 6, 1_404);
     }
 
