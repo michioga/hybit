@@ -29,15 +29,15 @@
 //! systems with PCG. See the repository README for current limitations.
 
 pub use hybit_auto::{
-    BackendPolicy, HybitAnalysis, HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver,
-    HybridOptions, StructuralOptions, StructuralPcgVectorPolicy, StructuralPreconditionerPolicy,
-    StructuralSpmvPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
-    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS, STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ,
-    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
+    AlgebraicCoarseOptions, BackendPolicy, HybitAnalysis, HybitPreparedStructuralSystem,
+    HybitPreparedSystem, HybitSolver, HybridOptions, LocalFactorSelectionPolicy, StructuralOptions,
+    StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS,
+    STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
 };
 pub use hybit_core::{
-    HybitError, LinearOperator, MatrixBackend, Preconditioner, PreconditionerKind, SolveReport,
-    SolveStatus, SolverKind, SolverOptions,
+    HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend, Preconditioner,
+    PreconditionerKind, SolveReport, SolveStatus, SolverKind, SolverOptions,
 };
 pub use hybit_krylov::{
     parallel_vector_worker_count, pcg, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
@@ -52,8 +52,9 @@ pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,
     BlockJacobiPreconditioner, HybridPreconditioner, IdentityPreconditioner, JacobiPreconditioner,
     LocalCholeskyRegion, ParallelRigidBodyTwoLevelPreconditioner, RigidBodyAggregation,
-    RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner,
-    TwoLevelBlockJacobiPreconditioner,
+    RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelAggregation,
+    TwoLevelBasis, TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy,
+    TwoLevelTransferApplyPolicy, EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION,
 };
 
 pub fn solve(matrix: &Csr32Matrix, b: &[f64]) -> Result<(Vec<f64>, SolveReport), HybitError> {

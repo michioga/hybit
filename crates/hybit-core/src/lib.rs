@@ -134,6 +134,26 @@ impl SolverOptions {
 }
 
 #[derive(Clone, Debug)]
+pub struct HybridEscalationStageReport {
+    /// One-based selective-direct escalation stage number.
+    pub stage: usize,
+    /// PCG iterations spent with the preconditioner built for this stage.
+    pub iterations: usize,
+    /// Residual norm at the beginning of the restarted PCG stage.
+    pub initial_residual: f64,
+    /// Residual norm at the end of the restarted PCG stage.
+    pub final_residual: f64,
+    /// `final_residual / initial_residual`, or zero when the initial residual is zero.
+    pub residual_ratio: f64,
+    /// Number of local direct regions active in this stage.
+    pub local_direct_regions: usize,
+    /// Number of unique global DOFs covered by the stage preconditioner.
+    pub unique_local_factor_dofs: usize,
+    /// Persistent local-direct bytes owned by the stage preconditioner.
+    pub local_factor_bytes: usize,
+}
+
+#[derive(Clone, Debug)]
 pub struct SolveReport {
     pub status: SolveStatus,
     pub solver: SolverKind,
@@ -158,6 +178,11 @@ pub struct SolveReport {
     /// Restarted PCG time after escalation.
     pub restart_seconds: f64,
     pub escalations: usize,
+    /// Per-stage telemetry for selective-direct strengthening restarts.
+    ///
+    /// This vector is empty for non-hybrid solves and for prepared solves that
+    /// directly reuse an already-built hybrid preconditioner.
+    pub escalation_stages: Vec<HybridEscalationStageReport>,
     pub probe_iterations: usize,
     pub probe_final_residual: f64,
     /// Core DOFs identified as numerically difficult before halo expansion.
@@ -170,8 +195,30 @@ pub struct SolveReport {
     pub local_factor_dofs: usize,
     /// Unique global DOFs covered by at least one local factor.
     pub unique_local_factor_dofs: usize,
-    /// Bytes owned by local Cholesky factors, indices and symmetric weights.
+    /// Bytes owned by local Cholesky factors, indices, weights, multiplicity,
+    /// and reusable local-direct scratch storage.
     pub local_factor_bytes: usize,
+    /// Coarse-space dimension for the optional geometry-free algebraic two-level
+    /// base used by the generic hybrid path. Zero when disabled/not constructed.
+    pub algebraic_coarse_dimension: usize,
+    /// Persistent bytes owned by the algebraic two-level base preconditioner.
+    pub algebraic_coarse_factor_bytes: usize,
+    /// Requested/target nodes per algebraic coarse aggregate. Zero when disabled.
+    /// Graph aggregation can produce variable-sized regions around this target.
+    pub algebraic_coarse_aggregate_nodes: usize,
+    /// Time spent constructing the algebraic two-level base.
+    pub algebraic_coarse_seconds: f64,
+    /// Configured persistent local-direct memory budget in bytes.
+    ///
+    /// This is zero for solver paths that do not use the generic hybrid
+    /// local-direct controller.
+    pub local_factor_budget_bytes: usize,
+    /// Number of candidate local-direct regions rejected because admitting
+    /// them would exceed `local_factor_budget_bytes`.
+    pub local_factor_regions_skipped_for_budget: usize,
+    /// True when at least one candidate region was rejected by the local
+    /// factor memory budget.
+    pub local_factor_budget_limited: bool,
     /// Number of topology halo layers requested for each hard region.
     pub overlap_layers: usize,
     /// True when an already-built local direct preconditioner was reused.

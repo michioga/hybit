@@ -218,3 +218,7 @@ aggregationへfallbackします。検証済みの構造FEM経路は
 Structural Auto は `StructuralSpmvPolicy`、`StructuralPreconditionerPolicy`、`StructuralPcgVectorPolicy` により、CSR SpMV、剛体二段前処理、PCG密ベクトルカーネルを独立に並列化できます。大規模構造問題では並列経路を選択し、小規模問題ではRayonオーバーヘッドを避けるためserialを維持します。PCG vectorの`Auto`は共有Rayon poolが4 worker以上の場合にのみ有効化されます。thread数は`RAYON_NUM_THREADS`等で外部から制御します。
 
 > 開発チェックポイント (0.6 r25): 358065 DOF / 28.24M nnzのL-angle実荷重問題で、8 Rayon worker時にStructural AutoはGraph aggregation + Parallel CSR SpMV + Parallel rigid-body preconditioner + Parallel/fused PCG vectorsを選択しました。220反復、verified relative residual `9.378557e-9`、solve 1.726秒、analysis+prepare+solve 2.797秒でした（Ryzen 7 7800X3D上の開発測定値であり、一般的な性能保証ではありません）。r25 production pathはfeature freezeとし、次は0.6.0 release gateへ進みます。
+
+### Hybrid coarse dimension sweep
+
+`bench-fem-hybrid-coarse-sweep.ps1` は selective-direct only を基準として一度だけ Plain Jacobi-PCG を実行し、その後は `--skip-plain` を使って複数の algebraic coarse target を比較します。既定 target は `384, 512, 768, 1024, 1536` です。結果は画面の比較表と `hybit-hybrid-coarse-sweep.csv` に出力されます。

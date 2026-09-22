@@ -299,6 +299,7 @@ impl Preconditioner for BlockJacobiPreconditioner {
 struct CoarseScratch {
     rhs: Vec<f64>,
     sol: Vec<f64>,
+    restriction_buffers: Vec<Vec<f64>>,
 }
 
 #[inline]
@@ -309,15 +310,105 @@ fn packed_lower_len(n: usize) -> Result<usize, HybitError> {
         .ok_or(HybitError::SizeOverflow)
 }
 
+#[inline]
+fn packed_lower_index(row: usize, col: usize) -> usize {
+    debug_assert!(col <= row);
+    row * (row + 1) / 2 + col
+}
+
+/// Empirical coarse-dimension crossover used by [`TwoLevelCoarseApplyPolicy::Auto`].
+///
+/// The L-angle crossover benchmark found packed factor solves slightly faster at
+/// coarse dimension 768, while explicit inverse application was clearly faster
+/// by coarse dimension 1275 and above. 1024 is therefore a conservative midpoint
+/// threshold; explicit `FactorSolve` / `ExplicitInverse` selections remain
+/// available for callers with different workloads.
+pub const EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION: usize = 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoLevelCoarseApplyPolicy {
+    /// Resolve from the actual coarse dimension after aggregation.
+    ///
+    /// Dimensions below [`EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION`] use
+    /// `FactorSolve`; dimensions at or above it use `ExplicitInverse`.
+    Auto,
+    /// Apply the coarse inverse with packed forward/backward Cholesky solves.
+    FactorSolve,
+    /// Form the dense coarse inverse once during setup, then apply it as a
+    /// row-major dense matrix-vector product. This increases setup work but
+    /// removes triangular dependencies from every Krylov iteration.
+    ExplicitInverse,
+}
+
+impl TwoLevelCoarseApplyPolicy {
+    /// Resolve `Auto` against the actual coarse dimension.
+    pub fn resolve(self, coarse_dimension: usize) -> Self {
+        match self {
+            Self::Auto if coarse_dimension >= EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION => {
+                Self::ExplicitInverse
+            }
+            Self::Auto => Self::FactorSolve,
+            explicit => explicit,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoLevelAggregation {
+    /// Group consecutive node-major blocks. This is the historical generic path.
+    Contiguous,
+    /// Build deterministic breadth-first aggregates from the block sparsity graph.
+    Graph,
+    /// Follow the block sparsity graph but prioritize normalized strong couplings
+    /// while growing each deterministic breadth-first aggregate.
+    StrongGraph,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoLevelBasis {
+    /// One piecewise-constant coarse mode per aggregate and component.
+    PiecewiseConstant,
+    /// Apply one damped Jacobi smoothing step to the tentative piecewise-constant
+    /// prolongator, then form the true Galerkin operator `P^T A P`.
+    JacobiSmoothed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoLevelTransferApplyPolicy {
+    /// Apply the sparse smoothed transfer with serial fine-row traversal.
+    Serial,
+    /// Parallelize smoothed restriction with per-worker coarse buffers and
+    /// prolongation with independent fine-row updates.
+    Parallel,
+}
+
 #[derive(Clone, Debug)]
 pub struct TwoLevelBlockJacobiPreconditioner {
     n: usize,
     dofs_per_node: usize,
     aggregate_nodes: usize,
     aggregate_count: usize,
+    min_aggregate_nodes: usize,
+    max_aggregate_nodes: usize,
+    aggregation: TwoLevelAggregation,
+    basis: TwoLevelBasis,
+    transfer_apply_policy: TwoLevelTransferApplyPolicy,
+    aggregate_of_node: Vec<usize>,
     coarse_dimension: usize,
+    transfer_row_ptr: Vec<usize>,
+    transfer_col_idx: Vec<u32>,
+    transfer_values: Vec<f64>,
+    smoothing_omega: f64,
     base: BlockJacobiPreconditioner,
-    coarse_lower: Vec<f64>,
+    coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+    // FactorSolve keeps both triangular orientations in packed row-major form.
+    // ExplicitInverse discards these setup factors after building E^-1 and
+    // stores only the dense row-major inverse, so persistent memory remains
+    // approximately n_coarse^2 f64 values in either mode.
+    coarse_lower_packed: Vec<f64>,
+    coarse_upper_packed: Vec<f64>,
+    coarse_upper_row_start: Vec<usize>,
+    coarse_inverse: Vec<f64>,
     scratch: RefCell<CoarseScratch>,
     factor_bytes: usize,
 }
@@ -326,18 +417,104 @@ impl TwoLevelBlockJacobiPreconditioner {
     /// Build an SPD additive two-level preconditioner
     ///
     /// ```text
-    /// M^-1 = B^-1 + Z (Z^T A Z)^-1 Z^T
+    /// M^-1 = B^-1 + P (P^T A P)^-1 P^T
     /// ```
     ///
-    /// where `B^-1` is contiguous block Jacobi and `Z` contains piecewise
-    /// constant vector-FEM aggregate modes. Each aggregate contains
-    /// `aggregate_nodes` consecutive nodes, and every displacement/component
-    /// receives its own coarse basis vector. The construction is deliberately
-    /// geometry-free: it only requires node-major contiguous DOFs.
+    /// where `B^-1` is contiguous block Jacobi and `P` is the selected coarse
+    /// transfer. `PiecewiseConstant` uses the tentative aggregate modes directly;
+    /// `JacobiSmoothed` applies one damped Jacobi step and forms the true
+    /// Galerkin operator `P^T A P`. Aggregates remain geometry-free.
     pub fn from_csr32(
         matrix: &Csr32Matrix,
         dofs_per_node: usize,
         aggregate_nodes: usize,
+    ) -> Result<Self, HybitError> {
+        Self::from_csr32_with_aggregation_basis_and_policy(
+            matrix,
+            dofs_per_node,
+            aggregate_nodes,
+            TwoLevelAggregation::Contiguous,
+            TwoLevelBasis::PiecewiseConstant,
+            TwoLevelCoarseApplyPolicy::FactorSolve,
+        )
+    }
+
+    pub fn from_csr32_with_policy(
+        matrix: &Csr32Matrix,
+        dofs_per_node: usize,
+        aggregate_nodes: usize,
+        coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+    ) -> Result<Self, HybitError> {
+        Self::from_csr32_with_aggregation_basis_and_policy(
+            matrix,
+            dofs_per_node,
+            aggregate_nodes,
+            TwoLevelAggregation::Contiguous,
+            TwoLevelBasis::PiecewiseConstant,
+            coarse_apply_policy,
+        )
+    }
+
+    pub fn from_csr32_graph_with_policy(
+        matrix: &Csr32Matrix,
+        dofs_per_node: usize,
+        target_aggregate_nodes: usize,
+        coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+    ) -> Result<Self, HybitError> {
+        Self::from_csr32_with_aggregation_basis_and_policy(
+            matrix,
+            dofs_per_node,
+            target_aggregate_nodes,
+            TwoLevelAggregation::Graph,
+            TwoLevelBasis::PiecewiseConstant,
+            coarse_apply_policy,
+        )
+    }
+
+    pub fn from_csr32_with_aggregation_and_policy(
+        matrix: &Csr32Matrix,
+        dofs_per_node: usize,
+        aggregate_nodes: usize,
+        aggregation: TwoLevelAggregation,
+        coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+    ) -> Result<Self, HybitError> {
+        Self::from_csr32_with_aggregation_basis_and_policy(
+            matrix,
+            dofs_per_node,
+            aggregate_nodes,
+            aggregation,
+            TwoLevelBasis::PiecewiseConstant,
+            coarse_apply_policy,
+        )
+    }
+
+    pub fn from_csr32_with_aggregation_basis_and_policy(
+        matrix: &Csr32Matrix,
+        dofs_per_node: usize,
+        aggregate_nodes: usize,
+        aggregation: TwoLevelAggregation,
+        basis: TwoLevelBasis,
+        coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+    ) -> Result<Self, HybitError> {
+        Self::from_csr32_with_aggregation_basis_and_policies(
+            matrix,
+            dofs_per_node,
+            aggregate_nodes,
+            aggregation,
+            basis,
+            coarse_apply_policy,
+            TwoLevelTransferApplyPolicy::Serial,
+        )
+    }
+
+    pub fn from_csr32_with_aggregation_basis_and_policies(
+        matrix: &Csr32Matrix,
+        dofs_per_node: usize,
+        aggregate_nodes: usize,
+        aggregation: TwoLevelAggregation,
+        basis: TwoLevelBasis,
+        coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+        transfer_apply_policy: TwoLevelTransferApplyPolicy,
     ) -> Result<Self, HybitError> {
         if matrix.nrows() != matrix.ncols() {
             return Err(HybitError::InvalidMatrix(
@@ -359,38 +536,98 @@ impl TwoLevelBlockJacobiPreconditioner {
 
         let base = BlockJacobiPreconditioner::from_csr32(matrix, dofs_per_node)?;
         let node_count = n / dofs_per_node;
-        let aggregate_count = node_count
-            .checked_add(aggregate_nodes - 1)
-            .ok_or(HybitError::SizeOverflow)?
-            / aggregate_nodes;
+        let (aggregate_of_node, aggregate_count) = match aggregation {
+            TwoLevelAggregation::Contiguous => {
+                let count = node_count
+                    .checked_add(aggregate_nodes - 1)
+                    .ok_or(HybitError::SizeOverflow)?
+                    / aggregate_nodes;
+                (Vec::new(), count)
+            }
+            TwoLevelAggregation::Graph => {
+                let adjacency = build_block_node_adjacency(matrix, node_count, dofs_per_node)?;
+                build_piecewise_constant_graph_aggregates(&adjacency, aggregate_nodes)?
+            }
+            TwoLevelAggregation::StrongGraph => {
+                let adjacency =
+                    build_strong_block_node_adjacency(matrix, node_count, dofs_per_node)?;
+                build_piecewise_constant_graph_aggregates(&adjacency, aggregate_nodes)?
+            }
+        };
+        let mut aggregate_counts = vec![0usize; aggregate_count];
+        if aggregate_of_node.is_empty() {
+            for node in 0..node_count {
+                aggregate_counts[node / aggregate_nodes] += 1;
+            }
+        } else {
+            for &aggregate in &aggregate_of_node {
+                aggregate_counts[aggregate] += 1;
+            }
+        }
+        let min_aggregate_nodes = *aggregate_counts.iter().min().unwrap_or(&0);
+        let max_aggregate_nodes = *aggregate_counts.iter().max().unwrap_or(&0);
         let coarse_dimension = aggregate_count
             .checked_mul(dofs_per_node)
             .ok_or(HybitError::SizeOverflow)?;
+        let coarse_apply_policy = coarse_apply_policy.resolve(coarse_dimension);
         let coarse_len = coarse_dimension
             .checked_mul(coarse_dimension)
             .ok_or(HybitError::SizeOverflow)?;
-        let mut coarse = vec![0.0f64; coarse_len];
 
-        #[inline]
-        fn coarse_index(dof: usize, dofs_per_node: usize, aggregate_nodes: usize) -> usize {
-            let node = dof / dofs_per_node;
-            let component = dof % dofs_per_node;
-            (node / aggregate_nodes) * dofs_per_node + component
-        }
-
-        // Galerkin coarse operator E = Z^T A Z.  Since each fine DOF belongs
-        // to exactly one piecewise-constant coarse mode, this is just a sparse
-        // accumulation from fine CSR entries into a small dense matrix.
-        for row in 0..n {
-            let cr = coarse_index(row, dofs_per_node, aggregate_nodes);
-            let rs = matrix.row_ptr()[row] as usize;
-            let re = matrix.row_ptr()[row + 1] as usize;
-            for p in rs..re {
-                let col = matrix.col_idx()[p] as usize;
-                let cc = coarse_index(col, dofs_per_node, aggregate_nodes);
-                coarse[cr * coarse_dimension + cc] += matrix.values()[p];
-            }
-        }
+        let (transfer_row_ptr, transfer_col_idx, transfer_values, smoothing_omega, mut coarse) =
+            match basis {
+                TwoLevelBasis::PiecewiseConstant => {
+                    let mut coarse = vec![0.0f64; coarse_len];
+                    // Galerkin coarse operator E = Z^T A Z. Since each fine DOF
+                    // belongs to exactly one tentative piecewise-constant mode,
+                    // this is a direct sparse accumulation into the dense coarse
+                    // matrix.
+                    for row in 0..n {
+                        let cr = piecewise_coarse_index(
+                            row,
+                            dofs_per_node,
+                            aggregate_nodes,
+                            &aggregate_of_node,
+                        );
+                        let rs = matrix.row_ptr()[row] as usize;
+                        let re = matrix.row_ptr()[row + 1] as usize;
+                        for p in rs..re {
+                            let col = matrix.col_idx()[p] as usize;
+                            let cc = piecewise_coarse_index(
+                                col,
+                                dofs_per_node,
+                                aggregate_nodes,
+                                &aggregate_of_node,
+                            );
+                            coarse[cr * coarse_dimension + cc] += matrix.values()[p];
+                        }
+                    }
+                    (Vec::new(), Vec::new(), Vec::new(), 0.0, coarse)
+                }
+                TwoLevelBasis::JacobiSmoothed => {
+                    let transfer = build_jacobi_smoothed_transfer(
+                        matrix,
+                        dofs_per_node,
+                        aggregate_nodes,
+                        &aggregate_of_node,
+                        coarse_dimension,
+                    )?;
+                    let coarse = build_galerkin_coarse_from_transfer(
+                        matrix,
+                        &transfer.row_ptr,
+                        &transfer.col_idx,
+                        &transfer.values,
+                        coarse_dimension,
+                    )?;
+                    (
+                        transfer.row_ptr,
+                        transfer.col_idx,
+                        transfer.values,
+                        transfer.omega,
+                        coarse,
+                    )
+                }
+            };
 
         // Exact input symmetry can accumulate in a different order on the two
         // halves. Symmetrize before Cholesky so roundoff cannot create a false
@@ -414,14 +651,16 @@ impl TwoLevelBlockJacobiPreconditioner {
             ));
         }
 
-        let mut coarse_lower = vec![0.0f64; coarse_len];
+        let coarse_factor_len = packed_lower_len(coarse_dimension)?;
+        let mut coarse_lower_packed = vec![0.0f64; coarse_factor_len];
         let pivot_tol = 1.0e-14 * scale.max(1.0);
         for i in 0..coarse_dimension {
+            let i_base = packed_lower_index(i, 0);
             for j in 0..=i {
+                let j_base = packed_lower_index(j, 0);
                 let mut sum = coarse[i * coarse_dimension + j];
                 for k in 0..j {
-                    sum -= coarse_lower[i * coarse_dimension + k]
-                        * coarse_lower[j * coarse_dimension + k];
+                    sum -= coarse_lower_packed[i_base + k] * coarse_lower_packed[j_base + k];
                 }
                 if i == j {
                     if !sum.is_finite() || sum <= pivot_tol {
@@ -429,22 +668,116 @@ impl TwoLevelBlockJacobiPreconditioner {
                             "aggregation coarse Cholesky encountered a non-positive pivot",
                         ));
                     }
-                    coarse_lower[i * coarse_dimension + i] = sum.sqrt();
+                    coarse_lower_packed[i_base + i] = sum.sqrt();
                 } else {
-                    coarse_lower[i * coarse_dimension + j] =
-                        sum / coarse_lower[j * coarse_dimension + j];
+                    coarse_lower_packed[i_base + j] = sum / coarse_lower_packed[j_base + j];
                 }
             }
         }
 
+        // Build a packed row-major copy of L^T.  Row i stores
+        // [L(i,i), L(i+1,i), ..., L(n-1,i)].  The backward solve can then
+        // stream through a contiguous row instead of reading L with stride n.
+        let mut coarse_upper_row_start = Vec::with_capacity(coarse_dimension + 1);
+        coarse_upper_row_start.push(0usize);
+        for i in 0..coarse_dimension {
+            let next = coarse_upper_row_start[i]
+                .checked_add(coarse_dimension - i)
+                .ok_or(HybitError::SizeOverflow)?;
+            coarse_upper_row_start.push(next);
+        }
+        debug_assert_eq!(coarse_upper_row_start[coarse_dimension], coarse_factor_len);
+        let mut coarse_upper_packed = vec![0.0f64; coarse_factor_len];
+        for i in 0..coarse_dimension {
+            let dst = coarse_upper_row_start[i];
+            for k in i..coarse_dimension {
+                coarse_upper_packed[dst + (k - i)] = coarse_lower_packed[packed_lower_index(k, i)];
+            }
+        }
+
+        let mut coarse_inverse = Vec::new();
+        if coarse_apply_policy == TwoLevelCoarseApplyPolicy::ExplicitInverse {
+            coarse_inverse = vec![0.0f64; coarse_len];
+            // Each solve A x = e_i produces column i of E^-1. Since E^-1 is
+            // symmetric, write that vector directly as row i; this layout lets
+            // independent inverse rows be built in parallel without strided
+            // concurrent writes. A final symmetrization removes roundoff skew.
+            coarse_inverse
+                .par_chunks_mut(coarse_dimension)
+                .enumerate()
+                .for_each_init(
+                    || {
+                        (
+                            vec![0.0f64; coarse_dimension],
+                            vec![0.0f64; coarse_dimension],
+                        )
+                    },
+                    |(rhs, sol), (row_index, inverse_row)| {
+                        rhs.fill(0.0);
+                        rhs[row_index] = 1.0;
+                        Self::solve_packed_coarse(
+                            coarse_dimension,
+                            &coarse_lower_packed,
+                            &coarse_upper_packed,
+                            &coarse_upper_row_start,
+                            rhs,
+                            sol,
+                        );
+                        inverse_row.copy_from_slice(sol);
+                    },
+                );
+
+            // The mathematical inverse is symmetric. Average mirrored entries
+            // so floating-point triangular-solve roundoff cannot make the
+            // explicit apply observably asymmetric to PCG.
+            for i in 0..coarse_dimension {
+                for j in 0..i {
+                    let avg = 0.5
+                        * (coarse_inverse[i * coarse_dimension + j]
+                            + coarse_inverse[j * coarse_dimension + i]);
+                    coarse_inverse[i * coarse_dimension + j] = avg;
+                    coarse_inverse[j * coarse_dimension + i] = avg;
+                }
+            }
+
+            // The inverse replaces the setup factors in persistent state.
+            coarse_lower_packed = Vec::new();
+            coarse_upper_packed = Vec::new();
+            coarse_upper_row_start = Vec::new();
+        }
+
+        let restriction_buffer_count = match (basis, transfer_apply_policy) {
+            (TwoLevelBasis::JacobiSmoothed, TwoLevelTransferApplyPolicy::Parallel) => {
+                rayon::current_num_threads().max(1)
+            }
+            _ => 0,
+        };
         let scratch = RefCell::new(CoarseScratch {
             rhs: vec![0.0; coarse_dimension],
             sol: vec![0.0; coarse_dimension],
+            restriction_buffers: (0..restriction_buffer_count)
+                .map(|_| vec![0.0; coarse_dimension])
+                .collect(),
         });
         let factor_bytes = base
             .factor_bytes()
-            .checked_add(coarse_lower.len() * std::mem::size_of::<f64>())
+            .checked_add(coarse_lower_packed.len() * std::mem::size_of::<f64>())
+            .and_then(|v| v.checked_add(coarse_upper_packed.len() * std::mem::size_of::<f64>()))
+            .and_then(|v| {
+                v.checked_add(coarse_upper_row_start.len() * std::mem::size_of::<usize>())
+            })
+            .and_then(|v| v.checked_add(coarse_inverse.len() * std::mem::size_of::<f64>()))
+            .and_then(|v| v.checked_add(aggregate_of_node.len() * std::mem::size_of::<usize>()))
+            .and_then(|v| v.checked_add(transfer_row_ptr.len() * std::mem::size_of::<usize>()))
+            .and_then(|v| v.checked_add(transfer_col_idx.len() * std::mem::size_of::<u32>()))
+            .and_then(|v| v.checked_add(transfer_values.len() * std::mem::size_of::<f64>()))
             .and_then(|v| v.checked_add(2 * coarse_dimension * std::mem::size_of::<f64>()))
+            .and_then(|v| {
+                let restriction_bytes = restriction_buffer_count
+                    .checked_mul(coarse_dimension)?
+                    .checked_mul(std::mem::size_of::<f64>())?;
+                v.checked_add(restriction_bytes)
+            })
             .ok_or(HybitError::SizeOverflow)?;
 
         Ok(Self {
@@ -452,9 +785,23 @@ impl TwoLevelBlockJacobiPreconditioner {
             dofs_per_node,
             aggregate_nodes,
             aggregate_count,
+            min_aggregate_nodes,
+            max_aggregate_nodes,
+            aggregation,
+            basis,
+            transfer_apply_policy,
+            aggregate_of_node,
             coarse_dimension,
+            transfer_row_ptr,
+            transfer_col_idx,
+            transfer_values,
+            smoothing_omega,
             base,
-            coarse_lower,
+            coarse_apply_policy,
+            coarse_lower_packed,
+            coarse_upper_packed,
+            coarse_upper_row_start,
+            coarse_inverse,
             scratch,
             factor_bytes,
         })
@@ -469,6 +816,27 @@ impl TwoLevelBlockJacobiPreconditioner {
     pub fn aggregate_count(&self) -> usize {
         self.aggregate_count
     }
+    pub fn min_aggregate_nodes(&self) -> usize {
+        self.min_aggregate_nodes
+    }
+    pub fn max_aggregate_nodes(&self) -> usize {
+        self.max_aggregate_nodes
+    }
+    pub fn aggregation(&self) -> TwoLevelAggregation {
+        self.aggregation
+    }
+    pub fn basis(&self) -> TwoLevelBasis {
+        self.basis
+    }
+    pub fn transfer_apply_policy(&self) -> TwoLevelTransferApplyPolicy {
+        self.transfer_apply_policy
+    }
+    pub fn smoothing_omega(&self) -> f64 {
+        self.smoothing_omega
+    }
+    pub fn transfer_nnz(&self) -> usize {
+        self.transfer_values.len()
+    }
     pub fn coarse_dimension(&self) -> usize {
         self.coarse_dimension
     }
@@ -478,34 +846,85 @@ impl TwoLevelBlockJacobiPreconditioner {
     pub fn base_factor_bytes(&self) -> usize {
         self.base.factor_bytes()
     }
+    pub fn coarse_apply_policy(&self) -> TwoLevelCoarseApplyPolicy {
+        self.coarse_apply_policy
+    }
     pub fn coarse_factor_bytes(&self) -> usize {
-        self.coarse_lower.len() * std::mem::size_of::<f64>()
+        (self.coarse_lower_packed.len()
+            + self.coarse_upper_packed.len()
+            + self.coarse_inverse.len())
+            * std::mem::size_of::<f64>()
     }
 
     #[inline]
     fn coarse_index(&self, dof: usize) -> usize {
-        let node = dof / self.dofs_per_node;
-        let component = dof % self.dofs_per_node;
-        (node / self.aggregate_nodes) * self.dofs_per_node + component
+        piecewise_coarse_index(
+            dof,
+            self.dofs_per_node,
+            self.aggregate_nodes,
+            &self.aggregate_of_node,
+        )
+    }
+
+    fn solve_packed_coarse(
+        n: usize,
+        lower: &[f64],
+        upper: &[f64],
+        upper_row_start: &[usize],
+        rhs: &[f64],
+        sol: &mut [f64],
+    ) {
+        debug_assert_eq!(rhs.len(), n);
+        debug_assert_eq!(sol.len(), n);
+
+        // Forward substitution reads one contiguous packed-L row at a time.
+        for i in 0..n {
+            let row_start = packed_lower_index(i, 0);
+            let row = &lower[row_start..row_start + i + 1];
+            let correction: f64 = row[..i]
+                .iter()
+                .zip(&sol[..i])
+                .map(|(&lik, &sk)| lik * sk)
+                .sum();
+            sol[i] = (rhs[i] - correction) / row[i];
+        }
+
+        // Backward substitution streams through packed rows of L^T.
+        for i in (0..n).rev() {
+            let start = upper_row_start[i];
+            let end = upper_row_start[i + 1];
+            let row = &upper[start..end];
+            let correction: f64 = row[1..]
+                .iter()
+                .zip(&sol[i + 1..])
+                .map(|(&uki, &sk)| uki * sk)
+                .sum();
+            sol[i] = (sol[i] - correction) / row[0];
+        }
     }
 
     fn solve_coarse(&self, rhs: &[f64], sol: &mut [f64]) {
         let n = self.coarse_dimension;
-        debug_assert_eq!(rhs.len(), n);
-        debug_assert_eq!(sol.len(), n);
-        for i in 0..n {
-            let mut sum = rhs[i];
-            for (k, &sk) in sol.iter().take(i).enumerate() {
-                sum -= self.coarse_lower[i * n + k] * sk;
+        match self.coarse_apply_policy {
+            TwoLevelCoarseApplyPolicy::FactorSolve => Self::solve_packed_coarse(
+                n,
+                &self.coarse_lower_packed,
+                &self.coarse_upper_packed,
+                &self.coarse_upper_row_start,
+                rhs,
+                sol,
+            ),
+            TwoLevelCoarseApplyPolicy::ExplicitInverse => {
+                debug_assert_eq!(self.coarse_inverse.len(), n * n);
+                let coarse_inverse = self.coarse_inverse.as_slice();
+                sol.par_iter_mut().enumerate().for_each(|(i, si)| {
+                    let row = &coarse_inverse[i * n..(i + 1) * n];
+                    *si = row.iter().zip(rhs).map(|(&a, &b)| a * b).sum();
+                });
             }
-            sol[i] = sum / self.coarse_lower[i * n + i];
-        }
-        for i in (0..n).rev() {
-            let mut sum = sol[i];
-            for (k, &sk) in sol.iter().enumerate().skip(i + 1) {
-                sum -= self.coarse_lower[k * n + i] * sk;
+            TwoLevelCoarseApplyPolicy::Auto => {
+                unreachable!("Auto coarse-apply policy must be resolved during construction")
             }
-            sol[i] = sum / self.coarse_lower[i * n + i];
         }
     }
 }
@@ -532,17 +951,103 @@ impl Preconditioner for TwoLevelBlockJacobiPreconditioner {
         // Fine/local SPD term.
         self.base.apply(r, z)?;
 
-        // Coarse/global SPD term Z E^-1 Z^T.
+        // Coarse/global SPD term P E^-1 P^T. PiecewiseConstant keeps the
+        // historical implicit one-entry-per-row transfer. JacobiSmoothed stores
+        // the one-step smoothed prolongator sparsely by fine row.
         let mut scratch = self.scratch.borrow_mut();
         scratch.rhs.fill(0.0);
-        for (dof, &ri) in r.iter().enumerate() {
-            let ci = self.coarse_index(dof);
-            scratch.rhs[ci] += ri;
+        match self.basis {
+            TwoLevelBasis::PiecewiseConstant => {
+                for (dof, &ri) in r.iter().enumerate() {
+                    let ci = self.coarse_index(dof);
+                    scratch.rhs[ci] += ri;
+                }
+            }
+            TwoLevelBasis::JacobiSmoothed => match self.transfer_apply_policy {
+                TwoLevelTransferApplyPolicy::Serial => {
+                    for (row, &ri) in r.iter().enumerate() {
+                        let start = self.transfer_row_ptr[row];
+                        let end = self.transfer_row_ptr[row + 1];
+                        for p in start..end {
+                            let ci = self.transfer_col_idx[p] as usize;
+                            scratch.rhs[ci] += self.transfer_values[p] * ri;
+                        }
+                    }
+                }
+                TwoLevelTransferApplyPolicy::Parallel => {
+                    let n = self.n;
+                    let row_ptr = self.transfer_row_ptr.as_slice();
+                    let col_idx = self.transfer_col_idx.as_slice();
+                    let values = self.transfer_values.as_slice();
+                    let worker_count = scratch.restriction_buffers.len();
+                    debug_assert!(worker_count > 0);
+                    scratch
+                        .restriction_buffers
+                        .par_iter_mut()
+                        .enumerate()
+                        .for_each(|(worker, local)| {
+                            local.fill(0.0);
+                            let begin = n * worker / worker_count;
+                            let end_row = n * (worker + 1) / worker_count;
+                            for (offset, &ri) in r[begin..end_row].iter().enumerate() {
+                                let row = begin + offset;
+                                let start = row_ptr[row];
+                                let end = row_ptr[row + 1];
+                                for p in start..end {
+                                    local[col_idx[p] as usize] += values[p] * ri;
+                                }
+                            }
+                        });
+                    let CoarseScratch {
+                        rhs,
+                        restriction_buffers,
+                        ..
+                    } = &mut *scratch;
+                    rhs.fill(0.0);
+                    for local in restriction_buffers.iter() {
+                        for (dst, &value) in rhs.iter_mut().zip(local) {
+                            *dst += value;
+                        }
+                    }
+                }
+            },
         }
-        let CoarseScratch { rhs, sol } = &mut *scratch;
+        let CoarseScratch { rhs, sol, .. } = &mut *scratch;
         self.solve_coarse(rhs, sol);
-        for (dof, zi) in z.iter_mut().enumerate() {
-            *zi += sol[self.coarse_index(dof)];
+        match self.basis {
+            TwoLevelBasis::PiecewiseConstant => {
+                for (dof, zi) in z.iter_mut().enumerate() {
+                    *zi += sol[self.coarse_index(dof)];
+                }
+            }
+            TwoLevelBasis::JacobiSmoothed => match self.transfer_apply_policy {
+                TwoLevelTransferApplyPolicy::Serial => {
+                    for (row, zi) in z.iter_mut().enumerate() {
+                        let start = self.transfer_row_ptr[row];
+                        let end = self.transfer_row_ptr[row + 1];
+                        let correction = (start..end)
+                            .map(|p| {
+                                self.transfer_values[p] * sol[self.transfer_col_idx[p] as usize]
+                            })
+                            .sum::<f64>();
+                        *zi += correction;
+                    }
+                }
+                TwoLevelTransferApplyPolicy::Parallel => {
+                    let row_ptr = self.transfer_row_ptr.as_slice();
+                    let col_idx = self.transfer_col_idx.as_slice();
+                    let values = self.transfer_values.as_slice();
+                    let coarse_solution = sol.as_slice();
+                    z.par_iter_mut().enumerate().for_each(|(row, zi)| {
+                        let start = row_ptr[row];
+                        let end = row_ptr[row + 1];
+                        let correction = (start..end)
+                            .map(|p| values[p] * coarse_solution[col_idx[p] as usize])
+                            .sum::<f64>();
+                        *zi += correction;
+                    });
+                }
+            },
         }
         Ok(())
     }
@@ -852,6 +1357,7 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
         let scratch = RefCell::new(CoarseScratch {
             rhs: vec![0.0; coarse_dimension],
             sol: vec![0.0; coarse_dimension],
+            restriction_buffers: Vec::new(),
         });
         let factor_bytes = base
             .factor_bytes()
@@ -1080,7 +1586,7 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
 
             let start = Instant::now();
             {
-                let CoarseScratch { rhs, sol } = &mut *scratch;
+                let CoarseScratch { rhs, sol, .. } = &mut *scratch;
                 self.solve_coarse(rhs, sol);
             }
             profile.coarse_solve += start.elapsed();
@@ -1121,7 +1627,7 @@ impl RigidBodyTwoLevelBlockJacobiPreconditioner {
                 scratch.rhs[modes[k]] += values[k] * ri;
             }
         }
-        let CoarseScratch { rhs, sol } = &mut *scratch;
+        let CoarseScratch { rhs, sol, .. } = &mut *scratch;
         self.solve_coarse(rhs, sol);
         for (dof, zi) in z.iter_mut().enumerate() {
             let (modes, values) = self.active_modes(dof);
@@ -1311,11 +1817,262 @@ impl Preconditioner for BalancedRigidBodyTwoLevelBlockJacobiPreconditioner<'_> {
     }
 }
 
-fn build_structural_node_adjacency(
+#[inline]
+fn piecewise_coarse_index(
+    dof: usize,
+    dofs_per_node: usize,
+    aggregate_nodes: usize,
+    aggregate_of_node: &[usize],
+) -> usize {
+    let node = dof / dofs_per_node;
+    let component = dof % dofs_per_node;
+    let aggregate = if aggregate_of_node.is_empty() {
+        node / aggregate_nodes
+    } else {
+        aggregate_of_node[node]
+    };
+    aggregate * dofs_per_node + component
+}
+
+fn estimate_jacobi_spectral_radius(
+    matrix: &Csr32Matrix,
+    diagonal: &[f64],
+) -> Result<f64, HybitError> {
+    let n = matrix.nrows();
+    if diagonal.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: diagonal.len(),
+        });
+    }
+    let mut inv_sqrt = Vec::with_capacity(n);
+    for (row, &d) in diagonal.iter().enumerate() {
+        if !d.is_finite() || d == 0.0 {
+            return Err(HybitError::ZeroDiagonal { row });
+        }
+        if d < 0.0 {
+            return Err(HybitError::InvalidMatrix(
+                "Jacobi-smoothed coarse basis requires a positive diagonal",
+            ));
+        }
+        inv_sqrt.push(1.0 / d.sqrt());
+    }
+
+    let mut x: Vec<f64> = (0..n)
+        .map(|i| 1.0 + ((i.wrapping_mul(17).wrapping_add(11)) % 101) as f64)
+        .collect();
+    let mut y = vec![0.0f64; n];
+    let mut norm = x.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if !norm.is_finite() || norm == 0.0 {
+        return Err(HybitError::NumericalBreakdown(
+            "Jacobi smoothing spectral estimate has zero initial norm",
+        ));
+    }
+    for xi in &mut x {
+        *xi /= norm;
+    }
+
+    // Power iteration on D^-1/2 A D^-1/2, which is symmetric positive
+    // definite whenever A is SPD with a positive diagonal. Ten iterations are
+    // enough for this setup-time damping estimate and keep it deterministic.
+    for _ in 0..10 {
+        for (row, yi) in y.iter_mut().enumerate() {
+            let rs = matrix.row_ptr()[row] as usize;
+            let re = matrix.row_ptr()[row + 1] as usize;
+            let mut sum = 0.0f64;
+            for p in rs..re {
+                let col = matrix.col_idx()[p] as usize;
+                sum += matrix.values()[p] * inv_sqrt[col] * x[col];
+            }
+            *yi = inv_sqrt[row] * sum;
+        }
+        norm = y.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if !norm.is_finite() || norm == 0.0 {
+            return Err(HybitError::NumericalBreakdown(
+                "Jacobi smoothing spectral estimate broke down",
+            ));
+        }
+        for (xi, &yi) in x.iter_mut().zip(&y) {
+            *xi = yi / norm;
+        }
+    }
+
+    for (row, yi) in y.iter_mut().enumerate() {
+        let rs = matrix.row_ptr()[row] as usize;
+        let re = matrix.row_ptr()[row + 1] as usize;
+        let mut sum = 0.0f64;
+        for p in rs..re {
+            let col = matrix.col_idx()[p] as usize;
+            sum += matrix.values()[p] * inv_sqrt[col] * x[col];
+        }
+        *yi = inv_sqrt[row] * sum;
+    }
+    let rho = x.iter().zip(&y).map(|(&xi, &yi)| xi * yi).sum::<f64>();
+    if !rho.is_finite() || rho <= 0.0 {
+        return Err(HybitError::NumericalBreakdown(
+            "Jacobi smoothing spectral estimate is non-positive",
+        ));
+    }
+    Ok(rho)
+}
+
+struct JacobiSmoothedTransfer {
+    row_ptr: Vec<usize>,
+    col_idx: Vec<u32>,
+    values: Vec<f64>,
+    omega: f64,
+}
+
+fn build_jacobi_smoothed_transfer(
+    matrix: &Csr32Matrix,
+    dofs_per_node: usize,
+    aggregate_nodes: usize,
+    aggregate_of_node: &[usize],
+    coarse_dimension: usize,
+) -> Result<JacobiSmoothedTransfer, HybitError> {
+    let n = matrix.nrows();
+    let diagonal = matrix.diagonal()?;
+    let rho = estimate_jacobi_spectral_radius(matrix, &diagonal)?;
+    let omega = 4.0 / (3.0 * rho);
+    if !omega.is_finite() || omega <= 0.0 {
+        return Err(HybitError::NumericalBreakdown(
+            "Jacobi smoothing produced an invalid damping factor",
+        ));
+    }
+
+    let mut row_ptr = Vec::with_capacity(n + 1);
+    let mut col_idx = Vec::<u32>::new();
+    let mut values = Vec::<f64>::new();
+    row_ptr.push(0usize);
+
+    let mut stamp = vec![usize::MAX; coarse_dimension];
+    let mut accum = vec![0.0f64; coarse_dimension];
+    let mut touched = Vec::<usize>::new();
+    for (row, &diag) in diagonal.iter().enumerate() {
+        touched.clear();
+        let token = row;
+        let own = piecewise_coarse_index(
+            row,
+            dofs_per_node,
+            aggregate_nodes,
+            aggregate_of_node,
+        );
+        stamp[own] = token;
+        accum[own] = 1.0;
+        touched.push(own);
+
+        let inv_diag = 1.0 / diag;
+        let rs = matrix.row_ptr()[row] as usize;
+        let re = matrix.row_ptr()[row + 1] as usize;
+        for p in rs..re {
+            let col = matrix.col_idx()[p] as usize;
+            let coarse_col = piecewise_coarse_index(
+                col,
+                dofs_per_node,
+                aggregate_nodes,
+                aggregate_of_node,
+            );
+            if stamp[coarse_col] != token {
+                stamp[coarse_col] = token;
+                accum[coarse_col] = 0.0;
+                touched.push(coarse_col);
+            }
+            accum[coarse_col] -= omega * matrix.values()[p] * inv_diag;
+        }
+
+        touched.sort_unstable();
+        for &coarse_col in &touched {
+            let value = accum[coarse_col];
+            if value != 0.0 {
+                col_idx.push(u32::try_from(coarse_col).map_err(|_| HybitError::SizeOverflow)?);
+                values.push(value);
+            }
+        }
+        row_ptr.push(col_idx.len());
+    }
+
+    Ok(JacobiSmoothedTransfer {
+        row_ptr,
+        col_idx,
+        values,
+        omega,
+    })
+}
+
+fn build_galerkin_coarse_from_transfer(
+    matrix: &Csr32Matrix,
+    transfer_row_ptr: &[usize],
+    transfer_col_idx: &[u32],
+    transfer_values: &[f64],
+    coarse_dimension: usize,
+) -> Result<Vec<f64>, HybitError> {
+    let n = matrix.nrows();
+    if transfer_row_ptr.len() != n + 1 || transfer_col_idx.len() != transfer_values.len() {
+        return Err(HybitError::InvalidArgument(
+            "smoothed coarse transfer has inconsistent CSR storage",
+        ));
+    }
+    let coarse_len = coarse_dimension
+        .checked_mul(coarse_dimension)
+        .ok_or(HybitError::SizeOverflow)?;
+    let mut coarse = vec![0.0f64; coarse_len];
+
+    // Form E = P^T A P without materializing A P.  Each fine row uses a dense
+    // coarse accumulator with stamps; the touched set stays small because one
+    // Jacobi smoothing step only reaches neighboring aggregates.
+    let mut stamp = vec![usize::MAX; coarse_dimension];
+    let mut ap = vec![0.0f64; coarse_dimension];
+    let mut touched = Vec::<usize>::new();
+    for row in 0..n {
+        touched.clear();
+        let token = row;
+        let rs = matrix.row_ptr()[row] as usize;
+        let re = matrix.row_ptr()[row + 1] as usize;
+        for p in rs..re {
+            let fine_col = matrix.col_idx()[p] as usize;
+            let a = matrix.values()[p];
+            let ps = transfer_row_ptr[fine_col];
+            let pe = transfer_row_ptr[fine_col + 1];
+            for q in ps..pe {
+                let coarse_col = transfer_col_idx[q] as usize;
+                if coarse_col >= coarse_dimension {
+                    return Err(HybitError::InvalidArgument(
+                        "smoothed coarse transfer column is out of range",
+                    ));
+                }
+                if stamp[coarse_col] != token {
+                    stamp[coarse_col] = token;
+                    ap[coarse_col] = 0.0;
+                    touched.push(coarse_col);
+                }
+                ap[coarse_col] += a * transfer_values[q];
+            }
+        }
+
+        let ps = transfer_row_ptr[row];
+        let pe = transfer_row_ptr[row + 1];
+        for q in ps..pe {
+            let coarse_row = transfer_col_idx[q] as usize;
+            let weight = transfer_values[q];
+            let dst = coarse_row
+                .checked_mul(coarse_dimension)
+                .ok_or(HybitError::SizeOverflow)?;
+            for &coarse_col in &touched {
+                coarse[dst + coarse_col] += weight * ap[coarse_col];
+            }
+        }
+    }
+    Ok(coarse)
+}
+
+fn build_block_node_adjacency(
     matrix: &Csr32Matrix,
     node_count: usize,
+    dofs_per_node: usize,
 ) -> Result<Vec<Vec<usize>>, HybitError> {
-    let expected = node_count.checked_mul(3).ok_or(HybitError::SizeOverflow)?;
+    let expected = node_count
+        .checked_mul(dofs_per_node)
+        .ok_or(HybitError::SizeOverflow)?;
     if matrix.nrows() != expected || matrix.ncols() != expected {
         return Err(HybitError::DimensionMismatch {
             expected: matrix.nrows(),
@@ -1325,12 +2082,12 @@ fn build_structural_node_adjacency(
     let mut adjacency = Vec::with_capacity(node_count);
     for node in 0..node_count {
         let mut neighbors = Vec::<usize>::new();
-        for component in 0..3 {
-            let row = node * 3 + component;
+        for component in 0..dofs_per_node {
+            let row = node * dofs_per_node + component;
             let rs = matrix.row_ptr()[row] as usize;
             let re = matrix.row_ptr()[row + 1] as usize;
             for p in rs..re {
-                let other = matrix.col_idx()[p] as usize / 3;
+                let other = matrix.col_idx()[p] as usize / dofs_per_node;
                 if other != node {
                     neighbors.push(other);
                 }
@@ -1341,6 +2098,200 @@ fn build_structural_node_adjacency(
         adjacency.push(neighbors);
     }
     Ok(adjacency)
+}
+
+fn build_strong_block_node_adjacency(
+    matrix: &Csr32Matrix,
+    node_count: usize,
+    dofs_per_node: usize,
+) -> Result<Vec<Vec<usize>>, HybitError> {
+    let expected = node_count
+        .checked_mul(dofs_per_node)
+        .ok_or(HybitError::SizeOverflow)?;
+    if matrix.nrows() != expected || matrix.ncols() != expected {
+        return Err(HybitError::DimensionMismatch {
+            expected: matrix.nrows(),
+            actual: expected,
+        });
+    }
+
+    // Accumulate Frobenius-norm squares for every node block.  Normalizing
+    // off-diagonal block norms by the two diagonal-block norms keeps the
+    // ordering meaningful when local stiffness scales differ strongly.
+    let mut diagonal_norm_sq = vec![0.0f64; node_count];
+    let mut edge_norm_sq = vec![HashMap::<usize, f64>::new(); node_count];
+    for (node, edges) in edge_norm_sq.iter_mut().enumerate() {
+        for component in 0..dofs_per_node {
+            let row = node * dofs_per_node + component;
+            let rs = matrix.row_ptr()[row] as usize;
+            let re = matrix.row_ptr()[row + 1] as usize;
+            for p in rs..re {
+                let other = matrix.col_idx()[p] as usize / dofs_per_node;
+                let value = matrix.values()[p];
+                let square = value * value;
+                if other == node {
+                    diagonal_norm_sq[node] += square;
+                } else {
+                    *edges.entry(other).or_insert(0.0) += square;
+                }
+            }
+        }
+    }
+
+    let diagonal_norm: Vec<f64> = diagonal_norm_sq.into_iter().map(f64::sqrt).collect();
+    let mut adjacency = Vec::with_capacity(node_count);
+    for (node, edges) in edge_norm_sq.iter().enumerate() {
+        let mut weighted = Vec::<(usize, f64)>::with_capacity(edges.len());
+        for (&other, &norm_sq) in edges {
+            let edge_norm = norm_sq.sqrt();
+            let denom = (diagonal_norm[node] * diagonal_norm[other]).sqrt();
+            let strength = if denom.is_finite() && denom > 0.0 {
+                edge_norm / denom
+            } else {
+                edge_norm
+            };
+            weighted.push((other, strength));
+        }
+        weighted.sort_unstable_by(|(a_node, a_strength), (b_node, b_strength)| {
+            b_strength
+                .total_cmp(a_strength)
+                .then_with(|| a_node.cmp(b_node))
+        });
+        adjacency.push(weighted.into_iter().map(|(other, _)| other).collect());
+    }
+    Ok(adjacency)
+}
+
+fn build_piecewise_constant_graph_aggregates(
+    adjacency: &[Vec<usize>],
+    target_size: usize,
+) -> Result<(Vec<usize>, usize), HybitError> {
+    if target_size == 0 {
+        return Err(HybitError::InvalidArgument(
+            "graph two-level target aggregate size must be > 0",
+        ));
+    }
+    let n = adjacency.len();
+    if n == 0 {
+        return Err(HybitError::InvalidArgument(
+            "graph two-level aggregation requires at least one node",
+        ));
+    }
+
+    let unassigned = usize::MAX;
+    let mut aggregate_of_node = vec![unassigned; n];
+    let mut aggregate_count = 0usize;
+    let mut queue = std::collections::VecDeque::<usize>::new();
+    let mut members = Vec::<usize>::with_capacity(target_size);
+
+    for seed in 0..n {
+        if aggregate_of_node[seed] != unassigned {
+            continue;
+        }
+        queue.clear();
+        members.clear();
+        queue.push_back(seed);
+        while members.len() < target_size {
+            let Some(node) = queue.pop_front() else {
+                break;
+            };
+            if aggregate_of_node[node] != unassigned {
+                continue;
+            }
+            aggregate_of_node[node] = aggregate_count;
+            members.push(node);
+            for &neighbor in &adjacency[node] {
+                if aggregate_of_node[neighbor] == unassigned {
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        if members.is_empty() {
+            return Err(HybitError::InvalidArgument(
+                "graph two-level aggregation produced an empty region",
+            ));
+        }
+        aggregate_count = aggregate_count
+            .checked_add(1)
+            .ok_or(HybitError::SizeOverflow)?;
+    }
+
+    // Absorb very small graph fragments into the neighboring aggregate with
+    // the strongest edge connection. Track member lists so merging costs scale
+    // with the fragment boundary rather than rescanning every node per region.
+    // Piecewise-constant modes remain valid on singleton disconnected
+    // components, so fragments with no external edge are intentionally kept.
+    let merge_floor = (target_size / 4).max(1);
+    let mut aggregate_members = vec![Vec::<usize>::new(); aggregate_count];
+    for (node, &aggregate) in aggregate_of_node.iter().enumerate() {
+        aggregate_members[aggregate].push(node);
+    }
+
+    loop {
+        let mut merged_any = false;
+        for small in 0..aggregate_count {
+            if aggregate_members[small].is_empty() || aggregate_members[small].len() >= merge_floor
+            {
+                continue;
+            }
+
+            let mut edge_counts = HashMap::<usize, usize>::new();
+            for &node in &aggregate_members[small] {
+                for &neighbor in &adjacency[node] {
+                    let other = aggregate_of_node[neighbor];
+                    if other != small && !aggregate_members[other].is_empty() {
+                        *edge_counts.entry(other).or_insert(0) += 1;
+                    }
+                }
+            }
+            let replacement = edge_counts
+                .into_iter()
+                .max_by(|(a_id, a_edges), (b_id, b_edges)| {
+                    a_edges
+                        .cmp(b_edges)
+                        .then_with(|| {
+                            aggregate_members[*b_id]
+                                .len()
+                                .cmp(&aggregate_members[*a_id].len())
+                        })
+                        .then_with(|| b_id.cmp(a_id))
+                })
+                .map(|(id, _)| id);
+            let Some(replacement) = replacement else {
+                continue;
+            };
+
+            let moved = std::mem::take(&mut aggregate_members[small]);
+            for &node in &moved {
+                aggregate_of_node[node] = replacement;
+            }
+            aggregate_members[replacement].extend(moved);
+            merged_any = true;
+        }
+        if !merged_any {
+            break;
+        }
+    }
+
+    let mut remap = vec![usize::MAX; aggregate_count];
+    let mut compact_count = 0usize;
+    for &aggregate in &aggregate_of_node {
+        if remap[aggregate] == usize::MAX {
+            remap[aggregate] = compact_count;
+            compact_count += 1;
+        }
+    }
+    for aggregate in &mut aggregate_of_node {
+        *aggregate = remap[*aggregate];
+    }
+    Ok((aggregate_of_node, compact_count))
+}
+
+fn build_structural_node_adjacency(
+    matrix: &Csr32Matrix,
+    node_count: usize,
+) -> Result<Vec<Vec<usize>>, HybitError> {
+    build_block_node_adjacency(matrix, node_count, 3)
 }
 
 fn build_graph_aggregates(
@@ -1531,7 +2482,7 @@ impl Preconditioner for RigidBodyTwoLevelBlockJacobiPreconditioner {
                 scratch.rhs[modes[k]] += values[k] * ri;
             }
         }
-        let CoarseScratch { rhs, sol } = &mut *scratch;
+        let CoarseScratch { rhs, sol, .. } = &mut *scratch;
         self.solve_coarse(rhs, sol);
         for (dof, zi) in z.iter_mut().enumerate() {
             let (modes, values) = self.active_modes(dof);
@@ -1642,7 +2593,7 @@ impl Preconditioner for ParallelRigidBodyTwoLevelPreconditioner<'_> {
         }
 
         {
-            let CoarseScratch { rhs, sol } = &mut *scratch;
+            let CoarseScratch { rhs, sol, .. } = &mut *scratch;
             self.inner.solve_coarse(rhs, sol);
         }
 
@@ -1672,9 +2623,11 @@ impl LocalCholeskyRegion {
                 "local Cholesky region may not be empty",
             ));
         }
+
         let mut canonical = indices.to_vec();
         canonical.sort_unstable();
         canonical.dedup();
+
         if canonical.len() != indices.len() {
             return Err(HybitError::InvalidArgument(
                 "local Cholesky region contains duplicate DOFs",
@@ -1698,14 +2651,31 @@ impl LocalCholeskyRegion {
             .enumerate()
             .map(|(i, g)| (g, i))
             .collect();
-        let mut dense = vec![0.0; n * n];
-        for (li, &global_row) in canonical.iter().enumerate() {
+
+        let packed_len = packed_lower_len(n)?;
+
+        // Keep the two matrix halves in packed triangular storage while
+        // checking symmetry. After validation, `upper` is released and
+        // `lower` is factorized in place. This removes the old pair of n*n
+        // dense buffers from local-direct setup.
+        let mut lower = vec![0.0f64; packed_len];
+        let mut upper = vec![0.0f64; packed_len];
+
+        for (local_row, &global_row) in canonical.iter().enumerate() {
             let start = matrix.row_ptr()[global_row] as usize;
             let end = matrix.row_ptr()[global_row + 1] as usize;
+
             for p in start..end {
                 let global_col = matrix.col_idx()[p] as usize;
-                if let Some(&lj) = local_of.get(&global_col) {
-                    dense[li * n + lj] += matrix.values()[p];
+                if let Some(&local_col) = local_of.get(&global_col) {
+                    let value = matrix.values()[p];
+                    if local_row >= local_col {
+                        lower[packed_lower_index(local_row, local_col)] += value;
+                    } else {
+                        // Store A(i,j) at the packed slot of its mirrored
+                        // lower-triangular position A(j,i).
+                        upper[packed_lower_index(local_col, local_row)] += value;
+                    }
                 }
             }
         }
@@ -1713,13 +2683,15 @@ impl LocalCholeskyRegion {
         // Local direct correction is currently an SPD path. Require the local
         // principal matrix to be numerically symmetric before factorization.
         let mut scale = 0.0f64;
-        for &v in &dense {
-            scale = scale.max(v.abs());
+        for (&lower_value, &upper_value) in lower.iter().zip(&upper) {
+            scale = scale.max(lower_value.abs()).max(upper_value.abs());
         }
+
         let symmetry_tol = 1.0e-11 * scale.max(1.0);
         for i in 0..n {
             for j in 0..i {
-                if (dense[i * n + j] - dense[j * n + i]).abs() > symmetry_tol {
+                let ij = packed_lower_index(i, j);
+                if (lower[ij] - upper[ij]).abs() > symmetry_tol {
                     return Err(HybitError::InvalidMatrix(
                         "local Cholesky region is not symmetric",
                     ));
@@ -1727,23 +2699,29 @@ impl LocalCholeskyRegion {
             }
         }
 
-        let mut lower = vec![0.0; n * n];
+        // The upper half is no longer required. Reuse the packed lower matrix
+        // as the Cholesky factor buffer.
+        drop(upper);
+
         let pivot_tol = 1.0e-14 * scale.max(1.0);
         for i in 0..n {
             for j in 0..=i {
-                let mut sum = dense[i * n + j];
+                let ij = packed_lower_index(i, j);
+                let mut sum = lower[ij];
+
                 for k in 0..j {
-                    sum -= lower[i * n + k] * lower[j * n + k];
+                    sum -= lower[packed_lower_index(i, k)] * lower[packed_lower_index(j, k)];
                 }
+
                 if i == j {
                     if !sum.is_finite() || sum <= pivot_tol {
                         return Err(HybitError::NumericalBreakdown(
                             "local Cholesky encountered a non-positive pivot",
                         ));
                     }
-                    lower[i * n + i] = sum.sqrt();
+                    lower[ij] = sum.sqrt();
                 } else {
-                    lower[i * n + j] = sum / lower[j * n + j];
+                    lower[ij] = sum / lower[packed_lower_index(j, j)];
                 }
             }
         }
@@ -1757,9 +2735,11 @@ impl LocalCholeskyRegion {
     pub fn len(&self) -> usize {
         self.indices.len()
     }
+
     pub fn is_empty(&self) -> bool {
         self.indices.is_empty()
     }
+
     pub fn indices(&self) -> &[usize] {
         &self.indices
     }
@@ -1768,19 +2748,23 @@ impl LocalCholeskyRegion {
         let n = self.indices.len();
         debug_assert_eq!(rhs.len(), n);
         debug_assert_eq!(out.len(), n);
+
+        // Forward substitution: L y = rhs.
         for i in 0..n {
             let mut sum = rhs[i];
-            for (k, &ok) in out.iter().take(i).enumerate() {
-                sum -= self.lower[i * n + k] * ok;
+            for (k, &yk) in out.iter().take(i).enumerate() {
+                sum -= self.lower[packed_lower_index(i, k)] * yk;
             }
-            out[i] = sum / self.lower[i * n + i];
+            out[i] = sum / self.lower[packed_lower_index(i, i)];
         }
+
+        // Backward substitution: L^T x = y.
         for i in (0..n).rev() {
             let mut sum = out[i];
-            for (k, &ok) in out.iter().enumerate().skip(i + 1) {
-                sum -= self.lower[k * n + i] * ok;
+            for (k, &xk) in out.iter().enumerate().skip(i + 1) {
+                sum -= self.lower[packed_lower_index(k, i)] * xk;
             }
-            out[i] = sum / self.lower[i * n + i];
+            out[i] = sum / self.lower[packed_lower_index(i, i)];
         }
     }
 
@@ -1814,6 +2798,63 @@ pub struct HybridPreconditioner {
 }
 
 impl HybridPreconditioner {
+    /// Estimate the persistent bytes owned by the local-direct portion of a
+    /// hybrid preconditioner before numerical factorization.
+    ///
+    /// The estimate matches [`HybridPreconditioner::factor_bytes`] for the
+    /// current packed local-Cholesky representation. It includes the global
+    /// overlap multiplicity array, per-region indices, packed Cholesky values,
+    /// symmetric weights, and the two reusable local scratch vectors.
+    pub fn estimated_factor_bytes(
+        matrix_rows: usize,
+        regions: &[Vec<usize>],
+    ) -> Result<usize, HybitError> {
+        let mut bytes = matrix_rows
+            .checked_mul(std::mem::size_of::<u16>())
+            .ok_or(HybitError::SizeOverflow)?;
+
+        for region in regions {
+            if region.is_empty() {
+                continue;
+            }
+
+            let mut canonical = region.clone();
+            canonical.sort_unstable();
+            canonical.dedup();
+            if canonical.iter().any(|&dof| dof >= matrix_rows) {
+                return Err(HybitError::InvalidArgument(
+                    "hybrid preconditioner DOF is out of range",
+                ));
+            }
+
+            let n = canonical.len();
+            let packed = packed_lower_len(n)?;
+
+            let region_bytes = n
+                .checked_mul(std::mem::size_of::<usize>())
+                .and_then(|v| {
+                    packed
+                        .checked_mul(std::mem::size_of::<f64>())
+                        .and_then(|packed_bytes| v.checked_add(packed_bytes))
+                })
+                .and_then(|v| {
+                    n.checked_mul(std::mem::size_of::<f64>())
+                        .and_then(|weights| v.checked_add(weights))
+                })
+                .and_then(|v| {
+                    n.checked_mul(2 * std::mem::size_of::<f64>())
+                        .and_then(|scratch| v.checked_add(scratch))
+                })
+                .ok_or(HybitError::SizeOverflow)?;
+
+            bytes = bytes
+                .checked_add(region_bytes)
+                .ok_or(HybitError::SizeOverflow)?;
+        }
+
+        Ok(bytes)
+    }
+
     /// Build a symmetric weighted overlapping Schwarz preconditioner.
     ///
     /// For a DOF contained in m local regions each local restriction uses
@@ -1904,6 +2945,50 @@ impl HybridPreconditioner {
     pub fn regions(&self) -> impl Iterator<Item = &LocalCholeskyRegion> {
         self.regions.iter().map(|r| &r.factor)
     }
+
+    /// Add only the weighted selective-direct correction to an existing
+    /// output vector. This excludes the HybridPreconditioner's Jacobi base and
+    /// is intended for composing the local-direct term with another SPD base
+    /// preconditioner, such as a two-level coarse correction.
+    pub fn add_local_correction(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
+        if r.len() != self.len() {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.len(),
+                actual: r.len(),
+            });
+        }
+        if z.len() != self.len() {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.len(),
+                actual: z.len(),
+            });
+        }
+
+        for region in &self.regions {
+            let mut scratch = region.scratch.borrow_mut();
+            let RegionScratch { rhs, sol } = &mut *scratch;
+            for (i, (&gi, &w)) in region
+                .factor
+                .indices()
+                .iter()
+                .zip(&region.weights)
+                .enumerate()
+            {
+                rhs[i] = w * r[gi];
+            }
+            region.factor.solve_local(rhs, sol);
+            for (i, (&gi, &w)) in region
+                .factor
+                .indices()
+                .iter()
+                .zip(&region.weights)
+                .enumerate()
+            {
+                z[gi] += w * sol[i];
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Preconditioner for HybridPreconditioner {
@@ -1937,30 +3022,7 @@ impl Preconditioner for HybridPreconditioner {
         // Symmetrically weighted overlapping local corrections. Scratch storage
         // is allocated once when the preconditioner is built; apply() performs
         // no heap allocation in the Krylov iteration loop.
-        for region in &self.regions {
-            let mut scratch = region.scratch.borrow_mut();
-            let RegionScratch { rhs, sol } = &mut *scratch;
-            for (i, (&gi, &w)) in region
-                .factor
-                .indices()
-                .iter()
-                .zip(&region.weights)
-                .enumerate()
-            {
-                rhs[i] = w * r[gi];
-            }
-            region.factor.solve_local(rhs, sol);
-            for (i, (&gi, &w)) in region
-                .factor
-                .indices()
-                .iter()
-                .zip(&region.weights)
-                .enumerate()
-            {
-                z[gi] += w * sol[i];
-            }
-        }
-        Ok(())
+        self.add_local_correction(r, z)
     }
 }
 
@@ -2003,6 +3065,21 @@ mod tests {
     }
 
     #[test]
+    fn local_cholesky_uses_packed_lower_storage() {
+        let n = 8usize;
+        let a = poisson_1d(n);
+        let indices: Vec<usize> = (0..n).collect();
+        let region = LocalCholeskyRegion::from_csr32(&a, &indices).unwrap();
+        let packed_len = n * (n + 1) / 2;
+
+        assert_eq!(region.lower.len(), packed_len);
+        assert_eq!(
+            region.factor_bytes(),
+            n * std::mem::size_of::<usize>() + packed_len * std::mem::size_of::<f64>()
+        );
+    }
+
+    #[test]
     fn block_jacobi_solves_block_diagonal_spd_system() {
         let a = Csr32Matrix::new(
             6,
@@ -2042,6 +3119,277 @@ mod tests {
     }
 
     #[test]
+    fn two_level_coarse_factor_uses_bidirectional_packed_rows() {
+        let a = poisson_1d(16);
+        let two = TwoLevelBlockJacobiPreconditioner::from_csr32(&a, 1, 4).unwrap();
+        let n = two.coarse_dimension();
+        let packed_len = n * (n + 1) / 2;
+
+        assert_eq!(
+            two.coarse_apply_policy(),
+            TwoLevelCoarseApplyPolicy::FactorSolve
+        );
+        assert_eq!(two.coarse_lower_packed.len(), packed_len);
+        assert_eq!(two.coarse_upper_packed.len(), packed_len);
+        assert_eq!(two.coarse_upper_row_start.len(), n + 1);
+        assert_eq!(two.coarse_upper_row_start[n], packed_len);
+        assert_eq!(
+            two.coarse_factor_bytes(),
+            2 * packed_len * std::mem::size_of::<f64>()
+        );
+    }
+
+    #[test]
+    fn two_level_auto_policy_resolves_at_empirical_crossover() {
+        assert_eq!(
+            TwoLevelCoarseApplyPolicy::Auto.resolve(EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION - 1),
+            TwoLevelCoarseApplyPolicy::FactorSolve
+        );
+        assert_eq!(
+            TwoLevelCoarseApplyPolicy::Auto.resolve(EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION),
+            TwoLevelCoarseApplyPolicy::ExplicitInverse
+        );
+        assert_eq!(
+            TwoLevelCoarseApplyPolicy::FactorSolve.resolve(usize::MAX),
+            TwoLevelCoarseApplyPolicy::FactorSolve
+        );
+        assert_eq!(
+            TwoLevelCoarseApplyPolicy::ExplicitInverse.resolve(0),
+            TwoLevelCoarseApplyPolicy::ExplicitInverse
+        );
+    }
+
+    #[test]
+    fn two_level_graph_aggregation_builds_connected_piecewise_constant_regions() {
+        // Path graph with deliberately scrambled numbering: 0-2-4-1-3-5.
+        // Graph aggregation should follow connectivity rather than contiguous ids.
+        let order = [0usize, 2, 4, 1, 3, 5];
+        let mut rows = vec![Vec::<(usize, f64)>::new(); 6];
+        for (i, row) in rows.iter_mut().enumerate() {
+            row.push((i, 3.0));
+        }
+        for pair in order.windows(2) {
+            let a = pair[0];
+            let b = pair[1];
+            rows[a].push((b, -1.0));
+            rows[b].push((a, -1.0));
+        }
+        let mut row_ptr = vec![0u32];
+        let mut col_idx = Vec::<u32>::new();
+        let mut values = Vec::<f64>::new();
+        for row in &mut rows {
+            row.sort_unstable_by_key(|(col, _)| *col);
+            for &(col, value) in row.iter() {
+                col_idx.push(col as u32);
+                values.push(value);
+            }
+            row_ptr.push(col_idx.len() as u32);
+        }
+        let a = Csr32Matrix::new(6, 6, row_ptr, col_idx, values).unwrap();
+        let graph = TwoLevelBlockJacobiPreconditioner::from_csr32_graph_with_policy(
+            &a,
+            1,
+            3,
+            TwoLevelCoarseApplyPolicy::FactorSolve,
+        )
+        .unwrap();
+        assert_eq!(graph.aggregation(), TwoLevelAggregation::Graph);
+        assert_eq!(graph.aggregate_count(), 2);
+        assert_eq!(graph.min_aggregate_nodes(), 3);
+        assert_eq!(graph.max_aggregate_nodes(), 3);
+        assert_eq!(graph.aggregate_of_node[0], graph.aggregate_of_node[2]);
+        assert_eq!(graph.aggregate_of_node[2], graph.aggregate_of_node[4]);
+        assert_ne!(graph.aggregate_of_node[0], graph.aggregate_of_node[1]);
+
+        let r = vec![1.0, -0.5, 0.25, 2.0, -1.0, 0.75];
+        let mut z = vec![0.0; 6];
+        graph.apply(&r, &mut z).unwrap();
+        let rz: f64 = r.iter().zip(&z).map(|(ri, zi)| ri * zi).sum();
+        assert!(rz.is_finite());
+        assert!(rz > 0.0);
+    }
+
+    #[test]
+    fn two_level_strong_graph_prefers_stronger_block_couplings() {
+        // Node 0 is weakly coupled to 1 and strongly coupled to 2.  Plain
+        // graph BFS visits node ids in sorted order and groups {0,1}; strong
+        // graph aggregation should instead group {0,2}.
+        let mut rows = vec![Vec::<(usize, f64)>::new(); 4];
+        for (i, row) in rows.iter_mut().enumerate() {
+            row.push((i, 10.0));
+        }
+        for (a, b, value) in [
+            (0usize, 1usize, -0.1),
+            (0, 2, -5.0),
+            (1, 3, -5.0),
+            (2, 3, -0.1),
+        ] {
+            rows[a].push((b, value));
+            rows[b].push((a, value));
+        }
+        let mut row_ptr = vec![0u32];
+        let mut col_idx = Vec::<u32>::new();
+        let mut values = Vec::<f64>::new();
+        for row in &mut rows {
+            row.sort_unstable_by_key(|(col, _)| *col);
+            for &(col, value) in row.iter() {
+                col_idx.push(col as u32);
+                values.push(value);
+            }
+            row_ptr.push(col_idx.len() as u32);
+        }
+        let a = Csr32Matrix::new(4, 4, row_ptr, col_idx, values).unwrap();
+        let plain = TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_and_policy(
+            &a,
+            1,
+            2,
+            TwoLevelAggregation::Graph,
+            TwoLevelCoarseApplyPolicy::FactorSolve,
+        )
+        .unwrap();
+        let strong = TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_and_policy(
+            &a,
+            1,
+            2,
+            TwoLevelAggregation::StrongGraph,
+            TwoLevelCoarseApplyPolicy::FactorSolve,
+        )
+        .unwrap();
+
+        assert_eq!(plain.aggregate_of_node[0], plain.aggregate_of_node[1]);
+        assert_ne!(plain.aggregate_of_node[0], plain.aggregate_of_node[2]);
+        assert_eq!(strong.aggregation(), TwoLevelAggregation::StrongGraph);
+        assert_eq!(strong.aggregate_of_node[0], strong.aggregate_of_node[2]);
+        assert_ne!(strong.aggregate_of_node[0], strong.aggregate_of_node[1]);
+
+        let r = vec![1.0, -0.5, 0.25, 2.0];
+        let mut z = vec![0.0; 4];
+        strong.apply(&r, &mut z).unwrap();
+        let rz: f64 = r.iter().zip(&z).map(|(ri, zi)| ri * zi).sum();
+        assert!(rz.is_finite());
+        assert!(rz > 0.0);
+    }
+
+    #[test]
+    fn two_level_parallel_smoothed_transfer_matches_serial() {
+        let a = poisson_1d(96);
+        let serial =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_policies(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferApplyPolicy::Serial,
+            )
+            .unwrap();
+        let parallel =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_policies(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferApplyPolicy::Parallel,
+            )
+            .unwrap();
+
+        assert_eq!(
+            parallel.transfer_apply_policy(),
+            TwoLevelTransferApplyPolicy::Parallel
+        );
+        let r: Vec<f64> = (0..a.nrows())
+            .map(|i| ((i * 13 + 5) as f64).cos())
+            .collect();
+        let mut z_serial = vec![0.0; a.nrows()];
+        let mut z_parallel = vec![0.0; a.nrows()];
+        serial.apply(&r, &mut z_serial).unwrap();
+        parallel.apply(&r, &mut z_parallel).unwrap();
+        for (&serial_value, &parallel_value) in z_serial.iter().zip(&z_parallel) {
+            let scale = serial_value.abs().max(parallel_value.abs()).max(1.0);
+            assert!((serial_value - parallel_value).abs() <= 1.0e-12 * scale);
+        }
+    }
+
+    #[test]
+    fn two_level_jacobi_smoothed_basis_is_positive() {
+        let a = poisson_1d(24);
+        let piecewise =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_policy(
+                &a,
+                1,
+                4,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::PiecewiseConstant,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+            )
+            .unwrap();
+        let smoothed =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_policy(
+                &a,
+                1,
+                4,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+            )
+            .unwrap();
+
+        assert_eq!(smoothed.basis(), TwoLevelBasis::JacobiSmoothed);
+        assert_eq!(smoothed.coarse_dimension(), piecewise.coarse_dimension());
+        assert!(smoothed.smoothing_omega().is_finite());
+        assert!(smoothed.smoothing_omega() > 0.0);
+        assert!(smoothed.transfer_nnz() >= a.nrows());
+
+        let r: Vec<f64> = (0..a.nrows())
+            .map(|i| ((i * 7 + 3) as f64).sin())
+            .collect();
+        let mut z = vec![0.0; a.nrows()];
+        smoothed.apply(&r, &mut z).unwrap();
+        let rz: f64 = r.iter().zip(&z).map(|(ri, zi)| ri * zi).sum();
+        assert!(rz.is_finite());
+        assert!(rz > 0.0);
+    }
+
+    #[test]
+    fn two_level_explicit_inverse_matches_factor_solve() {
+        let a = poisson_1d(24);
+        let factor = TwoLevelBlockJacobiPreconditioner::from_csr32(&a, 1, 4).unwrap();
+        let inverse = TwoLevelBlockJacobiPreconditioner::from_csr32_with_policy(
+            &a,
+            1,
+            4,
+            TwoLevelCoarseApplyPolicy::ExplicitInverse,
+        )
+        .unwrap();
+        let r: Vec<f64> = (0..24).map(|i| ((i * 11 + 5) % 17) as f64 - 8.0).collect();
+        let mut z_factor = vec![0.0; 24];
+        let mut z_inverse = vec![0.0; 24];
+        factor.apply(&r, &mut z_factor).unwrap();
+        inverse.apply(&r, &mut z_inverse).unwrap();
+
+        for (a, b) in z_factor.iter().zip(&z_inverse) {
+            assert!((a - b).abs() < 1.0e-10);
+        }
+        let rz: f64 = r.iter().zip(&z_inverse).map(|(ri, zi)| ri * zi).sum();
+        assert!(rz.is_finite());
+        assert!(rz > 0.0);
+        assert_eq!(
+            inverse.coarse_apply_policy(),
+            TwoLevelCoarseApplyPolicy::ExplicitInverse
+        );
+        assert!(inverse.coarse_lower_packed.is_empty());
+        assert!(inverse.coarse_upper_packed.is_empty());
+        assert!(inverse.coarse_upper_row_start.is_empty());
+        assert_eq!(
+            inverse.coarse_inverse.len(),
+            inverse.coarse_dimension() * inverse.coarse_dimension()
+        );
+    }
+
+    #[test]
     fn single_region_matches_exact_local_solve() {
         let a = poisson_1d(4);
         let hybrid = HybridPreconditioner::from_csr32(&a, vec![vec![0, 1, 2, 3]]).unwrap();
@@ -2052,6 +3400,16 @@ mod tests {
         for (yi, ri) in y.iter().zip(&r) {
             assert!((yi - ri).abs() < 1.0e-12);
         }
+    }
+
+    #[test]
+    fn hybrid_factor_byte_estimate_matches_owned_storage() {
+        let a = poisson_1d(12);
+        let regions = vec![vec![0, 1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10, 11]];
+        let estimated = HybridPreconditioner::estimated_factor_bytes(a.nrows(), &regions).unwrap();
+        let hybrid = HybridPreconditioner::from_csr32(&a, regions).unwrap();
+
+        assert_eq!(estimated, hybrid.factor_bytes());
     }
 
     #[test]

@@ -2,21 +2,26 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use hybit_core::{
-    l2_norm, HybitError, LinearOperator, MatrixBackend, Preconditioner, PreconditionerKind,
-    SolveReport, SolveStatus, SolverKind, SolverOptions,
+    l2_norm, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
+    Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind, SolverOptions,
 };
 use hybit_krylov::{
-    parallel_vector_worker_count, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
-    KrylovOutcome, PcgWorkspace,
+    parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
+    pcg_with_workspace, pcg_with_workspace_parallel_vectors, KrylovOutcome, PcgSession,
+    PcgWorkspace,
 };
 use hybit_matrix::{
     analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
     ParallelCsr32Operator,
 };
-pub use hybit_precond::RigidBodyAggregation;
 use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, HybridPreconditioner, JacobiPreconditioner,
     ParallelRigidBodyTwoLevelPreconditioner, RigidBodyTwoLevelBlockJacobiPreconditioner,
+    TwoLevelBlockJacobiPreconditioner,
+};
+pub use hybit_precond::{
+    RigidBodyAggregation, TwoLevelAggregation, TwoLevelBasis, TwoLevelCoarseApplyPolicy,
+    TwoLevelTransferApplyPolicy,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,16 +31,97 @@ pub enum BackendPolicy {
     Abtm,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalFactorSelectionPolicy {
+    /// Preserve the diagnostic candidate order and accept regions greedily
+    /// until the persistent local-factor memory budget is exhausted.
+    CandidateOrder,
+    /// Rank new regions by uncovered residual L2 energy per incremental
+    /// persistent factor byte and greedily accept the best remaining candidate.
+    BenefitPerByte,
+    /// Rank new regions by uncovered Jacobi-preconditioned residual energy
+    /// `sum(r_i^2 / A_ii)` per incremental persistent factor byte.
+    ///
+    /// This is a diagonal approximation to the correction energy `r^T A^-1 r`
+    /// and therefore accounts for local stiffness scale that raw residual
+    /// magnitude alone cannot distinguish.
+    JacobiEnergyPerByte,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AlgebraicCoarseOptions {
+    /// Enable a geometry-free algebraic two-level base preconditioner when the
+    /// generic hybrid path escalates.
+    pub enabled: bool,
+    /// Number of contiguous DOFs per node/component block. Structural solids
+    /// normally use 3. The matrix dimension must be divisible by this value.
+    pub dofs_per_node: usize,
+    /// Soft upper target for the algebraic coarse-space dimension.
+    pub target_coarse_dimension: usize,
+    /// How node-major blocks are grouped into piecewise-constant aggregates.
+    /// `Contiguous` preserves the historical generic path; `Graph` follows
+    /// block sparsity with deterministic breadth-first regions; `StrongGraph`
+    /// prioritizes normalized block coupling strength while growing regions.
+    pub aggregation: TwoLevelAggregation,
+    /// Coarse transfer basis built on top of the chosen aggregates.
+    /// `PiecewiseConstant` preserves the historical tentative basis;
+    /// `JacobiSmoothed` applies one damped Jacobi step and forms `P^T A P`.
+    pub basis: TwoLevelBasis,
+    /// How the sparse smoothed transfer is applied. This only affects
+    /// `JacobiSmoothed`; the piecewise-constant basis uses its implicit mapping.
+    pub transfer_apply_policy: TwoLevelTransferApplyPolicy,
+    /// How the dense coarse inverse is applied inside every PCG iteration.
+    ///
+    /// `Auto` is the generic default and currently uses an empirical
+    /// coarse-dimension crossover. Callers with unusually short solve phases
+    /// can still force `FactorSolve` to avoid explicit-inverse setup overhead.
+    pub apply_policy: TwoLevelCoarseApplyPolicy,
+}
+
+impl Default for AlgebraicCoarseOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dofs_per_node: 3,
+            target_coarse_dimension: 1536,
+            aggregation: TwoLevelAggregation::Contiguous,
+            basis: TwoLevelBasis::PiecewiseConstant,
+            transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+            apply_policy: TwoLevelCoarseApplyPolicy::Auto,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct HybridOptions {
     pub enabled: bool,
     pub probe_iterations: usize,
+    /// Maximum number of local-direct strengthening restarts for one RHS.
+    pub max_escalations: usize,
+    /// PCG iteration budget for each non-final escalation stage.
+    ///
+    /// The final allowed escalation receives all remaining iterations.
+    pub escalation_stage_iterations: usize,
     pub escalation_residual_ratio: f64,
     pub coupling_risk_threshold: f64,
     pub scale_jump_threshold: f64,
     pub residual_seed_fraction: f64,
     pub max_local_region_size: usize,
     pub max_local_regions: usize,
+    /// Policy used to choose newly discovered local-direct regions when the
+    /// persistent factor-memory budget cannot hold every candidate.
+    pub local_factor_selection: LocalFactorSelectionPolicy,
+    /// Persistent memory budget for selective local-direct state.
+    ///
+    /// This limits the bytes reported by `HybridPreconditioner::factor_bytes()`.
+    /// When the budget is constrained, newly discovered regions are selected
+    /// according to `local_factor_selection`.
+    /// Factorization setup temporaries are not included in this checkpoint.
+    pub max_local_factor_bytes: usize,
+    /// Optional geometry-free two-level base combined additively with the
+    /// selective-direct local corrections. Disabled by default because generic
+    /// matrices do not necessarily have node-major blocked DOF ordering.
+    pub algebraic_coarse: AlgebraicCoarseOptions,
     pub overlap_layers: usize,
 }
 
@@ -44,12 +130,17 @@ impl Default for HybridOptions {
         Self {
             enabled: true,
             probe_iterations: 12,
+            max_escalations: 3,
+            escalation_stage_iterations: 24,
             escalation_residual_ratio: 0.50,
             coupling_risk_threshold: 0.90,
             scale_jump_threshold: 100.0,
             residual_seed_fraction: 0.25,
             max_local_region_size: 128,
             max_local_regions: 8,
+            local_factor_selection: LocalFactorSelectionPolicy::JacobiEnergyPerByte,
+            max_local_factor_bytes: 64 * 1024 * 1024,
+            algebraic_coarse: AlgebraicCoarseOptions::default(),
             overlap_layers: 1,
         }
     }
@@ -144,6 +235,14 @@ impl HybridOptions {
         if self.probe_iterations == 0 {
             return Err(HybitError::InvalidArgument("probe_iterations must be > 0"));
         }
+        if self.max_escalations == 0 {
+            return Err(HybitError::InvalidArgument("max_escalations must be > 0"));
+        }
+        if self.escalation_stage_iterations == 0 {
+            return Err(HybitError::InvalidArgument(
+                "escalation_stage_iterations must be > 0",
+            ));
+        }
         if !self.escalation_residual_ratio.is_finite() || self.escalation_residual_ratio <= 0.0 {
             return Err(HybitError::InvalidArgument(
                 "escalation_residual_ratio must be finite and > 0",
@@ -171,6 +270,23 @@ impl HybridOptions {
             return Err(HybitError::InvalidArgument(
                 "local region limits must be > 0",
             ));
+        }
+        if self.max_local_factor_bytes == 0 {
+            return Err(HybitError::InvalidArgument(
+                "max_local_factor_bytes must be > 0",
+            ));
+        }
+        if self.algebraic_coarse.enabled {
+            if self.algebraic_coarse.dofs_per_node == 0 {
+                return Err(HybitError::InvalidArgument(
+                    "algebraic coarse dofs_per_node must be > 0",
+                ));
+            }
+            if self.algebraic_coarse.target_coarse_dimension < self.algebraic_coarse.dofs_per_node {
+                return Err(HybitError::InvalidArgument(
+                    "algebraic coarse target dimension must be >= dofs_per_node",
+                ));
+            }
         }
         if self.overlap_layers > 8 {
             return Err(HybitError::InvalidArgument("overlap_layers must be <= 8"));
@@ -231,8 +347,40 @@ pub struct HybitPreparedSystem {
     jacobi: JacobiPreconditioner,
     abtm: Option<AbtmMatrix>,
     hybrid: Option<HybridPreconditioner>,
+    algebraic_coarse: Option<TwoLevelBlockJacobiPreconditioner>,
+    algebraic_coarse_aggregate_nodes: usize,
     workspace: PcgWorkspace,
     solve_sequence: usize,
+}
+
+struct AlgebraicTwoLevelHybrid<'a> {
+    coarse: &'a TwoLevelBlockJacobiPreconditioner,
+    local: &'a HybridPreconditioner,
+}
+
+impl Preconditioner for AlgebraicTwoLevelHybrid<'_> {
+    fn len(&self) -> usize {
+        self.coarse.len()
+    }
+
+    fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
+        self.coarse.apply(r, z)?;
+        self.local.add_local_correction(r, z)
+    }
+}
+
+fn recommend_algebraic_aggregate_nodes(
+    matrix_rows: usize,
+    options: AlgebraicCoarseOptions,
+) -> Result<usize, HybitError> {
+    if matrix_rows % options.dofs_per_node != 0 {
+        return Err(HybitError::InvalidArgument(
+            "matrix dimension must be divisible by algebraic coarse dofs_per_node",
+        ));
+    }
+    let node_count = matrix_rows / options.dofs_per_node;
+    let max_aggregates = (options.target_coarse_dimension / options.dofs_per_node).max(1);
+    Ok(node_count.div_ceil(max_aggregates).max(1))
 }
 
 impl HybitPreparedSystem {
@@ -253,6 +401,32 @@ impl HybitPreparedSystem {
     }
     pub fn has_cached_hybrid(&self) -> bool {
         self.hybrid.is_some()
+    }
+
+    fn ensure_algebraic_coarse(&mut self, matrix: &Csr32Matrix) -> Result<f64, HybitError> {
+        if !self.hybrid_options.algebraic_coarse.enabled || self.algebraic_coarse.is_some() {
+            return Ok(0.0);
+        }
+
+        let aggregate_nodes = recommend_algebraic_aggregate_nodes(
+            matrix.nrows(),
+            self.hybrid_options.algebraic_coarse,
+        )?;
+        let start = Instant::now();
+        let coarse =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_policies(
+                matrix,
+                self.hybrid_options.algebraic_coarse.dofs_per_node,
+                aggregate_nodes,
+                self.hybrid_options.algebraic_coarse.aggregation,
+                self.hybrid_options.algebraic_coarse.basis,
+                self.hybrid_options.algebraic_coarse.apply_policy,
+                self.hybrid_options.algebraic_coarse.transfer_apply_policy,
+            )?;
+        let elapsed = start.elapsed().as_secs_f64();
+        self.algebraic_coarse_aggregate_nodes = aggregate_nodes;
+        self.algebraic_coarse = Some(coarse);
+        Ok(elapsed)
     }
 
     fn validate_matrix(&self, matrix: &Csr32Matrix) -> Result<(), HybitError> {
@@ -296,8 +470,9 @@ impl HybitPreparedSystem {
         // diagnostics/factorization entirely.
         if let Some(hybrid) = self.hybrid.as_ref() {
             let start = Instant::now();
-            let outcome = pcg_with_workspace(
+            let outcome = run_hybrid_pcg(
                 operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
+                self.algebraic_coarse.as_ref(),
                 hybrid,
                 b,
                 x,
@@ -322,6 +497,16 @@ impl HybitPreparedSystem {
                 local_factor_dofs: hybrid.local_dofs(),
                 unique_local_factor_dofs: hybrid.unique_local_dofs(),
                 local_factor_bytes: hybrid.factor_bytes(),
+                algebraic_coarse_dimension: self
+                    .algebraic_coarse
+                    .as_ref()
+                    .map_or(0, TwoLevelBlockJacobiPreconditioner::coarse_dimension),
+                algebraic_coarse_factor_bytes: self
+                    .algebraic_coarse
+                    .as_ref()
+                    .map_or(0, TwoLevelBlockJacobiPreconditioner::factor_bytes),
+                algebraic_coarse_aggregate_nodes: self.algebraic_coarse_aggregate_nodes,
+                local_factor_budget_bytes: self.hybrid_options.max_local_factor_bytes,
                 overlap_layers: self.hybrid_options.overlap_layers,
                 preconditioner_reused: true,
                 solve_sequence: sequence,
@@ -386,6 +571,7 @@ impl HybitPreparedSystem {
             probe_seconds,
             probe_iterations,
             probe_final_residual,
+            local_factor_budget_bytes: self.hybrid_options.max_local_factor_bytes,
             overlap_layers: self.hybrid_options.overlap_layers,
             solve_sequence: sequence,
             krylov_workspace_bytes: self.workspace.bytes(),
@@ -410,7 +596,7 @@ impl HybitPreparedSystem {
             && probe.final_residual / probe.initial_residual
                 > self.hybrid_options.escalation_residual_ratio;
 
-        let remaining = self.options.max_iterations.saturating_sub(probe_iterations);
+        let mut remaining = self.options.max_iterations.saturating_sub(probe_iterations);
         if !poor_progress || remaining == 0 {
             let (continuation, continuation_seconds) = run_continuation(
                 matrix,
@@ -436,135 +622,232 @@ impl HybitPreparedSystem {
             ));
         }
 
-        let diagnostics_start = Instant::now();
-        let residual = residual(matrix, b, x)?;
-        let risk = numerical_risk_mask(matrix, self.hybrid_options)?;
-        let seeds = residual_seed_mask(&residual, self.hybrid_options.residual_seed_fraction)?;
-        let selected =
-            select_risk_components(matrix, &risk, &seeds, &residual, self.hybrid_options)?;
-        let hard_dofs = selected.count_ones();
-        let core_regions = extract_core_regions(matrix, &selected, &residual, self.hybrid_options)?;
-        if self.abtm.is_none() {
-            self.abtm = Some(AbtmMatrix::from_csr32(matrix, AbtmConfig::default())?);
-        }
-        let abtm = self
-            .abtm
-            .as_ref()
-            .expect("ABTM topology initialized for hybrid escalation");
-        let regions =
-            expand_regions_with_overlap(abtm, &core_regions, &residual, self.hybrid_options)?;
-        let diagnostics_seconds = diagnostics_start.elapsed().as_secs_f64();
+        let mut outcome = probe;
+        let mut metrics = base_metrics;
+        let mut active_regions: Vec<Vec<usize>> = Vec::new();
+        let mut current_hybrid: Option<HybridPreconditioner> = None;
+        // A PCG session belongs to the current fixed preconditioner. It is
+        // discarded exactly when escalation constructs a different one.
+        let mut current_pcg: Option<PcgSession> = None;
 
-        if regions.is_empty() {
-            let (continuation, continuation_seconds) = run_continuation(
+        while remaining > 0 && metrics.escalations < self.hybrid_options.max_escalations {
+            let diagnostics_start = Instant::now();
+            let current_residual = residual(matrix, b, x)?;
+            let risk = numerical_risk_mask(matrix, self.hybrid_options)?;
+            let seeds = residual_seed_mask(
+                &current_residual,
+                self.hybrid_options.residual_seed_fraction,
+            )?;
+            let (selected, core_regions) = discover_core_regions(
                 matrix,
-                self.abtm.as_ref(),
-                self.backend,
-                &self.jacobi,
+                &risk,
+                &seeds,
+                &current_residual,
+                self.hybrid_options,
+            )?;
+            metrics.hard_dofs = metrics.hard_dofs.max(selected.count_ones());
+
+            if self.abtm.is_none() {
+                self.abtm = Some(AbtmMatrix::from_csr32(matrix, AbtmConfig::default())?);
+            }
+            let abtm = self
+                .abtm
+                .as_ref()
+                .expect("ABTM topology initialized for hybrid escalation");
+            let candidate_regions = expand_regions_with_overlap(
+                abtm,
+                &core_regions,
+                &current_residual,
+                self.hybrid_options,
+            )?;
+            let budgeted = select_regions_with_factor_budget(
+                matrix.nrows(),
+                &active_regions,
+                candidate_regions,
+                &current_residual,
+                self.jacobi.inv_diagonal(),
+                self.hybrid_options.local_factor_selection,
+                self.hybrid_options.max_local_factor_bytes,
+            )?;
+            metrics.diagnostics_seconds += diagnostics_start.elapsed().as_secs_f64();
+            metrics.local_factor_regions_skipped_for_budget = metrics
+                .local_factor_regions_skipped_for_budget
+                .checked_add(budgeted.skipped_regions)
+                .ok_or(HybitError::SizeOverflow)?;
+            metrics.local_factor_budget_limited |= budgeted.skipped_regions > 0;
+
+            // A later diagnostic can rediscover only regions that are already
+            // active. In that case there is nothing new to factorize; keep the
+            // current SPD preconditioner fixed and spend the remaining Krylov
+            // budget on it instead of rebuilding an identical factorization.
+            if budgeted.regions.is_empty() || budgeted.regions == active_regions {
+                break;
+            }
+
+            metrics.algebraic_coarse_seconds += self.ensure_algebraic_coarse(matrix)?;
+            if let Some(coarse) = self.algebraic_coarse.as_ref() {
+                metrics.algebraic_coarse_dimension = coarse.coarse_dimension();
+                metrics.algebraic_coarse_factor_bytes = coarse.factor_bytes();
+                metrics.algebraic_coarse_aggregate_nodes = self.algebraic_coarse_aggregate_nodes;
+            }
+
+            let factor_start = Instant::now();
+            let next_hybrid =
+                match HybridPreconditioner::from_csr32(matrix, budgeted.regions.clone()) {
+                    Ok(hybrid) => hybrid,
+                    Err(HybitError::NumericalBreakdown(_)) | Err(HybitError::InvalidMatrix(_)) => {
+                        metrics.local_factor_seconds += factor_start.elapsed().as_secs_f64();
+                        break;
+                    }
+                    Err(err) => return Err(err),
+                };
+            metrics.local_factor_seconds += factor_start.elapsed().as_secs_f64();
+
+            active_regions = budgeted.regions;
+            metrics.escalations += 1;
+            metrics.local_direct_regions = next_hybrid.region_count();
+            metrics.largest_local_region = next_hybrid.largest_region();
+            metrics.local_factor_dofs = next_hybrid.local_dofs();
+            metrics.unique_local_factor_dofs = next_hybrid.unique_local_dofs();
+            metrics.local_factor_bytes = next_hybrid.factor_bytes();
+
+            let stage_budget =
+                escalation_stage_budget(remaining, metrics.escalations, self.hybrid_options);
+            let mut stage_options = self.options;
+            stage_options.max_iterations = stage_budget;
+
+            let restart_start = Instant::now();
+            let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+            let pcg_context = HybridPcgContext {
+                operator,
+                coarse: self.algebraic_coarse.as_ref(),
+                local: &next_hybrid,
                 b,
+            };
+            let mut stage_pcg = pcg_context.start(x, stage_options, &mut self.workspace)?;
+            let stage = pcg_context.continue_with_workspace(
                 x,
-                self.options,
-                remaining,
+                stage_budget,
+                &mut stage_pcg,
                 &mut self.workspace,
             )?;
-            let outcome = combine_outcomes(probe, continuation);
-            let mut metrics = base_metrics;
-            metrics.diagnostics_seconds = diagnostics_seconds;
-            metrics.restart_seconds = continuation_seconds;
-            metrics.hard_dofs = hard_dofs;
-            return Ok(report_from_outcome(
-                outcome,
-                SolverKind::Pcg,
-                PreconditionerKind::Jacobi,
-                self.backend,
-                b,
-                metrics,
-            ));
+            metrics.restart_seconds += restart_start.elapsed().as_secs_f64();
+
+            let stage_iterations = stage.iterations;
+            let stage_status = stage.status;
+            let stage_residual_ratio = if stage.initial_residual == 0.0 {
+                0.0
+            } else {
+                stage.final_residual / stage.initial_residual
+            };
+            metrics.escalation_stages.push(HybridEscalationStageReport {
+                stage: metrics.escalations,
+                iterations: stage.iterations,
+                initial_residual: stage.initial_residual,
+                final_residual: stage.final_residual,
+                residual_ratio: stage_residual_ratio,
+                local_direct_regions: next_hybrid.region_count(),
+                unique_local_factor_dofs: next_hybrid.unique_local_dofs(),
+                local_factor_bytes: next_hybrid.factor_bytes(),
+            });
+            let stage_poor_progress = stage.status == SolveStatus::MaxIterations
+                && stage.initial_residual > 0.0
+                && stage.final_residual / stage.initial_residual
+                    > self.hybrid_options.escalation_residual_ratio;
+
+            remaining = remaining.saturating_sub(stage_iterations);
+            outcome = combine_outcomes(outcome, stage);
+            current_hybrid = Some(next_hybrid);
+            current_pcg = Some(stage_pcg);
+
+            if stage_status == SolveStatus::Converged
+                || stage_status == SolveStatus::Breakdown
+                || remaining == 0
+            {
+                break;
+            }
+
+            // If the strengthened stage is making acceptable progress, do not
+            // spend more setup memory/time. Continue below with the same fixed
+            // preconditioner for all remaining iterations.
+            if !stage_poor_progress {
+                break;
+            }
         }
 
-        let factor_start = Instant::now();
-        let hybrid = match HybridPreconditioner::from_csr32(matrix, regions) {
-            Ok(hybrid) => hybrid,
-            Err(HybitError::NumericalBreakdown(_)) | Err(HybitError::InvalidMatrix(_)) => {
-                let local_factor_seconds = factor_start.elapsed().as_secs_f64();
-                let (continuation, continuation_seconds) = run_continuation(
-                    matrix,
-                    self.abtm.as_ref(),
-                    self.backend,
+        // Finish with the strongest successfully constructed preconditioner.
+        // If no local factor was admitted or every factorization attempt failed,
+        // continue with Jacobi exactly as the pre-0.7 controller did.
+        if remaining > 0
+            && outcome.status != SolveStatus::Converged
+            && outcome.status != SolveStatus::Breakdown
+        {
+            let mut continuation_options = self.options;
+            continuation_options.max_iterations = remaining;
+            let continuation_start = Instant::now();
+            let continuation = if let Some(hybrid) = current_hybrid.as_ref() {
+                let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+                if let Some(session) = current_pcg.as_mut() {
+                    // Same operator and same preconditioner: preserve the PCG
+                    // recurrence instead of restarting from x.
+                    let pcg_context = HybridPcgContext {
+                        operator,
+                        coarse: self.algebraic_coarse.as_ref(),
+                        local: hybrid,
+                        b,
+                    };
+                    pcg_context.continue_with_workspace(
+                        x,
+                        remaining,
+                        session,
+                        &mut self.workspace,
+                    )?
+                } else {
+                    // Defensive fallback for a future controller path that may
+                    // install a hybrid preconditioner without a live session.
+                    run_hybrid_pcg(
+                        operator,
+                        self.algebraic_coarse.as_ref(),
+                        hybrid,
+                        b,
+                        x,
+                        continuation_options,
+                        &mut self.workspace,
+                    )?
+                }
+            } else {
+                pcg_with_workspace(
+                    operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
                     &self.jacobi,
                     b,
                     x,
-                    self.options,
-                    remaining,
+                    continuation_options,
                     &mut self.workspace,
-                )?;
-                let outcome = combine_outcomes(probe, continuation);
-                let mut metrics = base_metrics;
-                metrics.diagnostics_seconds = diagnostics_seconds;
-                metrics.local_factor_seconds = local_factor_seconds;
-                metrics.restart_seconds = continuation_seconds;
-                metrics.hard_dofs = hard_dofs;
-                return Ok(report_from_outcome(
-                    outcome,
-                    SolverKind::Pcg,
-                    PreconditionerKind::Jacobi,
-                    self.backend,
-                    b,
-                    metrics,
-                ));
-            }
-            Err(err) => return Err(err),
-        };
-        let local_factor_seconds = factor_start.elapsed().as_secs_f64();
+                )?
+            };
+            metrics.restart_seconds += continuation_start.elapsed().as_secs_f64();
+            outcome = combine_outcomes(outcome, continuation);
+        }
 
-        let mut stage_options = self.options;
-        stage_options.max_iterations = remaining;
-        let restart_start = Instant::now();
-        let stage = pcg_with_workspace(
-            operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
-            &hybrid,
-            b,
-            x,
-            stage_options,
-            &mut self.workspace,
-        )?;
-        let restart_seconds = restart_start.elapsed().as_secs_f64();
-        let cacheable_hybrid = stage.status != SolveStatus::Breakdown;
-        let outcome = combine_outcomes(probe, stage);
-
-        let metrics = ReportMetrics {
-            analysis_seconds: base_metrics.analysis_seconds,
-            prepare_seconds: base_metrics.prepare_seconds,
-            probe_seconds,
-            diagnostics_seconds,
-            local_factor_seconds,
-            restart_seconds,
-            escalations: 1,
-            probe_iterations,
-            probe_final_residual,
-            hard_dofs,
-            local_direct_regions: hybrid.region_count(),
-            largest_local_region: hybrid.largest_region(),
-            local_factor_dofs: hybrid.local_dofs(),
-            unique_local_factor_dofs: hybrid.unique_local_dofs(),
-            local_factor_bytes: hybrid.factor_bytes(),
-            overlap_layers: self.hybrid_options.overlap_layers,
-            preconditioner_reused: false,
-            solve_sequence: sequence,
-            krylov_workspace_bytes: self.workspace.bytes(),
-        };
-
-        // Cache only a successfully constructed hybrid preconditioner. It is
-        // matrix-value dependent, and validate_matrix() forbids accidental reuse
-        // after coefficients change.
-        if cacheable_hybrid {
-            self.hybrid = Some(hybrid);
+        let used_hybrid = current_hybrid.is_some();
+        if used_hybrid && outcome.status != SolveStatus::Breakdown {
+            // Prepared solve-many reuses the strongest successfully learned
+            // multi-stage local-direct state for later RHS vectors.
+            self.hybrid = current_hybrid;
         }
 
         Ok(report_from_outcome(
             outcome,
-            SolverKind::Hybrid,
-            PreconditionerKind::Hybrid,
+            if used_hybrid {
+                SolverKind::Hybrid
+            } else {
+                SolverKind::Pcg
+            },
+            if used_hybrid {
+                PreconditionerKind::Hybrid
+            } else {
+                PreconditionerKind::Jacobi
+            },
             self.backend,
             b,
             metrics,
@@ -785,7 +1068,7 @@ impl HybitPreparedStructuralSystem {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct ReportMetrics {
     analysis_seconds: f64,
     prepare_seconds: f64,
@@ -794,6 +1077,7 @@ struct ReportMetrics {
     local_factor_seconds: f64,
     restart_seconds: f64,
     escalations: usize,
+    escalation_stages: Vec<HybridEscalationStageReport>,
     probe_iterations: usize,
     probe_final_residual: f64,
     hard_dofs: usize,
@@ -802,6 +1086,13 @@ struct ReportMetrics {
     local_factor_dofs: usize,
     unique_local_factor_dofs: usize,
     local_factor_bytes: usize,
+    algebraic_coarse_dimension: usize,
+    algebraic_coarse_factor_bytes: usize,
+    algebraic_coarse_aggregate_nodes: usize,
+    algebraic_coarse_seconds: f64,
+    local_factor_budget_bytes: usize,
+    local_factor_regions_skipped_for_budget: usize,
+    local_factor_budget_limited: bool,
     overlap_layers: usize,
     preconditioner_reused: bool,
     solve_sequence: usize,
@@ -927,6 +1218,8 @@ impl HybitSolver {
             jacobi,
             abtm,
             hybrid: None,
+            algebraic_coarse: None,
+            algebraic_coarse_aggregate_nodes: 0,
             workspace,
             solve_sequence: 0,
         })
@@ -1190,6 +1483,83 @@ fn run_continuation(
     Ok((outcome, start.elapsed().as_secs_f64()))
 }
 
+struct HybridPcgContext<'a> {
+    operator: &'a dyn LinearOperator,
+    coarse: Option<&'a TwoLevelBlockJacobiPreconditioner>,
+    local: &'a HybridPreconditioner,
+    b: &'a [f64],
+}
+
+impl HybridPcgContext<'_> {
+    fn start(
+        &self,
+        x: &mut [f64],
+        options: SolverOptions,
+        workspace: &mut PcgWorkspace,
+    ) -> Result<PcgSession, HybitError> {
+        if let Some(coarse) = self.coarse {
+            let combined = AlgebraicTwoLevelHybrid {
+                coarse,
+                local: self.local,
+            };
+            pcg_start_with_workspace(self.operator, &combined, self.b, x, options, workspace)
+        } else {
+            pcg_start_with_workspace(self.operator, self.local, self.b, x, options, workspace)
+        }
+    }
+
+    fn continue_with_workspace(
+        &self,
+        x: &mut [f64],
+        additional_iterations: usize,
+        session: &mut PcgSession,
+        workspace: &mut PcgWorkspace,
+    ) -> Result<KrylovOutcome, HybitError> {
+        if let Some(coarse) = self.coarse {
+            let combined = AlgebraicTwoLevelHybrid {
+                coarse,
+                local: self.local,
+            };
+            pcg_continue_with_workspace(
+                self.operator,
+                &combined,
+                self.b,
+                x,
+                additional_iterations,
+                session,
+                workspace,
+            )
+        } else {
+            pcg_continue_with_workspace(
+                self.operator,
+                self.local,
+                self.b,
+                x,
+                additional_iterations,
+                session,
+                workspace,
+            )
+        }
+    }
+}
+
+fn run_hybrid_pcg(
+    operator: &dyn LinearOperator,
+    coarse: Option<&TwoLevelBlockJacobiPreconditioner>,
+    local: &HybridPreconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+    workspace: &mut PcgWorkspace,
+) -> Result<KrylovOutcome, HybitError> {
+    if let Some(coarse) = coarse {
+        let combined = AlgebraicTwoLevelHybrid { coarse, local };
+        pcg_with_workspace(operator, &combined, b, x, options, workspace)
+    } else {
+        pcg_with_workspace(operator, local, b, x, options, workspace)
+    }
+}
+
 fn combine_outcomes(first: KrylovOutcome, second: KrylovOutcome) -> KrylovOutcome {
     KrylovOutcome {
         status: second.status,
@@ -1216,7 +1586,8 @@ fn report_from_outcome(
     let setup_seconds = metrics.analysis_seconds
         + metrics.prepare_seconds
         + metrics.diagnostics_seconds
-        + metrics.local_factor_seconds;
+        + metrics.local_factor_seconds
+        + metrics.algebraic_coarse_seconds;
     let solve_seconds = metrics.probe_seconds + metrics.restart_seconds;
     SolveReport {
         status: outcome.status,
@@ -1236,6 +1607,7 @@ fn report_from_outcome(
         local_factor_seconds: metrics.local_factor_seconds,
         restart_seconds: metrics.restart_seconds,
         escalations: metrics.escalations,
+        escalation_stages: metrics.escalation_stages,
         probe_iterations: metrics.probe_iterations,
         probe_final_residual: metrics.probe_final_residual,
         hard_dofs: metrics.hard_dofs,
@@ -1244,6 +1616,13 @@ fn report_from_outcome(
         local_factor_dofs: metrics.local_factor_dofs,
         unique_local_factor_dofs: metrics.unique_local_factor_dofs,
         local_factor_bytes: metrics.local_factor_bytes,
+        algebraic_coarse_dimension: metrics.algebraic_coarse_dimension,
+        algebraic_coarse_factor_bytes: metrics.algebraic_coarse_factor_bytes,
+        algebraic_coarse_aggregate_nodes: metrics.algebraic_coarse_aggregate_nodes,
+        algebraic_coarse_seconds: metrics.algebraic_coarse_seconds,
+        local_factor_budget_bytes: metrics.local_factor_budget_bytes,
+        local_factor_regions_skipped_for_budget: metrics.local_factor_regions_skipped_for_budget,
+        local_factor_budget_limited: metrics.local_factor_budget_limited,
         overlap_layers: metrics.overlap_layers,
         preconditioner_reused: metrics.preconditioner_reused,
         solve_sequence: metrics.solve_sequence,
@@ -1338,127 +1717,367 @@ fn residual_seed_mask(residual: &[f64], fraction: f64) -> Result<DofMask, HybitE
     Ok(seeds)
 }
 
-fn select_risk_components(
+fn discover_core_regions(
     matrix: &Csr32Matrix,
     risk: &DofMask,
     seeds: &DofMask,
     residual: &[f64],
     options: HybridOptions,
-) -> Result<DofMask, HybitError> {
+) -> Result<(DofMask, Vec<Vec<usize>>), HybitError> {
     let n = matrix.nrows();
-    let mut selected = DofMask::new(n);
-    let mut visited = vec![false; n];
-    let cap = options.max_local_region_size.max(1);
+    if residual.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: residual.len(),
+        });
+    }
 
-    for start in risk.indices() {
-        if visited[start] {
+    let region_cap = options.max_local_region_size.max(1);
+    let mut component_visited = vec![false; n];
+    let mut claimed = vec![false; n];
+    let mut queue_stamp = vec![0u32; n];
+    let mut stamp = 0u32;
+    let mut candidates: Vec<Vec<usize>> = Vec::new();
+
+    // A large connected risk component used to collapse to one capped local
+    // region. Harvest several connected residual-centered chunks instead so
+    // the downstream memory-budget selector has a meaningful candidate pool.
+    for component_start in risk.indices() {
+        if component_visited[component_start] {
             continue;
         }
-        let mut queue = VecDeque::new();
+
         let mut component = Vec::new();
-        queue.push_back(start);
-        visited[start] = true;
+        let mut component_queue = VecDeque::new();
+        component_queue.push_back(component_start);
+        component_visited[component_start] = true;
         let mut touches_seed = false;
-        while let Some(row) = queue.pop_front() {
+
+        while let Some(row) = component_queue.pop_front() {
             component.push(row);
             touches_seed |= seeds.contains(row);
+
             let rs = matrix.row_ptr()[row] as usize;
             let re = matrix.row_ptr()[row + 1] as usize;
             for p in rs..re {
                 let col = matrix.col_idx()[p] as usize;
-                if col < n && risk.contains(col) && !visited[col] {
-                    visited[col] = true;
-                    queue.push_back(col);
+                if col < n && risk.contains(col) && !component_visited[col] {
+                    component_visited[col] = true;
+                    component_queue.push_back(col);
                 }
             }
         }
+
         if !touches_seed {
             continue;
         }
 
-        if component.len() <= cap {
-            for dof in component {
-                selected.set(dof, true)?;
+        // High-residual DOFs become roots first. Each root grows one connected
+        // chunk through still-unclaimed risk DOFs. Removing an earlier chunk
+        // may split the remainder; later roots naturally start new chunks in
+        // those residual subcomponents.
+        component.sort_by(|&a, &b| {
+            residual[b]
+                .abs()
+                .total_cmp(&residual[a].abs())
+                .then_with(|| a.cmp(&b))
+        });
+
+        for root in component {
+            if claimed[root] {
+                continue;
             }
-        } else {
-            let root = *component
-                .iter()
-                .max_by(|&&a, &&b| residual[a].abs().total_cmp(&residual[b].abs()))
-                .expect("component is non-empty");
-            let mut local_seen = vec![false; n];
-            let mut local_queue = VecDeque::new();
-            local_queue.push_back(root);
-            local_seen[root] = true;
-            let mut count = 0usize;
-            while let Some(row) = local_queue.pop_front() {
-                if count >= cap {
+
+            stamp = stamp.wrapping_add(1);
+            if stamp == 0 {
+                queue_stamp.fill(0);
+                stamp = 1;
+            }
+
+            let mut region = Vec::with_capacity(region_cap);
+            let mut region_queue = VecDeque::new();
+            region_queue.push_back(root);
+            queue_stamp[root] = stamp;
+
+            while let Some(row) = region_queue.pop_front() {
+                if claimed[row] {
+                    continue;
+                }
+
+                claimed[row] = true;
+                region.push(row);
+                if region.len() >= region_cap {
                     break;
                 }
-                selected.set(row, true)?;
-                count += 1;
+
                 let rs = matrix.row_ptr()[row] as usize;
                 let re = matrix.row_ptr()[row + 1] as usize;
                 for p in rs..re {
                     let col = matrix.col_idx()[p] as usize;
-                    if col < n && risk.contains(col) && !local_seen[col] {
-                        local_seen[col] = true;
-                        local_queue.push_back(col);
+                    if col < n && risk.contains(col) && !claimed[col] && queue_stamp[col] != stamp {
+                        queue_stamp[col] = stamp;
+                        region_queue.push_back(col);
                     }
                 }
             }
+
+            if !region.is_empty() {
+                region.sort_unstable();
+                candidates.push(region);
+            }
         }
     }
 
-    if selected.is_empty() {
-        selected.union_assign(seeds)?;
-    }
-    Ok(selected)
-}
+    // If matrix diagnostics found no seeded risk component, preserve the old
+    // residual-only fallback. Seeds are partitioned into capped regions so one
+    // broad residual event can still yield several candidates.
+    if candidates.is_empty() {
+        let mut seed_visited = vec![false; n];
+        for start in seeds.indices() {
+            if seed_visited[start] {
+                continue;
+            }
 
-fn extract_core_regions(
-    matrix: &Csr32Matrix,
-    mask: &DofMask,
-    residual: &[f64],
-    options: HybridOptions,
-) -> Result<Vec<Vec<usize>>, HybitError> {
-    let n = matrix.nrows();
-    let mut visited = vec![false; n];
-    let mut regions: Vec<Vec<usize>> = Vec::new();
+            let mut component = Vec::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(start);
+            seed_visited[start] = true;
 
-    for start in mask.indices() {
-        if visited[start] {
-            continue;
-        }
-        let mut queue = VecDeque::new();
-        let mut component = Vec::new();
-        queue.push_back(start);
-        visited[start] = true;
-        while let Some(row) = queue.pop_front() {
-            component.push(row);
-            let rs = matrix.row_ptr()[row] as usize;
-            let re = matrix.row_ptr()[row + 1] as usize;
-            for p in rs..re {
-                let col = matrix.col_idx()[p] as usize;
-                if col < n && mask.contains(col) && !visited[col] {
-                    visited[col] = true;
-                    queue.push_back(col);
+            while let Some(row) = queue.pop_front() {
+                component.push(row);
+                let rs = matrix.row_ptr()[row] as usize;
+                let re = matrix.row_ptr()[row + 1] as usize;
+                for p in rs..re {
+                    let col = matrix.col_idx()[p] as usize;
+                    if col < n && seeds.contains(col) && !seed_visited[col] {
+                        seed_visited[col] = true;
+                        queue.push_back(col);
+                    }
+                }
+            }
+
+            component.sort_by(|&a, &b| {
+                residual[b]
+                    .abs()
+                    .total_cmp(&residual[a].abs())
+                    .then_with(|| a.cmp(&b))
+            });
+            for chunk in component.chunks(region_cap) {
+                if !chunk.is_empty() {
+                    let mut region = chunk.to_vec();
+                    region.sort_unstable();
+                    candidates.push(region);
                 }
             }
         }
-        for chunk in component.chunks(options.max_local_region_size) {
-            if !chunk.is_empty() {
-                regions.push(chunk.to_vec());
-            }
+    }
+
+    // CandidateOrder retains the historical strongest-residual-first
+    // diagnostic order. BenefitPerByte is applied later, after overlap growth,
+    // using exact persistent factor-byte estimates.
+    candidates.sort_by(|a, b| {
+        let a_peak = a.iter().fold(0.0f64, |m, &i| m.max(residual[i].abs()));
+        let b_peak = b.iter().fold(0.0f64, |m, &i| m.max(residual[i].abs()));
+        b_peak
+            .total_cmp(&a_peak)
+            .then_with(|| a.first().cmp(&b.first()))
+    });
+    candidates.truncate(options.max_local_regions);
+
+    let mut selected = DofMask::new(n);
+    for region in &candidates {
+        for &dof in region {
+            selected.set(dof, true)?;
         }
     }
 
-    regions.sort_by(|a, b| {
-        let sa = a.iter().fold(0.0f64, |m, &i| m.max(residual[i].abs()));
-        let sb = b.iter().fold(0.0f64, |m, &i| m.max(residual[i].abs()));
-        sb.total_cmp(&sa)
-    });
-    regions.truncate(options.max_local_regions);
-    Ok(regions)
+    Ok((selected, candidates))
+}
+
+#[derive(Debug)]
+struct BudgetedRegions {
+    regions: Vec<Vec<usize>>,
+    skipped_regions: usize,
+}
+
+fn select_regions_with_factor_budget(
+    matrix_rows: usize,
+    existing_regions: &[Vec<usize>],
+    candidate_regions: Vec<Vec<usize>>,
+    residual: &[f64],
+    jacobi_inv_diag: &[f64],
+    selection_policy: LocalFactorSelectionPolicy,
+    max_factor_bytes: usize,
+) -> Result<BudgetedRegions, HybitError> {
+    if residual.len() != matrix_rows {
+        return Err(HybitError::DimensionMismatch {
+            expected: matrix_rows,
+            actual: residual.len(),
+        });
+    }
+    if jacobi_inv_diag.len() != matrix_rows {
+        return Err(HybitError::DimensionMismatch {
+            expected: matrix_rows,
+            actual: jacobi_inv_diag.len(),
+        });
+    }
+
+    // Regions learned by earlier escalation stages are locked in. Re-ranking
+    // may choose among newly discovered regions, but it must not evict already
+    // paid-for local factors and thereby undo multi-stage learning.
+    let mut accepted = merge_unique_regions(&[], existing_regions.to_vec());
+    let mut current_bytes = HybridPreconditioner::estimated_factor_bytes(matrix_rows, &accepted)?;
+    if current_bytes > max_factor_bytes {
+        return Err(HybitError::InvalidArgument(
+            "existing local factors exceed configured memory budget",
+        ));
+    }
+
+    let merged = merge_unique_regions(&accepted, candidate_regions);
+    let mut pending = merged[accepted.len()..].to_vec();
+
+    if selection_policy == LocalFactorSelectionPolicy::CandidateOrder {
+        let mut skipped_regions = 0usize;
+        for region in pending {
+            let mut trial = accepted.clone();
+            trial.push(region.clone());
+            let trial_bytes = HybridPreconditioner::estimated_factor_bytes(matrix_rows, &trial)?;
+            if trial_bytes <= max_factor_bytes {
+                accepted.push(region);
+                current_bytes = trial_bytes;
+            } else {
+                skipped_regions = skipped_regions
+                    .checked_add(1)
+                    .ok_or(HybitError::SizeOverflow)?;
+            }
+        }
+        debug_assert!(current_bytes <= max_factor_bytes);
+        return Ok(BudgetedRegions {
+            regions: accepted,
+            skipped_regions,
+        });
+    }
+
+    let mut covered = vec![false; matrix_rows];
+    for region in &accepted {
+        for &dof in region {
+            covered[dof] = true;
+        }
+    }
+
+    let mut skipped_regions = 0usize;
+
+    // Greedy benefit/byte selection. Benefit is the residual L2 energy on
+    // DOFs not already covered by an accepted local factor. Cost is measured
+    // by the exact persistent-byte estimator used by HybridPreconditioner.
+    // Scores are recomputed after each acceptance so overlapping candidates
+    // are charged only for newly covered residual energy.
+    while !pending.is_empty() {
+        let mut best: Option<(usize, f64, f64, usize)> = None;
+
+        for (candidate_index, region) in pending.iter().enumerate() {
+            let mut trial = accepted.clone();
+            trial.push(region.clone());
+            let trial_bytes = HybridPreconditioner::estimated_factor_bytes(matrix_rows, &trial)?;
+            if trial_bytes > max_factor_bytes {
+                continue;
+            }
+
+            let marginal_bytes = trial_bytes
+                .checked_sub(current_bytes)
+                .ok_or(HybitError::SizeOverflow)?;
+            if marginal_bytes == 0 {
+                continue;
+            }
+
+            let benefit = region.iter().fold(0.0f64, |energy, &dof| {
+                if covered[dof] {
+                    energy
+                } else {
+                    let residual_energy = residual[dof] * residual[dof];
+                    match selection_policy {
+                        LocalFactorSelectionPolicy::CandidateOrder
+                        | LocalFactorSelectionPolicy::BenefitPerByte => energy + residual_energy,
+                        LocalFactorSelectionPolicy::JacobiEnergyPerByte => {
+                            energy + residual_energy * jacobi_inv_diag[dof]
+                        }
+                    }
+                }
+            });
+            let score = benefit / marginal_bytes as f64;
+
+            let better = match best {
+                None => true,
+                Some((best_index, best_score, best_benefit, best_bytes)) => {
+                    score.total_cmp(&best_score).is_gt()
+                        || (score.total_cmp(&best_score).is_eq()
+                            && benefit.total_cmp(&best_benefit).is_gt())
+                        || (score.total_cmp(&best_score).is_eq()
+                            && benefit.total_cmp(&best_benefit).is_eq()
+                            && marginal_bytes < best_bytes)
+                        || (score.total_cmp(&best_score).is_eq()
+                            && benefit.total_cmp(&best_benefit).is_eq()
+                            && marginal_bytes == best_bytes
+                            && region < &pending[best_index])
+                }
+            };
+
+            if better {
+                best = Some((candidate_index, score, benefit, marginal_bytes));
+            }
+        }
+
+        let Some((best_index, _, _, marginal_bytes)) = best else {
+            skipped_regions = skipped_regions
+                .checked_add(pending.len())
+                .ok_or(HybitError::SizeOverflow)?;
+            break;
+        };
+
+        let region = pending.remove(best_index);
+        current_bytes = current_bytes
+            .checked_add(marginal_bytes)
+            .ok_or(HybitError::SizeOverflow)?;
+        for &dof in &region {
+            covered[dof] = true;
+        }
+        accepted.push(region);
+    }
+
+    Ok(BudgetedRegions {
+        regions: accepted,
+        skipped_regions,
+    })
+}
+
+fn escalation_stage_budget(
+    remaining: usize,
+    completed_escalations: usize,
+    options: HybridOptions,
+) -> usize {
+    if completed_escalations >= options.max_escalations {
+        remaining
+    } else {
+        remaining.min(options.escalation_stage_iterations)
+    }
+}
+
+fn merge_unique_regions(
+    existing: &[Vec<usize>],
+    candidate_regions: Vec<Vec<usize>>,
+) -> Vec<Vec<usize>> {
+    let mut merged = existing.to_vec();
+
+    for mut region in candidate_regions {
+        region.sort_unstable();
+        region.dedup();
+        if region.is_empty() || merged.iter().any(|current| current == &region) {
+            continue;
+        }
+        merged.push(region);
+    }
+
+    merged
 }
 
 fn expand_regions_with_overlap(
@@ -1637,6 +2256,334 @@ mod tests {
     }
 
     #[test]
+    fn large_risk_component_harvests_multiple_core_regions() {
+        let a = poisson_1d(96);
+        let all_dofs: Vec<usize> = (0..a.nrows()).collect();
+        let risk = DofMask::from_indices(a.nrows(), &all_dofs).unwrap();
+        let seeds = DofMask::from_indices(a.nrows(), &all_dofs).unwrap();
+        let residual: Vec<f64> = (0..a.nrows()).map(|i| (i + 1) as f64).collect();
+        let options = HybridOptions {
+            max_local_region_size: 16,
+            max_local_regions: 4,
+            ..HybridOptions::default()
+        };
+
+        let (selected, regions) =
+            discover_core_regions(&a, &risk, &seeds, &residual, options).unwrap();
+
+        assert_eq!(regions.len(), 4);
+        assert_eq!(selected.count_ones(), 64);
+        assert!(regions.iter().all(|region| region.len() <= 16));
+        assert!(regions.iter().all(|region| !region.is_empty()));
+    }
+
+    #[test]
+    fn harvested_core_regions_prioritize_strong_residual_chunks() {
+        let a = poisson_1d(96);
+        let all_dofs: Vec<usize> = (0..a.nrows()).collect();
+        let risk = DofMask::from_indices(a.nrows(), &all_dofs).unwrap();
+        let seeds = DofMask::from_indices(a.nrows(), &all_dofs).unwrap();
+        let mut residual = vec![1.0; a.nrows()];
+        residual[72..96].fill(100.0);
+        let options = HybridOptions {
+            max_local_region_size: 16,
+            max_local_regions: 2,
+            ..HybridOptions::default()
+        };
+
+        let (_, regions) = discover_core_regions(&a, &risk, &seeds, &residual, options).unwrap();
+
+        assert_eq!(regions.len(), 2);
+        assert!(regions[0].iter().any(|&dof| dof >= 72));
+    }
+
+    #[test]
+    fn local_factor_budget_ranks_equal_cost_regions_by_residual_energy() {
+        let matrix_rows = 128usize;
+        let low_energy = (0..32).collect::<Vec<_>>();
+        let high_energy = (32..64).collect::<Vec<_>>();
+        let regions = vec![low_energy.clone(), high_energy.clone()];
+        let mut residual = vec![0.0; matrix_rows];
+        residual[..32].fill(1.0);
+        residual[32..64].fill(4.0);
+
+        let one_region_budget = HybridPreconditioner::estimated_factor_bytes(
+            matrix_rows,
+            std::slice::from_ref(&low_energy),
+        )
+        .unwrap();
+        let selected = select_regions_with_factor_budget(
+            matrix_rows,
+            &[],
+            regions,
+            &residual,
+            &vec![1.0; matrix_rows],
+            LocalFactorSelectionPolicy::BenefitPerByte,
+            one_region_budget,
+        )
+        .unwrap();
+
+        assert_eq!(selected.regions, vec![high_energy]);
+        assert_eq!(selected.skipped_regions, 1);
+    }
+
+    #[test]
+    fn local_factor_budget_prefers_higher_benefit_per_byte() {
+        let matrix_rows = 128usize;
+        let large = (0..48).collect::<Vec<_>>();
+        let small = (64..80).collect::<Vec<_>>();
+        let regions = vec![large.clone(), small.clone()];
+        let mut residual = vec![0.0; matrix_rows];
+        residual[..48].fill(1.0);
+        residual[64..80].fill(1.0);
+
+        // The budget can hold the large region by itself, but not both. The
+        // smaller region has less total residual energy but substantially more
+        // residual energy per persistent factor byte.
+        let one_large_budget =
+            HybridPreconditioner::estimated_factor_bytes(matrix_rows, std::slice::from_ref(&large))
+                .unwrap();
+        let selected = select_regions_with_factor_budget(
+            matrix_rows,
+            &[],
+            regions,
+            &residual,
+            &vec![1.0; matrix_rows],
+            LocalFactorSelectionPolicy::BenefitPerByte,
+            one_large_budget,
+        )
+        .unwrap();
+
+        assert_eq!(selected.regions, vec![small]);
+        assert_eq!(selected.skipped_regions, 1);
+    }
+
+    #[test]
+    fn local_factor_budget_accepts_all_regions_when_capacity_is_sufficient() {
+        let matrix_rows = 128usize;
+        let regions = vec![(0..32).collect::<Vec<_>>(), (32..64).collect::<Vec<_>>()];
+        let residual = vec![1.0; matrix_rows];
+
+        let full_budget =
+            HybridPreconditioner::estimated_factor_bytes(matrix_rows, &regions).unwrap();
+        let selected = select_regions_with_factor_budget(
+            matrix_rows,
+            &[],
+            regions,
+            &residual,
+            &vec![1.0; matrix_rows],
+            LocalFactorSelectionPolicy::BenefitPerByte,
+            full_budget,
+        )
+        .unwrap();
+
+        assert_eq!(selected.regions.len(), 2);
+        assert_eq!(selected.skipped_regions, 0);
+    }
+
+    #[test]
+    fn local_factor_budget_preserves_existing_learned_regions() {
+        let matrix_rows = 128usize;
+        let existing = vec![(0..32).collect::<Vec<_>>()];
+        let candidate = (64..96).collect::<Vec<_>>();
+        let mut residual = vec![0.0; matrix_rows];
+        residual[64..96].fill(100.0);
+
+        let existing_budget =
+            HybridPreconditioner::estimated_factor_bytes(matrix_rows, &existing).unwrap();
+        let selected = select_regions_with_factor_budget(
+            matrix_rows,
+            &existing,
+            vec![candidate],
+            &residual,
+            &vec![1.0; matrix_rows],
+            LocalFactorSelectionPolicy::BenefitPerByte,
+            existing_budget,
+        )
+        .unwrap();
+
+        assert_eq!(selected.regions, existing);
+        assert_eq!(selected.skipped_regions, 1);
+    }
+
+    #[test]
+    fn local_factor_budget_jacobi_energy_accounts_for_stiffness_scale() {
+        let matrix_rows = 128usize;
+        let soft = (0..32).collect::<Vec<_>>();
+        let stiff = (32..64).collect::<Vec<_>>();
+        let regions = vec![stiff.clone(), soft.clone()];
+        let mut residual = vec![0.0; matrix_rows];
+        residual[..64].fill(1.0);
+
+        // Equal raw residual energy and equal factor cost. The Jacobi-energy
+        // selector must prefer the region with the larger inverse diagonal,
+        // i.e. the softer local stiffness scale.
+        let mut inv_diag = vec![1.0; matrix_rows];
+        inv_diag[..32].fill(100.0);
+        inv_diag[32..64].fill(0.01);
+
+        let one_region_budget =
+            HybridPreconditioner::estimated_factor_bytes(matrix_rows, std::slice::from_ref(&soft))
+                .unwrap();
+        let selected = select_regions_with_factor_budget(
+            matrix_rows,
+            &[],
+            regions,
+            &residual,
+            &inv_diag,
+            LocalFactorSelectionPolicy::JacobiEnergyPerByte,
+            one_region_budget,
+        )
+        .unwrap();
+
+        assert_eq!(selected.regions, vec![soft]);
+        assert_eq!(selected.skipped_regions, 1);
+    }
+
+    #[test]
+    fn local_factor_candidate_order_policy_preserves_diagnostic_order() {
+        let matrix_rows = 128usize;
+        let low_energy = (0..32).collect::<Vec<_>>();
+        let high_energy = (32..64).collect::<Vec<_>>();
+        let regions = vec![low_energy.clone(), high_energy];
+        let mut residual = vec![0.0; matrix_rows];
+        residual[..32].fill(1.0);
+        residual[32..64].fill(100.0);
+
+        let one_region_budget = HybridPreconditioner::estimated_factor_bytes(
+            matrix_rows,
+            std::slice::from_ref(&low_energy),
+        )
+        .unwrap();
+        let selected = select_regions_with_factor_budget(
+            matrix_rows,
+            &[],
+            regions,
+            &residual,
+            &vec![1.0; matrix_rows],
+            LocalFactorSelectionPolicy::CandidateOrder,
+            one_region_budget,
+        )
+        .unwrap();
+
+        assert_eq!(selected.regions, vec![low_energy]);
+        assert_eq!(selected.skipped_regions, 1);
+    }
+
+    #[test]
+    fn default_algebraic_coarse_apply_policy_is_auto() {
+        assert_eq!(
+            AlgebraicCoarseOptions::default().apply_policy,
+            TwoLevelCoarseApplyPolicy::Auto
+        );
+    }
+
+    #[test]
+    fn default_algebraic_coarse_aggregation_is_contiguous() {
+        assert_eq!(
+            AlgebraicCoarseOptions::default().aggregation,
+            TwoLevelAggregation::Contiguous
+        );
+    }
+
+    #[test]
+    fn default_algebraic_coarse_basis_is_piecewise_constant() {
+        assert_eq!(
+            AlgebraicCoarseOptions::default().basis,
+            TwoLevelBasis::PiecewiseConstant
+        );
+    }
+
+    #[test]
+    fn default_algebraic_coarse_transfer_apply_is_serial() {
+        assert_eq!(
+            AlgebraicCoarseOptions::default().transfer_apply_policy,
+            TwoLevelTransferApplyPolicy::Serial
+        );
+    }
+
+    #[test]
+    fn default_local_factor_policy_uses_jacobi_energy_per_byte() {
+        assert_eq!(
+            HybridOptions::default().local_factor_selection,
+            LocalFactorSelectionPolicy::JacobiEnergyPerByte
+        );
+    }
+
+    #[test]
+    fn escalation_stage_budget_gives_final_stage_all_remaining_iterations() {
+        let options = HybridOptions {
+            max_escalations: 3,
+            escalation_stage_iterations: 7,
+            ..HybridOptions::default()
+        };
+
+        assert_eq!(escalation_stage_budget(50, 1, options), 7);
+        assert_eq!(escalation_stage_budget(43, 2, options), 7);
+        assert_eq!(escalation_stage_budget(36, 3, options), 36);
+    }
+
+    #[test]
+    fn merge_unique_regions_preserves_learned_regions_without_duplicates() {
+        let existing = vec![vec![0, 1, 2], vec![8, 9]];
+        let candidates = vec![vec![2, 1, 0], vec![16, 17], vec![9, 8]];
+        let merged = merge_unique_regions(&existing, candidates);
+
+        assert_eq!(merged, vec![vec![0, 1, 2], vec![8, 9], vec![16, 17]]);
+    }
+
+    #[test]
+    fn multi_stage_escalation_can_accumulate_hard_regions() {
+        // Use unequal hard blocks so the 12-iteration Jacobi probe cannot
+        // collapse both blocks into the same small Krylov subspace. The first
+        // block starts with a much larger RHS and is selected first. After its
+        // exact local correction, the residual shifts to the larger second
+        // block, forcing a second diagnostic/factorization stage.
+        let a = block_diagonal(0, &[48, 64], 4);
+        let mut b = vec![0.0; a.nrows()];
+        b[..48].fill(100.0);
+        b[52..116].fill(1.0);
+
+        let mut solver = HybitSolver::new();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 220,
+            })
+            .unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                max_escalations: 3,
+                escalation_stage_iterations: 6,
+                escalation_residual_ratio: 1.0e-6,
+                residual_seed_fraction: 0.50,
+                max_local_region_size: 64,
+                max_local_regions: 1,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+
+        let mut x = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
+
+        assert!(report.converged());
+        assert!(report.escalations >= 2);
+        assert!(report.local_direct_regions >= 2);
+        assert_eq!(report.escalation_stages.len(), report.escalations);
+        for (index, stage) in report.escalation_stages.iter().enumerate() {
+            assert_eq!(stage.stage, index + 1);
+            assert!(stage.iterations > 0);
+            assert!(stage.initial_residual.is_finite());
+            assert!(stage.final_residual.is_finite());
+            assert!(stage.residual_ratio.is_finite());
+            assert!(stage.local_direct_regions > 0);
+            assert!(stage.unique_local_factor_dofs > 0);
+            assert!(stage.local_factor_bytes > 0);
+        }
+    }
+
+    #[test]
     fn hybrid_preconditioner_is_positive_on_overlapping_regions() {
         let a = poisson_1d(12);
         let hybrid =
@@ -1647,6 +2594,96 @@ mod tests {
         hybrid.apply(&r, &mut z).unwrap();
         let rz: f64 = r.iter().zip(&z).map(|(a, b)| a * b).sum();
         assert!(rz > 0.0);
+    }
+
+    #[test]
+    fn algebraic_coarse_recommendation_respects_target_dimension() {
+        let options = AlgebraicCoarseOptions {
+            enabled: true,
+            dofs_per_node: 3,
+            target_coarse_dimension: 12,
+            aggregation: TwoLevelAggregation::Contiguous,
+            basis: TwoLevelBasis::PiecewiseConstant,
+            transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+            apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
+        };
+        let aggregate_nodes = recommend_algebraic_aggregate_nodes(120, options).unwrap();
+        assert_eq!(aggregate_nodes, 10);
+
+        let node_count = 120 / options.dofs_per_node;
+        let aggregate_count = node_count.div_ceil(aggregate_nodes);
+        let coarse_dimension = aggregate_count * options.dofs_per_node;
+        assert!(coarse_dimension <= options.target_coarse_dimension);
+    }
+
+    #[test]
+    fn algebraic_two_level_plus_local_direct_is_positive() {
+        let a = poisson_1d(24);
+        let coarse = TwoLevelBlockJacobiPreconditioner::from_csr32(&a, 1, 6).unwrap();
+        let local = HybridPreconditioner::from_csr32(&a, vec![(8..16).collect()]).unwrap();
+        let combined = AlgebraicTwoLevelHybrid {
+            coarse: &coarse,
+            local: &local,
+        };
+        let r: Vec<f64> = (0..24).map(|i| 1.0 + (i % 5) as f64).collect();
+        let mut z = vec![0.0; 24];
+        combined.apply(&r, &mut z).unwrap();
+        let rz: f64 = r.iter().zip(&z).map(|(ri, zi)| ri * zi).sum();
+        assert!(rz.is_finite());
+        assert!(rz > 0.0);
+    }
+
+    #[test]
+    fn prepared_context_reuses_algebraic_coarse_with_hybrid() {
+        let a = block_diagonal(32, &[64], 0);
+        let mut solver = HybitSolver::new();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-10,
+                absolute_tolerance: 0.0,
+                max_iterations: 100,
+            })
+            .unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                algebraic_coarse: AlgebraicCoarseOptions {
+                    enabled: true,
+                    dofs_per_node: 1,
+                    target_coarse_dimension: 16,
+                    aggregation: TwoLevelAggregation::Contiguous,
+                    basis: TwoLevelBasis::PiecewiseConstant,
+                    transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+                    apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
+                },
+                ..HybridOptions::default()
+            })
+            .unwrap();
+
+        let analysis = solver.analyze_csr32(&a).unwrap();
+        let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+        let b1 = vec![1.0; a.nrows()];
+        let mut x1 = vec![0.0; a.nrows()];
+        let first = prepared.solve(&a, &b1, &mut x1).unwrap();
+        assert!(first.converged());
+        assert!(prepared.has_cached_hybrid());
+        assert!(first.algebraic_coarse_dimension > 0);
+        assert!(first.algebraic_coarse_factor_bytes > 0);
+
+        let mut b2 = vec![1.0; a.nrows()];
+        b2[0] = 2.0;
+        let mut x2 = vec![0.0; a.nrows()];
+        let second = prepared.solve(&a, &b2, &mut x2).unwrap();
+        assert!(second.converged());
+        assert!(second.preconditioner_reused);
+        assert_eq!(second.algebraic_coarse_seconds, 0.0);
+        assert_eq!(
+            second.algebraic_coarse_dimension,
+            first.algebraic_coarse_dimension
+        );
+        assert_eq!(
+            second.algebraic_coarse_factor_bytes,
+            first.algebraic_coarse_factor_bytes
+        );
     }
 
     #[test]

@@ -11,6 +11,31 @@ pub struct KrylovOutcome {
     pub final_residual: f64,
 }
 
+/// Stateful PCG recurrence used when a caller wants to divide one solve into
+/// telemetry/control segments without restarting the Krylov method.
+///
+/// The session is only valid while the operator and preconditioner remain
+/// unchanged. If either changes, start a new session. The vector recurrence
+/// itself lives in [`PcgWorkspace`], while this object stores the scalar state
+/// required to resume the next iteration exactly.
+#[derive(Clone, Copy, Debug)]
+pub struct PcgSession {
+    target: f64,
+    rz_old: f64,
+    final_residual: f64,
+    finished: Option<SolveStatus>,
+}
+
+impl PcgSession {
+    pub fn is_finished(&self) -> bool {
+        self.finished.is_some()
+    }
+
+    pub fn final_residual(&self) -> f64 {
+        self.final_residual
+    }
+}
+
 /// Reusable PCG scratch storage. A prepared HyBIT context allocates this once
 /// and reuses it across every Krylov iteration and every subsequent RHS.
 #[derive(Clone, Debug)]
@@ -73,6 +98,24 @@ pub fn pcg_with_workspace(
     options: SolverOptions,
     workspace: &mut PcgWorkspace,
 ) -> Result<KrylovOutcome, HybitError> {
+    let mut session = pcg_start_with_workspace(a, m, b, x, options, workspace)?;
+    pcg_continue_with_workspace(a, m, b, x, options.max_iterations, &mut session, workspace)
+}
+
+/// Initializes a resumable PCG recurrence without consuming an iteration.
+///
+/// The returned session may be advanced repeatedly with
+/// [`pcg_continue_with_workspace`] as long as `a` and `m` are unchanged.
+/// Changing the preconditioner invalidates conjugacy and requires a new
+/// session, which is exactly the restart rule used by HyBIT escalation.
+pub fn pcg_start_with_workspace(
+    a: &dyn LinearOperator,
+    m: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+    workspace: &mut PcgWorkspace,
+) -> Result<PcgSession, HybitError> {
     options.validate()?;
     if a.rows() != a.cols() {
         return Err(HybitError::InvalidMatrix("PCG requires a square operator"));
@@ -98,7 +141,7 @@ pub fn pcg_with_workspace(
     }
     workspace.validate_len(n)?;
 
-    let PcgWorkspace { ax, r, z, p, ap } = workspace;
+    let PcgWorkspace { ax, r, z, p, .. } = workspace;
     a.apply(x, ax)?;
     for i in 0..n {
         r[i] = b[i] - ax[i];
@@ -110,71 +153,138 @@ pub fn pcg_with_workspace(
         .absolute_tolerance
         .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
     if initial_residual <= target {
-        return Ok(KrylovOutcome {
-            status: SolveStatus::Converged,
-            iterations: 0,
-            initial_residual,
+        return Ok(PcgSession {
+            target,
+            rz_old: 0.0,
             final_residual: initial_residual,
+            finished: Some(SolveStatus::Converged),
         });
     }
 
     m.apply(r, z)?;
     p.copy_from_slice(z);
-    let mut rz_old = dot(r, z);
+    let rz_old = dot(r, z);
     if !rz_old.is_finite() || rz_old <= 0.0 {
         return Err(HybitError::NumericalBreakdown(
             "non-positive r^T M^-1 r; PCG assumptions may be violated",
         ));
     }
 
-    let mut final_residual = initial_residual;
-    for iter in 1..=options.max_iterations {
+    Ok(PcgSession {
+        target,
+        rz_old,
+        final_residual: initial_residual,
+        finished: None,
+    })
+}
+
+/// Advances an existing PCG recurrence by at most `additional_iterations`.
+///
+/// Unlike calling [`pcg_with_workspace`] again, this function preserves the
+/// search direction and `r^T M^-1 r` scalar from the preceding segment, so no
+/// Krylov information is lost at controller/telemetry boundaries.
+pub fn pcg_continue_with_workspace(
+    a: &dyn LinearOperator,
+    m: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    additional_iterations: usize,
+    session: &mut PcgSession,
+    workspace: &mut PcgWorkspace,
+) -> Result<KrylovOutcome, HybitError> {
+    if a.rows() != a.cols() {
+        return Err(HybitError::InvalidMatrix("PCG requires a square operator"));
+    }
+    let n = a.rows();
+    if b.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: b.len(),
+        });
+    }
+    if x.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: x.len(),
+        });
+    }
+    if m.len() != n {
+        return Err(HybitError::DimensionMismatch {
+            expected: n,
+            actual: m.len(),
+        });
+    }
+    workspace.validate_len(n)?;
+
+    let initial_residual = session.final_residual;
+    if let Some(status) = session.finished {
+        return Ok(KrylovOutcome {
+            status,
+            iterations: 0,
+            initial_residual,
+            final_residual: session.final_residual,
+        });
+    }
+    if additional_iterations == 0 {
+        return Ok(KrylovOutcome {
+            status: SolveStatus::MaxIterations,
+            iterations: 0,
+            initial_residual,
+            final_residual: session.final_residual,
+        });
+    }
+
+    let PcgWorkspace { r, z, p, ap, .. } = workspace;
+    for iter in 1..=additional_iterations {
         a.apply(p, ap)?;
         let denom = dot(p, ap);
         if !denom.is_finite() || denom <= 0.0 {
+            session.finished = Some(SolveStatus::Breakdown);
             return Ok(KrylovOutcome {
                 status: SolveStatus::Breakdown,
                 iterations: iter - 1,
                 initial_residual,
-                final_residual,
+                final_residual: session.final_residual,
             });
         }
-        let alpha = rz_old / denom;
+        let alpha = session.rz_old / denom;
         for i in 0..n {
             x[i] += alpha * p[i];
             r[i] -= alpha * ap[i];
         }
-        final_residual = l2_norm(r);
-        if final_residual <= target {
+        session.final_residual = l2_norm(r);
+        if session.final_residual <= session.target {
+            session.finished = Some(SolveStatus::Converged);
             return Ok(KrylovOutcome {
                 status: SolveStatus::Converged,
                 iterations: iter,
                 initial_residual,
-                final_residual,
+                final_residual: session.final_residual,
             });
         }
         m.apply(r, z)?;
         let rz_new = dot(r, z);
         if !rz_new.is_finite() || rz_new <= 0.0 {
+            session.finished = Some(SolveStatus::Breakdown);
             return Ok(KrylovOutcome {
                 status: SolveStatus::Breakdown,
                 iterations: iter,
                 initial_residual,
-                final_residual,
+                final_residual: session.final_residual,
             });
         }
-        let beta = rz_new / rz_old;
+        let beta = rz_new / session.rz_old;
         for i in 0..n {
             p[i] = z[i] + beta * p[i];
         }
-        rz_old = rz_new;
+        session.rz_old = rz_new;
     }
 
     Ok(KrylovOutcome {
         status: SolveStatus::MaxIterations,
-        iterations: options.max_iterations,
+        iterations: additional_iterations,
         initial_residual,
-        final_residual,
+        final_residual: session.final_residual,
     })
 }
 
@@ -423,6 +533,73 @@ mod tests {
         assert_eq!(out_parallel.iterations, 1);
         for (xs, xp) in serial.iter().zip(&parallel) {
             assert!((xs - xp).abs() <= 1.0e-12);
+        }
+    }
+
+    struct Diagonal(Vec<f64>);
+    impl LinearOperator for Diagonal {
+        fn rows(&self) -> usize {
+            self.0.len()
+        }
+        fn cols(&self) -> usize {
+            self.0.len()
+        }
+        fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+            for ((yi, &ai), &xi) in y.iter_mut().zip(&self.0).zip(x) {
+                *yi = ai * xi;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn segmented_pcg_preserves_recurrence() {
+        let a = Diagonal(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0]);
+        let m = IdentityPrecond(6);
+        let rhs = vec![1.0; 6];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 12,
+        };
+
+        let mut x_full = vec![0.0; 6];
+        let mut ws_full = PcgWorkspace::new(6);
+        let full = pcg_with_workspace(&a, &m, &rhs, &mut x_full, options, &mut ws_full).unwrap();
+
+        let mut x_segmented = vec![0.0; 6];
+        let mut ws_segmented = PcgWorkspace::new(6);
+        let mut session =
+            pcg_start_with_workspace(&a, &m, &rhs, &mut x_segmented, options, &mut ws_segmented)
+                .unwrap();
+        let first = pcg_continue_with_workspace(
+            &a,
+            &m,
+            &rhs,
+            &mut x_segmented,
+            2,
+            &mut session,
+            &mut ws_segmented,
+        )
+        .unwrap();
+        assert_eq!(first.status, SolveStatus::MaxIterations);
+        assert_eq!(first.iterations, 2);
+        let second = pcg_continue_with_workspace(
+            &a,
+            &m,
+            &rhs,
+            &mut x_segmented,
+            options.max_iterations - first.iterations,
+            &mut session,
+            &mut ws_segmented,
+        )
+        .unwrap();
+
+        assert_eq!(second.status, full.status);
+        assert_eq!(first.iterations + second.iterations, full.iterations);
+        assert!((second.final_residual - full.final_residual).abs() <= 1.0e-14);
+        for (segmented, reference) in x_segmented.iter().zip(&x_full) {
+            assert!((segmented - reference).abs() <= 1.0e-14);
         }
     }
 
