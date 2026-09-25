@@ -21,7 +21,8 @@ use hybit_precond::{
 };
 pub use hybit_precond::{
     RigidBodyAggregation, TwoLevelAggregation, TwoLevelBasis, TwoLevelCoarseApplyPolicy,
-    TwoLevelTransferApplyPolicy,
+    TwoLevelTransferApplyPolicy, TwoLevelTransferOptions, TwoLevelTransferStoragePolicy,
+    TwoLevelTransferValueStoragePolicy,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +71,15 @@ pub struct AlgebraicCoarseOptions {
     /// How the sparse smoothed transfer is applied. This only affects
     /// `JacobiSmoothed`; the piecewise-constant basis uses its implicit mapping.
     pub transfer_apply_policy: TwoLevelTransferApplyPolicy,
+    /// Persistent index representation for the sparse smoothed transfer.
+    /// `Wide` preserves the historical layout; `Compact` uses `u32` row offsets
+    /// and `u16` coarse columns when representable; `Auto` chooses compact when
+    /// possible and otherwise falls back to wide storage.
+    pub transfer_storage_policy: TwoLevelTransferStoragePolicy,
+    /// Persistent floating-point representation for smoothed transfer weights.
+    /// `F64` preserves the current numerical path; `F32` stores quantized
+    /// weights but promotes them back to `f64` during application.
+    pub transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy,
     /// How the dense coarse inverse is applied inside every PCG iteration.
     ///
     /// `Auto` is the generic default and currently uses an empirical
@@ -86,7 +96,9 @@ impl Default for AlgebraicCoarseOptions {
             target_coarse_dimension: 1536,
             aggregation: TwoLevelAggregation::Contiguous,
             basis: TwoLevelBasis::PiecewiseConstant,
-            transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+            transfer_apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+            transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+            transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::Auto,
             apply_policy: TwoLevelCoarseApplyPolicy::Auto,
         }
     }
@@ -414,14 +426,21 @@ impl HybitPreparedSystem {
         )?;
         let start = Instant::now();
         let coarse =
-            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_policies(
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
                 matrix,
                 self.hybrid_options.algebraic_coarse.dofs_per_node,
                 aggregate_nodes,
                 self.hybrid_options.algebraic_coarse.aggregation,
                 self.hybrid_options.algebraic_coarse.basis,
                 self.hybrid_options.algebraic_coarse.apply_policy,
-                self.hybrid_options.algebraic_coarse.transfer_apply_policy,
+                TwoLevelTransferOptions {
+                    apply_policy: self.hybrid_options.algebraic_coarse.transfer_apply_policy,
+                    storage_policy: self.hybrid_options.algebraic_coarse.transfer_storage_policy,
+                    value_storage_policy: self
+                        .hybrid_options
+                        .algebraic_coarse
+                        .transfer_value_storage_policy,
+                },
             )?;
         let elapsed = start.elapsed().as_secs_f64();
         self.algebraic_coarse_aggregate_nodes = aggregate_nodes;
@@ -2495,10 +2514,26 @@ mod tests {
     }
 
     #[test]
-    fn default_algebraic_coarse_transfer_apply_is_serial() {
+    fn default_algebraic_coarse_transfer_apply_is_parallel() {
         assert_eq!(
             AlgebraicCoarseOptions::default().transfer_apply_policy,
-            TwoLevelTransferApplyPolicy::Serial
+            TwoLevelTransferApplyPolicy::Parallel
+        );
+    }
+
+    #[test]
+    fn default_algebraic_coarse_transfer_storage_is_wide() {
+        assert_eq!(
+            AlgebraicCoarseOptions::default().transfer_storage_policy,
+            TwoLevelTransferStoragePolicy::Wide
+        );
+    }
+
+    #[test]
+    fn default_algebraic_coarse_transfer_values_are_auto() {
+        assert_eq!(
+            AlgebraicCoarseOptions::default().transfer_value_storage_policy,
+            TwoLevelTransferValueStoragePolicy::Auto
         );
     }
 
@@ -2605,6 +2640,8 @@ mod tests {
             aggregation: TwoLevelAggregation::Contiguous,
             basis: TwoLevelBasis::PiecewiseConstant,
             transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+            transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+            transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
             apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
         };
         let aggregate_nodes = recommend_algebraic_aggregate_nodes(120, options).unwrap();
@@ -2653,6 +2690,8 @@ mod tests {
                     aggregation: TwoLevelAggregation::Contiguous,
                     basis: TwoLevelBasis::PiecewiseConstant,
                     transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+                    transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
                     apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
                 },
                 ..HybridOptions::default()

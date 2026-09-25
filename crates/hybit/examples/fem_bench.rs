@@ -8,6 +8,7 @@ use hybit::{
     analyze_csr32, pcg, read_matrix_market, AlgebraicCoarseOptions, BackendPolicy, Csr32Matrix,
     HybitSolver, JacobiPreconditioner, LocalFactorSelectionPolicy, MatrixBackend, SolverOptions,
     TwoLevelAggregation, TwoLevelBasis, TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy,
+    TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
 };
 
 #[derive(Debug)]
@@ -30,6 +31,8 @@ struct Args {
     algebraic_coarse_aggregation: TwoLevelAggregation,
     algebraic_coarse_basis: TwoLevelBasis,
     algebraic_coarse_transfer_apply_policy: TwoLevelTransferApplyPolicy,
+    algebraic_coarse_transfer_storage_policy: TwoLevelTransferStoragePolicy,
+    algebraic_coarse_transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy,
     algebraic_coarse_apply_policy: TwoLevelCoarseApplyPolicy,
     backend: BackendPolicy,
     skip_plain: bool,
@@ -54,7 +57,10 @@ impl Args {
         let mut algebraic_coarse_target_dimension = 1536usize;
         let mut algebraic_coarse_aggregation = TwoLevelAggregation::Contiguous;
         let mut algebraic_coarse_basis = TwoLevelBasis::PiecewiseConstant;
-        let mut algebraic_coarse_transfer_apply_policy = TwoLevelTransferApplyPolicy::Serial;
+        let mut algebraic_coarse_transfer_apply_policy = TwoLevelTransferApplyPolicy::Parallel;
+        let mut algebraic_coarse_transfer_storage_policy = TwoLevelTransferStoragePolicy::Wide;
+        let mut algebraic_coarse_transfer_value_storage_policy =
+            TwoLevelTransferValueStoragePolicy::Auto;
         let mut algebraic_coarse_apply_policy = TwoLevelCoarseApplyPolicy::Auto;
         let mut backend = BackendPolicy::Auto;
         let mut skip_plain = false;
@@ -139,9 +145,7 @@ impl Args {
                         "piecewise" | "piecewise-constant" | "tentative" => {
                             TwoLevelBasis::PiecewiseConstant
                         }
-                        "smoothed" | "jacobi-smoothed" | "sa" => {
-                            TwoLevelBasis::JacobiSmoothed
-                        }
+                        "smoothed" | "jacobi-smoothed" | "sa" => TwoLevelBasis::JacobiSmoothed,
                         other => {
                             return Err(format!(
                                 "unknown coarse basis '{other}'; use piecewise|smoothed"
@@ -158,6 +162,34 @@ impl Args {
                         other => {
                             return Err(format!(
                                 "unknown coarse transfer policy '{other}'; use serial|parallel"
+                            )
+                            .into())
+                        }
+                    };
+                }
+                "--coarse-transfer-storage" => {
+                    let value = next_value(&mut it, "--coarse-transfer-storage")?;
+                    algebraic_coarse_transfer_storage_policy = match value.as_str() {
+                        "wide" | "legacy" => TwoLevelTransferStoragePolicy::Wide,
+                        "compact" => TwoLevelTransferStoragePolicy::Compact,
+                        "auto" => TwoLevelTransferStoragePolicy::Auto,
+                        other => {
+                            return Err(format!(
+                                "unknown coarse transfer storage '{other}'; use wide|compact|auto"
+                            )
+                            .into())
+                        }
+                    };
+                }
+                "--coarse-transfer-values" => {
+                    let value = next_value(&mut it, "--coarse-transfer-values")?;
+                    algebraic_coarse_transfer_value_storage_policy = match value.as_str() {
+                        "f64" | "double" => TwoLevelTransferValueStoragePolicy::F64,
+                        "f32" | "float" => TwoLevelTransferValueStoragePolicy::F32,
+                        "auto" => TwoLevelTransferValueStoragePolicy::Auto,
+                        other => {
+                            return Err(format!(
+                                "unknown coarse transfer value storage '{other}'; use f64|f32|auto"
                             )
                             .into())
                         }
@@ -254,6 +286,8 @@ impl Args {
             algebraic_coarse_aggregation,
             algebraic_coarse_basis,
             algebraic_coarse_transfer_apply_policy,
+            algebraic_coarse_transfer_storage_policy,
+            algebraic_coarse_transfer_value_storage_policy,
             algebraic_coarse_apply_policy,
             backend,
             skip_plain,
@@ -293,11 +327,11 @@ fn print_usage() {
     println!("  --hybrid-coarse     enable algebraic two-level coarse base for Hybrid Auto");
     println!("  --coarse-dofs N     contiguous DOFs per node/block (default 3)");
     println!("  --coarse-target N   coarse-space dimension target (default 1536)");
-    println!(
-        "  --coarse-aggregation MODE contiguous|graph|strong-graph (default contiguous)"
-    );
+    println!("  --coarse-aggregation MODE contiguous|graph|strong-graph (default contiguous)");
     println!("  --coarse-basis MODE piecewise|smoothed (default piecewise)");
-    println!("  --coarse-transfer MODE serial|parallel (default serial; smoothed only)");
+    println!("  --coarse-transfer MODE serial|parallel (default parallel; smoothed only)");
+    println!("  --coarse-transfer-storage MODE wide|compact|auto (default wide; smoothed only)");
+    println!("  --coarse-transfer-values MODE f64|f32|auto (default auto; smoothed only)");
     println!("  --coarse-apply MODE auto|factor|inverse (default auto)");
     println!("  --skip-plain        skip the Plain Jacobi-PCG baseline (for parameter sweeps)");
 }
@@ -528,6 +562,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             args.algebraic_coarse_transfer_apply_policy
         );
         println!(
+            "coarse storage     : {:?}",
+            args.algebraic_coarse_transfer_storage_policy
+        );
+        println!(
+            "coarse values      : {:?}",
+            args.algebraic_coarse_transfer_value_storage_policy
+        );
+        println!(
             "coarse apply req.  : {:?}",
             args.algebraic_coarse_apply_policy
         );
@@ -551,6 +593,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         aggregation: args.algebraic_coarse_aggregation,
         basis: args.algebraic_coarse_basis,
         transfer_apply_policy: args.algebraic_coarse_transfer_apply_policy,
+        transfer_storage_policy: args.algebraic_coarse_transfer_storage_policy,
+        transfer_value_storage_policy: args.algebraic_coarse_transfer_value_storage_policy,
         apply_policy: args.algebraic_coarse_apply_policy,
     };
     solver.set_hybrid_options(hybrid)?;

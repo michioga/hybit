@@ -54,7 +54,8 @@ pub use hybit_precond::{
     LocalCholeskyRegion, ParallelRigidBodyTwoLevelPreconditioner, RigidBodyAggregation,
     RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelAggregation,
     TwoLevelBasis, TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy,
-    TwoLevelTransferApplyPolicy, EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION,
+    TwoLevelTransferApplyPolicy, TwoLevelTransferOptions, TwoLevelTransferStoragePolicy,
+    TwoLevelTransferValueStoragePolicy, EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION,
 };
 
 pub fn solve(matrix: &Csr32Matrix, b: &[f64]) -> Result<(Vec<f64>, SolveReport), HybitError> {

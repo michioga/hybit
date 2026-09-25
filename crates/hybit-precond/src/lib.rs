@@ -382,6 +382,313 @@ pub enum TwoLevelTransferApplyPolicy {
     Parallel,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoLevelTransferStoragePolicy {
+    /// Preserve the historical platform-width row offsets and `u32` columns.
+    Wide,
+    /// Store row offsets as `u32` and coarse columns as `u16` when the
+    /// constructed transfer fits those ranges. Transfer-weight precision is
+    /// selected independently, so compact storage changes only the indices.
+    Compact,
+    /// Use compact indices when both the transfer nnz and coarse dimension fit;
+    /// otherwise fall back to the wide representation.
+    Auto,
+}
+
+impl TwoLevelTransferStoragePolicy {
+    fn resolve(self, coarse_dimension: usize, transfer_nnz: usize) -> Self {
+        match self {
+            Self::Auto
+                if coarse_dimension <= u16::MAX as usize + 1
+                    && transfer_nnz <= u32::MAX as usize =>
+            {
+                Self::Compact
+            }
+            Self::Auto => Self::Wide,
+            explicit => explicit,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoLevelTransferValueStoragePolicy {
+    /// Preserve transfer weights as `f64`.
+    F64,
+    /// Quantize transfer weights to `f32` for persistent storage, while
+    /// promoting each weight back to `f64` for Galerkin construction and
+    /// preconditioner application.
+    F32,
+    /// Use `f32` when every quantized weight remains finite; otherwise retain
+    /// `f64`.
+    Auto,
+}
+
+impl TwoLevelTransferValueStoragePolicy {
+    fn resolve(self, values: &[f64]) -> Result<Self, HybitError> {
+        let f32_representable = values.iter().all(|&value| (value as f32).is_finite());
+        match self {
+            Self::Auto if f32_representable => Ok(Self::F32),
+            Self::Auto => Ok(Self::F64),
+            Self::F32 if f32_representable => Ok(Self::F32),
+            Self::F32 => Err(HybitError::NumericalBreakdown(
+                "smoothed transfer weight is not representable as finite f32",
+            )),
+            Self::F64 => Ok(Self::F64),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TwoLevelTransferOptions {
+    pub apply_policy: TwoLevelTransferApplyPolicy,
+    pub storage_policy: TwoLevelTransferStoragePolicy,
+    pub value_storage_policy: TwoLevelTransferValueStoragePolicy,
+}
+
+impl Default for TwoLevelTransferOptions {
+    fn default() -> Self {
+        Self {
+            apply_policy: TwoLevelTransferApplyPolicy::Serial,
+            storage_policy: TwoLevelTransferStoragePolicy::Wide,
+            value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum SmoothedTransferIndices {
+    Empty,
+    Wide {
+        row_ptr: Vec<usize>,
+        col_idx: Vec<u32>,
+    },
+    Compact {
+        row_ptr: Vec<u32>,
+        col_idx: Vec<u16>,
+    },
+}
+
+impl SmoothedTransferIndices {
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Wide { row_ptr, col_idx } => {
+                row_ptr.len() * std::mem::size_of::<usize>()
+                    + col_idx.len() * std::mem::size_of::<u32>()
+            }
+            Self::Compact { row_ptr, col_idx } => {
+                row_ptr.len() * std::mem::size_of::<u32>()
+                    + col_idx.len() * std::mem::size_of::<u16>()
+            }
+        }
+    }
+
+    fn restrict_serial<T>(&self, values: &[T], r: &[f64], rhs: &mut [f64])
+    where
+        T: Copy + Into<f64>,
+    {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer indices must be present"),
+            Self::Wide { row_ptr, col_idx } => {
+                for (row, &ri) in r.iter().enumerate() {
+                    let start = row_ptr[row];
+                    let end = row_ptr[row + 1];
+                    for p in start..end {
+                        rhs[col_idx[p] as usize] += values[p].into() * ri;
+                    }
+                }
+            }
+            Self::Compact { row_ptr, col_idx } => {
+                for (row, &ri) in r.iter().enumerate() {
+                    let start = row_ptr[row] as usize;
+                    let end = row_ptr[row + 1] as usize;
+                    for p in start..end {
+                        rhs[col_idx[p] as usize] += values[p].into() * ri;
+                    }
+                }
+            }
+        }
+    }
+
+    fn restrict_parallel<T>(&self, values: &[T], r: &[f64], restriction_buffers: &mut [Vec<f64>])
+    where
+        T: Copy + Into<f64> + Sync,
+    {
+        let n = r.len();
+        let worker_count = restriction_buffers.len();
+        debug_assert!(worker_count > 0);
+        match self {
+            Self::Empty => unreachable!("smoothed transfer indices must be present"),
+            Self::Wide { row_ptr, col_idx } => {
+                restriction_buffers
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(worker, local)| {
+                        local.fill(0.0);
+                        let begin = n * worker / worker_count;
+                        let end_row = n * (worker + 1) / worker_count;
+                        for (offset, &ri) in r[begin..end_row].iter().enumerate() {
+                            let row = begin + offset;
+                            let start = row_ptr[row];
+                            let end = row_ptr[row + 1];
+                            for p in start..end {
+                                local[col_idx[p] as usize] += values[p].into() * ri;
+                            }
+                        }
+                    });
+            }
+            Self::Compact { row_ptr, col_idx } => {
+                restriction_buffers
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(worker, local)| {
+                        local.fill(0.0);
+                        let begin = n * worker / worker_count;
+                        let end_row = n * (worker + 1) / worker_count;
+                        for (offset, &ri) in r[begin..end_row].iter().enumerate() {
+                            let row = begin + offset;
+                            let start = row_ptr[row] as usize;
+                            let end = row_ptr[row + 1] as usize;
+                            for p in start..end {
+                                local[col_idx[p] as usize] += values[p].into() * ri;
+                            }
+                        }
+                    });
+            }
+        }
+    }
+
+    fn prolongate_serial<T>(&self, values: &[T], coarse_solution: &[f64], z: &mut [f64])
+    where
+        T: Copy + Into<f64>,
+    {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer indices must be present"),
+            Self::Wide { row_ptr, col_idx } => {
+                for (row, zi) in z.iter_mut().enumerate() {
+                    let start = row_ptr[row];
+                    let end = row_ptr[row + 1];
+                    let correction = (start..end)
+                        .map(|p| values[p].into() * coarse_solution[col_idx[p] as usize])
+                        .sum::<f64>();
+                    *zi += correction;
+                }
+            }
+            Self::Compact { row_ptr, col_idx } => {
+                for (row, zi) in z.iter_mut().enumerate() {
+                    let start = row_ptr[row] as usize;
+                    let end = row_ptr[row + 1] as usize;
+                    let correction = (start..end)
+                        .map(|p| values[p].into() * coarse_solution[col_idx[p] as usize])
+                        .sum::<f64>();
+                    *zi += correction;
+                }
+            }
+        }
+    }
+
+    fn prolongate_parallel<T>(&self, values: &[T], coarse_solution: &[f64], z: &mut [f64])
+    where
+        T: Copy + Into<f64> + Sync,
+    {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer indices must be present"),
+            Self::Wide { row_ptr, col_idx } => {
+                z.par_iter_mut().enumerate().for_each(|(row, zi)| {
+                    let start = row_ptr[row];
+                    let end = row_ptr[row + 1];
+                    let correction = (start..end)
+                        .map(|p| values[p].into() * coarse_solution[col_idx[p] as usize])
+                        .sum::<f64>();
+                    *zi += correction;
+                });
+            }
+            Self::Compact { row_ptr, col_idx } => {
+                z.par_iter_mut().enumerate().for_each(|(row, zi)| {
+                    let start = row_ptr[row] as usize;
+                    let end = row_ptr[row + 1] as usize;
+                    let correction = (start..end)
+                        .map(|p| values[p].into() * coarse_solution[col_idx[p] as usize])
+                        .sum::<f64>();
+                    *zi += correction;
+                });
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum SmoothedTransferValues {
+    Empty,
+    F64(Vec<f64>),
+    F32(Vec<f32>),
+}
+
+impl SmoothedTransferValues {
+    fn len(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::F64(values) => values.len(),
+            Self::F32(values) => values.len(),
+        }
+    }
+
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::F64(values) => values.len() * std::mem::size_of::<f64>(),
+            Self::F32(values) => values.len() * std::mem::size_of::<f32>(),
+        }
+    }
+
+    fn restrict_serial(&self, indices: &SmoothedTransferIndices, r: &[f64], rhs: &mut [f64]) {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer values must be present"),
+            Self::F64(values) => indices.restrict_serial(values, r, rhs),
+            Self::F32(values) => indices.restrict_serial(values, r, rhs),
+        }
+    }
+
+    fn restrict_parallel(
+        &self,
+        indices: &SmoothedTransferIndices,
+        r: &[f64],
+        restriction_buffers: &mut [Vec<f64>],
+    ) {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer values must be present"),
+            Self::F64(values) => indices.restrict_parallel(values, r, restriction_buffers),
+            Self::F32(values) => indices.restrict_parallel(values, r, restriction_buffers),
+        }
+    }
+
+    fn prolongate_serial(
+        &self,
+        indices: &SmoothedTransferIndices,
+        coarse_solution: &[f64],
+        z: &mut [f64],
+    ) {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer values must be present"),
+            Self::F64(values) => indices.prolongate_serial(values, coarse_solution, z),
+            Self::F32(values) => indices.prolongate_serial(values, coarse_solution, z),
+        }
+    }
+
+    fn prolongate_parallel(
+        &self,
+        indices: &SmoothedTransferIndices,
+        coarse_solution: &[f64],
+        z: &mut [f64],
+    ) {
+        match self {
+            Self::Empty => unreachable!("smoothed transfer values must be present"),
+            Self::F64(values) => indices.prolongate_parallel(values, coarse_solution, z),
+            Self::F32(values) => indices.prolongate_parallel(values, coarse_solution, z),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TwoLevelBlockJacobiPreconditioner {
     n: usize,
@@ -393,11 +700,12 @@ pub struct TwoLevelBlockJacobiPreconditioner {
     aggregation: TwoLevelAggregation,
     basis: TwoLevelBasis,
     transfer_apply_policy: TwoLevelTransferApplyPolicy,
+    transfer_storage_policy: TwoLevelTransferStoragePolicy,
+    transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy,
     aggregate_of_node: Vec<usize>,
     coarse_dimension: usize,
-    transfer_row_ptr: Vec<usize>,
-    transfer_col_idx: Vec<u32>,
-    transfer_values: Vec<f64>,
+    transfer_indices: SmoothedTransferIndices,
+    transfer_values: SmoothedTransferValues,
     smoothing_omega: f64,
     base: BlockJacobiPreconditioner,
     coarse_apply_policy: TwoLevelCoarseApplyPolicy,
@@ -516,6 +824,35 @@ impl TwoLevelBlockJacobiPreconditioner {
         coarse_apply_policy: TwoLevelCoarseApplyPolicy,
         transfer_apply_policy: TwoLevelTransferApplyPolicy,
     ) -> Result<Self, HybitError> {
+        Self::from_csr32_with_aggregation_basis_and_transfer_options(
+            matrix,
+            dofs_per_node,
+            aggregate_nodes,
+            aggregation,
+            basis,
+            coarse_apply_policy,
+            TwoLevelTransferOptions {
+                apply_policy: transfer_apply_policy,
+                storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+            },
+        )
+    }
+
+    pub fn from_csr32_with_aggregation_basis_and_transfer_options(
+        matrix: &Csr32Matrix,
+        dofs_per_node: usize,
+        aggregate_nodes: usize,
+        aggregation: TwoLevelAggregation,
+        basis: TwoLevelBasis,
+        coarse_apply_policy: TwoLevelCoarseApplyPolicy,
+        transfer_options: TwoLevelTransferOptions,
+    ) -> Result<Self, HybitError> {
+        let TwoLevelTransferOptions {
+            apply_policy: transfer_apply_policy,
+            storage_policy: transfer_storage_policy,
+            value_storage_policy: transfer_value_storage_policy,
+        } = transfer_options;
         if matrix.nrows() != matrix.ncols() {
             return Err(HybitError::InvalidMatrix(
                 "two-level block Jacobi requires a square matrix",
@@ -574,60 +911,129 @@ impl TwoLevelBlockJacobiPreconditioner {
             .checked_mul(coarse_dimension)
             .ok_or(HybitError::SizeOverflow)?;
 
-        let (transfer_row_ptr, transfer_col_idx, transfer_values, smoothing_omega, mut coarse) =
-            match basis {
-                TwoLevelBasis::PiecewiseConstant => {
-                    let mut coarse = vec![0.0f64; coarse_len];
-                    // Galerkin coarse operator E = Z^T A Z. Since each fine DOF
-                    // belongs to exactly one tentative piecewise-constant mode,
-                    // this is a direct sparse accumulation into the dense coarse
-                    // matrix.
-                    for row in 0..n {
-                        let cr = piecewise_coarse_index(
-                            row,
+        let (
+            wide_transfer_row_ptr,
+            wide_transfer_col_idx,
+            transfer_values,
+            transfer_value_storage_policy,
+            smoothing_omega,
+            mut coarse,
+        ) = match basis {
+            TwoLevelBasis::PiecewiseConstant => {
+                let mut coarse = vec![0.0f64; coarse_len];
+                // Galerkin coarse operator E = Z^T A Z. Since each fine DOF
+                // belongs to exactly one tentative piecewise-constant mode,
+                // this is a direct sparse accumulation into the dense coarse
+                // matrix.
+                for row in 0..n {
+                    let cr = piecewise_coarse_index(
+                        row,
+                        dofs_per_node,
+                        aggregate_nodes,
+                        &aggregate_of_node,
+                    );
+                    let rs = matrix.row_ptr()[row] as usize;
+                    let re = matrix.row_ptr()[row + 1] as usize;
+                    for p in rs..re {
+                        let col = matrix.col_idx()[p] as usize;
+                        let cc = piecewise_coarse_index(
+                            col,
                             dofs_per_node,
                             aggregate_nodes,
                             &aggregate_of_node,
                         );
-                        let rs = matrix.row_ptr()[row] as usize;
-                        let re = matrix.row_ptr()[row + 1] as usize;
-                        for p in rs..re {
-                            let col = matrix.col_idx()[p] as usize;
-                            let cc = piecewise_coarse_index(
-                                col,
-                                dofs_per_node,
-                                aggregate_nodes,
-                                &aggregate_of_node,
-                            );
-                            coarse[cr * coarse_dimension + cc] += matrix.values()[p];
-                        }
+                        coarse[cr * coarse_dimension + cc] += matrix.values()[p];
                     }
-                    (Vec::new(), Vec::new(), Vec::new(), 0.0, coarse)
                 }
-                TwoLevelBasis::JacobiSmoothed => {
-                    let transfer = build_jacobi_smoothed_transfer(
-                        matrix,
-                        dofs_per_node,
-                        aggregate_nodes,
-                        &aggregate_of_node,
-                        coarse_dimension,
-                    )?;
-                    let coarse = build_galerkin_coarse_from_transfer(
-                        matrix,
-                        &transfer.row_ptr,
-                        &transfer.col_idx,
-                        &transfer.values,
-                        coarse_dimension,
-                    )?;
-                    (
-                        transfer.row_ptr,
-                        transfer.col_idx,
-                        transfer.values,
-                        transfer.omega,
-                        coarse,
-                    )
+                (
+                    Vec::new(),
+                    Vec::new(),
+                    SmoothedTransferValues::Empty,
+                    TwoLevelTransferValueStoragePolicy::F64,
+                    0.0,
+                    coarse,
+                )
+            }
+            TwoLevelBasis::JacobiSmoothed => {
+                let transfer = build_jacobi_smoothed_transfer(
+                    matrix,
+                    dofs_per_node,
+                    aggregate_nodes,
+                    &aggregate_of_node,
+                    coarse_dimension,
+                )?;
+                let resolved_value_storage =
+                    transfer_value_storage_policy.resolve(&transfer.values)?;
+                let (transfer_values, coarse) = match resolved_value_storage {
+                    TwoLevelTransferValueStoragePolicy::F64 => {
+                        let coarse = build_galerkin_coarse_from_transfer(
+                            matrix,
+                            &transfer.row_ptr,
+                            &transfer.col_idx,
+                            &transfer.values,
+                            coarse_dimension,
+                        )?;
+                        (SmoothedTransferValues::F64(transfer.values), coarse)
+                    }
+                    TwoLevelTransferValueStoragePolicy::F32 => {
+                        let quantized = transfer
+                            .values
+                            .into_iter()
+                            .map(|value| value as f32)
+                            .collect::<Vec<_>>();
+                        let coarse = build_galerkin_coarse_from_transfer(
+                            matrix,
+                            &transfer.row_ptr,
+                            &transfer.col_idx,
+                            &quantized,
+                            coarse_dimension,
+                        )?;
+                        (SmoothedTransferValues::F32(quantized), coarse)
+                    }
+                    TwoLevelTransferValueStoragePolicy::Auto => {
+                        unreachable!("Auto transfer-value policy must resolve during construction")
+                    }
+                };
+                (
+                    transfer.row_ptr,
+                    transfer.col_idx,
+                    transfer_values,
+                    resolved_value_storage,
+                    transfer.omega,
+                    coarse,
+                )
+            }
+        };
+
+        let transfer_storage_policy = match basis {
+            TwoLevelBasis::PiecewiseConstant => TwoLevelTransferStoragePolicy::Wide,
+            TwoLevelBasis::JacobiSmoothed => {
+                transfer_storage_policy.resolve(coarse_dimension, transfer_values.len())
+            }
+        };
+        let transfer_indices = match (basis, transfer_storage_policy) {
+            (TwoLevelBasis::PiecewiseConstant, _) => SmoothedTransferIndices::Empty,
+            (TwoLevelBasis::JacobiSmoothed, TwoLevelTransferStoragePolicy::Wide) => {
+                SmoothedTransferIndices::Wide {
+                    row_ptr: wide_transfer_row_ptr,
+                    col_idx: wide_transfer_col_idx,
                 }
-            };
+            }
+            (TwoLevelBasis::JacobiSmoothed, TwoLevelTransferStoragePolicy::Compact) => {
+                let row_ptr = wide_transfer_row_ptr
+                    .into_iter()
+                    .map(|value| u32::try_from(value).map_err(|_| HybitError::SizeOverflow))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let col_idx = wide_transfer_col_idx
+                    .into_iter()
+                    .map(|value| u16::try_from(value).map_err(|_| HybitError::SizeOverflow))
+                    .collect::<Result<Vec<_>, _>>()?;
+                SmoothedTransferIndices::Compact { row_ptr, col_idx }
+            }
+            (TwoLevelBasis::JacobiSmoothed, TwoLevelTransferStoragePolicy::Auto) => {
+                unreachable!("Auto transfer-storage policy must resolve during construction")
+            }
+        };
 
         // Exact input symmetry can accumulate in a different order on the two
         // halves. Symmetrize before Cholesky so roundoff cannot create a false
@@ -768,9 +1174,8 @@ impl TwoLevelBlockJacobiPreconditioner {
             })
             .and_then(|v| v.checked_add(coarse_inverse.len() * std::mem::size_of::<f64>()))
             .and_then(|v| v.checked_add(aggregate_of_node.len() * std::mem::size_of::<usize>()))
-            .and_then(|v| v.checked_add(transfer_row_ptr.len() * std::mem::size_of::<usize>()))
-            .and_then(|v| v.checked_add(transfer_col_idx.len() * std::mem::size_of::<u32>()))
-            .and_then(|v| v.checked_add(transfer_values.len() * std::mem::size_of::<f64>()))
+            .and_then(|v| v.checked_add(transfer_indices.bytes()))
+            .and_then(|v| v.checked_add(transfer_values.bytes()))
             .and_then(|v| v.checked_add(2 * coarse_dimension * std::mem::size_of::<f64>()))
             .and_then(|v| {
                 let restriction_bytes = restriction_buffer_count
@@ -790,10 +1195,11 @@ impl TwoLevelBlockJacobiPreconditioner {
             aggregation,
             basis,
             transfer_apply_policy,
+            transfer_storage_policy,
+            transfer_value_storage_policy,
             aggregate_of_node,
             coarse_dimension,
-            transfer_row_ptr,
-            transfer_col_idx,
+            transfer_indices,
             transfer_values,
             smoothing_omega,
             base,
@@ -830,6 +1236,18 @@ impl TwoLevelBlockJacobiPreconditioner {
     }
     pub fn transfer_apply_policy(&self) -> TwoLevelTransferApplyPolicy {
         self.transfer_apply_policy
+    }
+    pub fn transfer_storage_policy(&self) -> TwoLevelTransferStoragePolicy {
+        self.transfer_storage_policy
+    }
+    pub fn transfer_value_storage_policy(&self) -> TwoLevelTransferValueStoragePolicy {
+        self.transfer_value_storage_policy
+    }
+    pub fn transfer_index_bytes(&self) -> usize {
+        self.transfer_indices.bytes()
+    }
+    pub fn transfer_value_bytes(&self) -> usize {
+        self.transfer_values.bytes()
     }
     pub fn smoothing_omega(&self) -> f64 {
         self.smoothing_omega
@@ -965,39 +1383,18 @@ impl Preconditioner for TwoLevelBlockJacobiPreconditioner {
             }
             TwoLevelBasis::JacobiSmoothed => match self.transfer_apply_policy {
                 TwoLevelTransferApplyPolicy::Serial => {
-                    for (row, &ri) in r.iter().enumerate() {
-                        let start = self.transfer_row_ptr[row];
-                        let end = self.transfer_row_ptr[row + 1];
-                        for p in start..end {
-                            let ci = self.transfer_col_idx[p] as usize;
-                            scratch.rhs[ci] += self.transfer_values[p] * ri;
-                        }
-                    }
+                    self.transfer_values.restrict_serial(
+                        &self.transfer_indices,
+                        r,
+                        &mut scratch.rhs,
+                    );
                 }
                 TwoLevelTransferApplyPolicy::Parallel => {
-                    let n = self.n;
-                    let row_ptr = self.transfer_row_ptr.as_slice();
-                    let col_idx = self.transfer_col_idx.as_slice();
-                    let values = self.transfer_values.as_slice();
-                    let worker_count = scratch.restriction_buffers.len();
-                    debug_assert!(worker_count > 0);
-                    scratch
-                        .restriction_buffers
-                        .par_iter_mut()
-                        .enumerate()
-                        .for_each(|(worker, local)| {
-                            local.fill(0.0);
-                            let begin = n * worker / worker_count;
-                            let end_row = n * (worker + 1) / worker_count;
-                            for (offset, &ri) in r[begin..end_row].iter().enumerate() {
-                                let row = begin + offset;
-                                let start = row_ptr[row];
-                                let end = row_ptr[row + 1];
-                                for p in start..end {
-                                    local[col_idx[p] as usize] += values[p] * ri;
-                                }
-                            }
-                        });
+                    self.transfer_values.restrict_parallel(
+                        &self.transfer_indices,
+                        r,
+                        &mut scratch.restriction_buffers,
+                    );
                     let CoarseScratch {
                         rhs,
                         restriction_buffers,
@@ -1022,30 +1419,12 @@ impl Preconditioner for TwoLevelBlockJacobiPreconditioner {
             }
             TwoLevelBasis::JacobiSmoothed => match self.transfer_apply_policy {
                 TwoLevelTransferApplyPolicy::Serial => {
-                    for (row, zi) in z.iter_mut().enumerate() {
-                        let start = self.transfer_row_ptr[row];
-                        let end = self.transfer_row_ptr[row + 1];
-                        let correction = (start..end)
-                            .map(|p| {
-                                self.transfer_values[p] * sol[self.transfer_col_idx[p] as usize]
-                            })
-                            .sum::<f64>();
-                        *zi += correction;
-                    }
+                    self.transfer_values
+                        .prolongate_serial(&self.transfer_indices, sol, z);
                 }
                 TwoLevelTransferApplyPolicy::Parallel => {
-                    let row_ptr = self.transfer_row_ptr.as_slice();
-                    let col_idx = self.transfer_col_idx.as_slice();
-                    let values = self.transfer_values.as_slice();
-                    let coarse_solution = sol.as_slice();
-                    z.par_iter_mut().enumerate().for_each(|(row, zi)| {
-                        let start = row_ptr[row];
-                        let end = row_ptr[row + 1];
-                        let correction = (start..end)
-                            .map(|p| values[p] * coarse_solution[col_idx[p] as usize])
-                            .sum::<f64>();
-                        *zi += correction;
-                    });
+                    self.transfer_values
+                        .prolongate_parallel(&self.transfer_indices, sol, z);
                 }
             },
         }
@@ -1951,12 +2330,7 @@ fn build_jacobi_smoothed_transfer(
     for (row, &diag) in diagonal.iter().enumerate() {
         touched.clear();
         let token = row;
-        let own = piecewise_coarse_index(
-            row,
-            dofs_per_node,
-            aggregate_nodes,
-            aggregate_of_node,
-        );
+        let own = piecewise_coarse_index(row, dofs_per_node, aggregate_nodes, aggregate_of_node);
         stamp[own] = token;
         accum[own] = 1.0;
         touched.push(own);
@@ -1966,12 +2340,8 @@ fn build_jacobi_smoothed_transfer(
         let re = matrix.row_ptr()[row + 1] as usize;
         for p in rs..re {
             let col = matrix.col_idx()[p] as usize;
-            let coarse_col = piecewise_coarse_index(
-                col,
-                dofs_per_node,
-                aggregate_nodes,
-                aggregate_of_node,
-            );
+            let coarse_col =
+                piecewise_coarse_index(col, dofs_per_node, aggregate_nodes, aggregate_of_node);
             if stamp[coarse_col] != token {
                 stamp[coarse_col] = token;
                 accum[coarse_col] = 0.0;
@@ -1999,13 +2369,16 @@ fn build_jacobi_smoothed_transfer(
     })
 }
 
-fn build_galerkin_coarse_from_transfer(
+fn build_galerkin_coarse_from_transfer<T>(
     matrix: &Csr32Matrix,
     transfer_row_ptr: &[usize],
     transfer_col_idx: &[u32],
-    transfer_values: &[f64],
+    transfer_values: &[T],
     coarse_dimension: usize,
-) -> Result<Vec<f64>, HybitError> {
+) -> Result<Vec<f64>, HybitError>
+where
+    T: Copy + Into<f64>,
+{
     let n = matrix.nrows();
     if transfer_row_ptr.len() != n + 1 || transfer_col_idx.len() != transfer_values.len() {
         return Err(HybitError::InvalidArgument(
@@ -2045,7 +2418,7 @@ fn build_galerkin_coarse_from_transfer(
                     ap[coarse_col] = 0.0;
                     touched.push(coarse_col);
                 }
-                ap[coarse_col] += a * transfer_values[q];
+                ap[coarse_col] += a * transfer_values[q].into();
             }
         }
 
@@ -2053,7 +2426,7 @@ fn build_galerkin_coarse_from_transfer(
         let pe = transfer_row_ptr[row + 1];
         for q in ps..pe {
             let coarse_row = transfer_col_idx[q] as usize;
-            let weight = transfer_values[q];
+            let weight: f64 = transfer_values[q].into();
             let dst = coarse_row
                 .checked_mul(coarse_dimension)
                 .ok_or(HybitError::SizeOverflow)?;
@@ -3314,6 +3687,173 @@ mod tests {
     }
 
     #[test]
+    fn two_level_compact_smoothed_transfer_matches_wide() {
+        let a = poisson_1d(96);
+        let wide =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferOptions {
+                    apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+                    storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                },
+            )
+            .unwrap();
+        let compact =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferOptions {
+                    apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+                    storage_policy: TwoLevelTransferStoragePolicy::Compact,
+                    value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                },
+            )
+            .unwrap();
+        let auto =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferOptions {
+                    apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+                    storage_policy: TwoLevelTransferStoragePolicy::Auto,
+                    value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            wide.transfer_storage_policy(),
+            TwoLevelTransferStoragePolicy::Wide
+        );
+        assert_eq!(
+            compact.transfer_storage_policy(),
+            TwoLevelTransferStoragePolicy::Compact
+        );
+        assert_eq!(
+            auto.transfer_storage_policy(),
+            TwoLevelTransferStoragePolicy::Compact
+        );
+        assert_eq!(wide.transfer_nnz(), compact.transfer_nnz());
+        assert_eq!(wide.transfer_nnz(), auto.transfer_nnz());
+        assert!(compact.transfer_index_bytes() < wide.transfer_index_bytes());
+        assert_eq!(compact.transfer_index_bytes(), auto.transfer_index_bytes());
+        assert!(compact.factor_bytes() < wide.factor_bytes());
+
+        let r: Vec<f64> = (0..a.nrows())
+            .map(|i| ((i * 19 + 7) as f64).sin())
+            .collect();
+        let mut z_wide = vec![0.0; a.nrows()];
+        let mut z_compact = vec![0.0; a.nrows()];
+        wide.apply(&r, &mut z_wide).unwrap();
+        compact.apply(&r, &mut z_compact).unwrap();
+        for (&wide_value, &compact_value) in z_wide.iter().zip(&z_compact) {
+            let scale = wide_value.abs().max(compact_value.abs()).max(1.0);
+            assert!((wide_value - compact_value).abs() <= 1.0e-12 * scale);
+        }
+    }
+
+    #[test]
+    fn two_level_f32_smoothed_transfer_is_close_to_f64() {
+        let a = poisson_1d(96);
+        let f64_transfer =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferOptions {
+                    apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+                    storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                },
+            )
+            .unwrap();
+        let f32_transfer =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferOptions {
+                    apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+                    storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    value_storage_policy: TwoLevelTransferValueStoragePolicy::F32,
+                },
+            )
+            .unwrap();
+
+        let auto_transfer =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                1,
+                8,
+                TwoLevelAggregation::Graph,
+                TwoLevelBasis::JacobiSmoothed,
+                TwoLevelCoarseApplyPolicy::FactorSolve,
+                TwoLevelTransferOptions {
+                    apply_policy: TwoLevelTransferApplyPolicy::Parallel,
+                    storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    value_storage_policy: TwoLevelTransferValueStoragePolicy::Auto,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            f64_transfer.transfer_value_storage_policy(),
+            TwoLevelTransferValueStoragePolicy::F64
+        );
+        assert_eq!(
+            f32_transfer.transfer_value_storage_policy(),
+            TwoLevelTransferValueStoragePolicy::F32
+        );
+        assert_eq!(
+            auto_transfer.transfer_value_storage_policy(),
+            TwoLevelTransferValueStoragePolicy::F32
+        );
+        assert_eq!(f64_transfer.transfer_nnz(), f32_transfer.transfer_nnz());
+        assert_eq!(
+            f64_transfer.transfer_value_bytes(),
+            2 * f32_transfer.transfer_value_bytes()
+        );
+        assert!(f32_transfer.factor_bytes() < f64_transfer.factor_bytes());
+
+        let r: Vec<f64> = (0..a.nrows())
+            .map(|i| ((i * 23 + 11) as f64).cos())
+            .collect();
+        let mut z_f64 = vec![0.0; a.nrows()];
+        let mut z_f32 = vec![0.0; a.nrows()];
+        f64_transfer.apply(&r, &mut z_f64).unwrap();
+        f32_transfer.apply(&r, &mut z_f32).unwrap();
+
+        let rz_f32: f64 = r.iter().zip(&z_f32).map(|(ri, zi)| ri * zi).sum();
+        assert!(rz_f32.is_finite());
+        assert!(rz_f32 > 0.0);
+
+        for (&wide_value, &compact_value) in z_f64.iter().zip(&z_f32) {
+            let scale = wide_value.abs().max(compact_value.abs()).max(1.0);
+            assert!((wide_value - compact_value).abs() <= 2.0e-5 * scale);
+        }
+    }
+
+    #[test]
     fn two_level_jacobi_smoothed_basis_is_positive() {
         let a = poisson_1d(24);
         let piecewise =
@@ -3343,9 +3883,7 @@ mod tests {
         assert!(smoothed.smoothing_omega() > 0.0);
         assert!(smoothed.transfer_nnz() >= a.nrows());
 
-        let r: Vec<f64> = (0..a.nrows())
-            .map(|i| ((i * 7 + 3) as f64).sin())
-            .collect();
+        let r: Vec<f64> = (0..a.nrows()).map(|i| ((i * 7 + 3) as f64).sin()).collect();
         let mut z = vec![0.0; a.nrows()];
         smoothed.apply(&r, &mut z).unwrap();
         let rz: f64 = r.iter().zip(&z).map(|(ri, zi)| ri * zi).sum();

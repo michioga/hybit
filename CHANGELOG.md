@@ -1,3 +1,67 @@
+## 0.7.0-r30 - algebraic coarse cross-validation harness
+
+- Added `fem_coarse_crosscheck`, a benchmark-only example that constructs the generic Graph + JacobiSmoothed + Parallel + Wide/F32 algebraic two-level preconditioner directly, independent of selective-direct escalation.
+- Added direct-coarse and Jacobi-probe-then-coarse modes so cross-matrix tests can separate coarse-space effectiveness from the current escalation controller.
+- Added `bench-fem-coarse-crosscheck.ps1`.
+- No production solver/API/default changes from r29.
+
+### 0.7.0-r29
+
+- Add `bench-fem-hybrid-initial-regions.ps1` as a benchmark-only repeated comparison of first-stage `max_local_regions` 1, 2, 4, 8 and 16 with `max_escalations = 1`.
+- Keep the validated Graph + JacobiSmoothed + Parallel + Wide/F32 + target-1792 coarse path fixed so the experiment isolates the amount of selective-direct strengthening performed before the final PCG continuation.
+- r28 showed that one escalation (8 regions) was fastest: median 870 iterations and 20.711 s wall, 5.94% faster than depth 3; additional preconditioner changes restarted PCG and did not recover their restart/setup cost.
+- Include 16 as a saturation check because the current 1024-DOF hard core and 128-DOF region cap may limit the first harvest to eight full-size regions.
+- No Rust solver, preconditioner, API, or default-policy changes from r27/r28.
+
+### 0.7.0-r28
+
+- Add `bench-fem-hybrid-escalation-depth.ps1` as a benchmark-only repeated comparison of `max_escalations` 1, 2, 3 and 4 on the validated Graph + JacobiSmoothed + Parallel + Wide/F32 + target-1792 generic FEM path.
+- Keep all Rust solver, preconditioner, API and default-policy code unchanged from r27 so the experiment isolates selective-direct escalation depth.
+- Interpret depth 1 as one 8-region strengthening followed by the remaining Krylov budget, depth 2 as the existing 8→16-region progression with the second stage final, depth 3 as the current production experiment baseline, and depth 4 as a probe of whether a short third stage justifies one further strengthening.
+- Report actual escalations, local-region count, factor memory, diagnostics/factor setup cost, iterations, milliseconds per iteration, solver time and wall time, with depth 3 as the relative baseline.
+- r27 validation passed `cargo fmt`, `hybit-precond` 22/22, `hybit-auto` 27/27, the full workspace suite and Clippy `-D warnings`; an option-omitting FEM run resolved the promoted smoothed transfer defaults to Parallel/Wide/Auto→F32 and converged in 876 iterations with 59.71 MiB coarse memory.
+- r26 established Wide/F32 as the measured speed/memory Pareto default and Compact/F32 as the low-memory alternative; r28 therefore moves optimization attention from coarse transfer representation to the selective-direct controller.
+
+### 0.7.0-r27
+
+- Promote the high-level generic algebraic coarse transfer defaults used by `AlgebraicCoarseOptions` to `Parallel` application, `Wide` indices and `Auto` value storage after r26 established Wide/F32 as the best speed/memory Pareto point on the repeated L-angle benchmark.
+- Keep the low-level `TwoLevelTransferOptions::default()` compatibility path unchanged at Serial/Wide/F64; only the generic auto-layer defaults and `fem_bench` defaults are promoted.
+- `Auto` transfer-value storage resolves to F32 whenever all smoothed-transfer weights remain finite after quantization, otherwise falling back to F64; Wide indices remain the speed-oriented default.
+- Keep aggregation and basis defaults unchanged (`Contiguous` + `PiecewiseConstant`), so the promoted transfer defaults take effect only when a caller explicitly selects `JacobiSmoothed`.
+- r26 four-way result at Graph + JacobiSmoothed + Parallel + target 1792: all layouts converged in 876 iterations; Wide/F32 was fastest at median wall 21.808 s with 59.71 MiB coarse memory, while Compact/F32 minimized coarse memory at 52.52 MiB with only 0.63% slower median wall than Wide/F32.
+- Wide/F64 and Compact/F64 are dominated by Wide/F32 in the measured speed/memory plane; retain both explicit policies for reproducibility and compatibility rather than using them as generic smoothed defaults.
+
+### 0.7.0-r26
+
+- Add `bench-fem-hybrid-coarse-transfer-layout.ps1` as a benchmark-only four-way comparison of Wide/F64, Compact/F64, Wide/F32 and Compact/F32 Jacobi-smoothed parallel transfer storage at fixed Graph aggregation and coarse target 1792.
+- Keep all Rust solver, preconditioner, API and default-policy code unchanged from r25 so the experiment isolates persistent transfer layout only.
+- Rotate/reverse run order across repeats and report median convergence, iterations, coarse memory, setup, milliseconds per iteration, solver time and wall time, plus deltas relative to Wide/F64.
+- r25 result: F32 transfer values preserved 876 iterations and reduced coarse memory from 71.37 to 59.71 MiB (11.66 MiB) with only 0.59%/0.38% median solver/wall slowdown versus F64.
+- r24 result: Compact indices preserved 876 iterations and reduced coarse memory by 7.20 MiB but slowed median solver/wall by 1.33%/1.03%; r26 measures whether combining Compact indices with F32 values gives a useful low-memory Pareto point.
+
+### 0.7.0-r25
+
+- Add experimental `TwoLevelTransferValueStoragePolicy::{F64, F32, Auto}` for Jacobi-smoothed generic coarse transfers while preserving `F64` as the default.
+- Store F32 transfer weights persistently as `f32` but promote each weight to `f64` during restriction/prolongation; keep matrix, coarse solve, Krylov vectors and local factors in `f64`.
+- Build the Galerkin coarse operator `P^T A P` from the same quantized transfer weights used during PCG when F32 storage is selected, preserving a symmetric coarse correction rather than mixing F64 setup with F32 application.
+- Keep transfer-index storage independently selectable; the r25 benchmark fixes Wide indices so the F64/F32 A/B isolates transfer-weight bandwidth and storage effects.
+- Include transfer-value bytes in persistent coarse-memory accounting and expose effective value-storage policy/value-byte telemetry on `TwoLevelBlockJacobiPreconditioner`.
+- Extend `AlgebraicCoarseOptions` and `fem_bench` with `--coarse-transfer-values f64|f32|auto`; keep F64 as the generic default pending real-FEM validation.
+- Add regression coverage checking positive F32-smoothed action, F32/F64 closeness, halved transfer-value storage, and Auto resolution to F32 for representable weights.
+- Add `bench-fem-hybrid-coarse-transfer-values.ps1` for repeated F64-vs-F32 A/B runs with Graph aggregation, Jacobi-smoothed basis, Parallel transfer, Wide indices, target 1792 and coarse-apply `Auto` fixed.
+- r24 result: Compact indices preserved 876 iterations and reduced coarse memory from 71.37 to 64.17 MiB (7.20 MiB), but median solver/wall time worsened by 1.33%/1.03%; retain Wide indices as the speed-oriented default.
+
+### 0.7.0-r24
+
+- Add experimental `TwoLevelTransferStoragePolicy::{Wide, Compact, Auto}` for the Jacobi-smoothed generic coarse transfer while preserving `Wide` as the default.
+- Keep all transfer weights in `f64`; `Compact` changes only sparse-transfer indices, storing row offsets as `u32` and coarse columns as `u16` when representable.
+- Preserve the historical wide constructor/API path and add an explicit storage-policy constructor; `Auto` selects compact indices when the constructed transfer fits and otherwise falls back to wide storage.
+- Include the effective compact index footprint in persistent coarse-memory accounting and expose transfer-storage/index-byte telemetry on `TwoLevelBlockJacobiPreconditioner`.
+- Extend `AlgebraicCoarseOptions` and `fem_bench` with `--coarse-transfer-storage wide|compact|auto`; keep `Wide` as the generic default pending real-FEM A/B validation.
+- Add regression coverage proving wide/compact smoothed transfers produce equivalent preconditioner action while compact storage uses fewer persistent index bytes.
+- Add `bench-fem-hybrid-coarse-transfer-storage.ps1` for repeated Wide vs Compact A/B runs with Graph aggregation, Jacobi-smoothed basis, Parallel transfer, target 1792 and coarse-apply `Auto` fixed.
+- r23 result: Graph + JacobiSmoothed + Parallel remained fastest at target 1792 / actual 1785 with 876 iterations, median solver 17.319 s and wall 21.755 s; target 2048 reduced iterations to 846 but did not recover its additional setup/apply cost and raised coarse memory to about 80.15 MiB.
+
 ### 0.7.0-r23
 
 - Add `bench-fem-hybrid-smoothed-coarse-sweep.ps1` to re-optimize generic coarse dimension after r22 made Jacobi-smoothed transfer application competitive in wall time.
@@ -6,6 +70,14 @@
 - r22 result: Parallel smoothed transfer preserved 876 iterations while reducing median milliseconds/iteration from 24.630 to 19.609, solver time by 20.39% and wall time by 17.05% versus serial transfer.
 - Relative to the r21a piecewise Graph baseline at target 1792, r22 smoothed+parallel reduced median wall time from 23.770 s to 21.545 s (about 9.36%) while increasing coarse memory from 33.44 MiB to 71.37 MiB; r23 therefore targets the memory/setup tradeoff without changing Rust numerics.
 - Make no Rust, solver, preconditioner, public API or default-policy changes from r22; this checkpoint is benchmark-only.
+
+### 0.7.0-r23
+
+- Add `bench-fem-hybrid-smoothed-coarse-sweep.ps1` to re-optimize coarse dimension after r22 made the Jacobi-smoothed Graph coarse basis faster than the piecewise-constant Graph baseline by parallelizing sparse transfer application.
+- Sweep targets 512, 768, 1024, 1152, 1280, 1536, 1792, and 2048 with Graph aggregation, Jacobi-smoothed basis, parallel transfer, and coarse-apply `Auto`, using three alternating-order repeats.
+- Report actual coarse dimension, effective apply policy, convergence, escalation/local-region state, coarse memory/setup, solver milliseconds per iteration, solver time, wall time, and wall-time range; select the best all-converged target by median wall time.
+- Keep r22 Rust code, solver/preconditioner behavior, public API, and defaults unchanged; this checkpoint is benchmark-only.
+- r22 result: parallel smoothed transfer preserved the 876-iteration solve while reducing median solver time by 20.39% and wall time by 17.05% versus serial transfer; median wall reached 21.545 s, beating the piecewise Graph baseline (~23.77 s), at a coarse-memory cost of ~71.37 MiB.
 
 ### 0.7.0-r22
 
