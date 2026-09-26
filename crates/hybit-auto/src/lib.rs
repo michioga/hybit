@@ -51,8 +51,9 @@ pub enum LocalFactorSelectionPolicy {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AlgebraicCoarseOptions {
-    /// Enable a geometry-free algebraic two-level base preconditioner when the
-    /// generic hybrid path escalates.
+    /// Enable a geometry-free algebraic two-level base preconditioner from the
+    /// first Krylov iteration. Selective-direct local corrections may still be
+    /// added later if the coarse-base controller probe shows poor progress.
     pub enabled: bool,
     /// Number of contiguous DOFs per node/component block. Structural solids
     /// normally use 3. The matrix dimension must be divisible by this value.
@@ -107,6 +108,9 @@ impl Default for AlgebraicCoarseOptions {
 #[derive(Clone, Copy, Debug)]
 pub struct HybridOptions {
     pub enabled: bool,
+    /// Initial controller stage length. Uses algebraic coarse when explicitly
+    /// enabled, otherwise Jacobi. The live PCG recurrence is preserved across
+    /// this boundary if the preconditioner remains unchanged.
     pub probe_iterations: usize,
     /// Maximum number of local-direct strengthening restarts for one RHS.
     pub max_escalations: usize,
@@ -553,6 +557,15 @@ impl HybitPreparedSystem {
         sequence: usize,
         charge_context_setup: bool,
     ) -> Result<SolveReport, HybitError> {
+        let coarse_requested =
+            self.hybrid_options.enabled && self.hybrid_options.algebraic_coarse.enabled;
+        let coarse_was_cached = coarse_requested && self.algebraic_coarse.is_some();
+        let algebraic_coarse_seconds = if coarse_requested {
+            self.ensure_algebraic_coarse(matrix)?
+        } else {
+            0.0
+        };
+
         let probe_budget = if self.options.max_iterations <= 1 {
             self.options.max_iterations
         } else {
@@ -561,22 +574,51 @@ impl HybitPreparedSystem {
                 .min(self.options.max_iterations - 1)
                 .max(1)
         };
-        let mut probe_options = self.options;
-        probe_options.max_iterations = probe_budget;
 
+        // The controller probe must use the preconditioner that is actually
+        // intended as the base solve.  In particular, an explicitly enabled
+        // algebraic coarse space starts at iteration zero rather than after a
+        // destructive Jacobi probe.  The live PCG session is retained across
+        // the controller boundary whenever the preconditioner is unchanged.
         let probe_start = Instant::now();
-        let probe = pcg_with_workspace(
-            operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
-            &self.jacobi,
-            b,
-            x,
-            probe_options,
-            &mut self.workspace,
-        )?;
+        let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+        let mut current_pcg = if let Some(coarse) = self.algebraic_coarse.as_ref() {
+            pcg_start_with_workspace(operator, coarse, b, x, self.options, &mut self.workspace)?
+        } else {
+            pcg_start_with_workspace(
+                operator,
+                &self.jacobi,
+                b,
+                x,
+                self.options,
+                &mut self.workspace,
+            )?
+        };
+        let probe = if let Some(coarse) = self.algebraic_coarse.as_ref() {
+            pcg_continue_with_workspace(
+                operator,
+                coarse,
+                b,
+                x,
+                probe_budget,
+                &mut current_pcg,
+                &mut self.workspace,
+            )?
+        } else {
+            pcg_continue_with_workspace(
+                operator,
+                &self.jacobi,
+                b,
+                x,
+                probe_budget,
+                &mut current_pcg,
+                &mut self.workspace,
+            )?
+        };
         let probe_seconds = probe_start.elapsed().as_secs_f64();
         let probe_iterations = probe.iterations;
         let probe_final_residual = probe.final_residual;
-        let base_metrics = ReportMetrics {
+        let mut base_metrics = ReportMetrics {
             analysis_seconds: if charge_context_setup {
                 self.analysis_seconds
             } else {
@@ -590,19 +632,35 @@ impl HybitPreparedSystem {
             probe_seconds,
             probe_iterations,
             probe_final_residual,
+            algebraic_coarse_seconds,
             local_factor_budget_bytes: self.hybrid_options.max_local_factor_bytes,
             overlap_layers: self.hybrid_options.overlap_layers,
+            preconditioner_reused: coarse_was_cached,
             solve_sequence: sequence,
             krylov_workspace_bytes: self.workspace.bytes(),
             ..ReportMetrics::default()
         };
+        if let Some(coarse) = self.algebraic_coarse.as_ref() {
+            base_metrics.algebraic_coarse_dimension = coarse.coarse_dimension();
+            base_metrics.algebraic_coarse_factor_bytes = coarse.factor_bytes();
+            base_metrics.algebraic_coarse_aggregate_nodes = self.algebraic_coarse_aggregate_nodes;
+        }
 
+        let base_uses_coarse = self.algebraic_coarse.is_some();
         if probe.status == SolveStatus::Converged || probe.iterations >= self.options.max_iterations
         {
             return Ok(report_from_outcome(
                 probe,
-                SolverKind::Pcg,
-                PreconditionerKind::Jacobi,
+                if base_uses_coarse {
+                    SolverKind::Hybrid
+                } else {
+                    SolverKind::Pcg
+                },
+                if base_uses_coarse {
+                    PreconditionerKind::Hybrid
+                } else {
+                    PreconditionerKind::Jacobi
+                },
                 self.backend,
                 b,
                 base_metrics,
@@ -616,25 +674,67 @@ impl HybitPreparedSystem {
                 > self.hybrid_options.escalation_residual_ratio;
 
         let mut remaining = self.options.max_iterations.saturating_sub(probe_iterations);
-        if !poor_progress || remaining == 0 {
-            let (continuation, continuation_seconds) = run_continuation(
-                matrix,
-                self.abtm.as_ref(),
+        if remaining == 0 {
+            return Ok(report_from_outcome(
+                probe,
+                if base_uses_coarse {
+                    SolverKind::Hybrid
+                } else {
+                    SolverKind::Pcg
+                },
+                if base_uses_coarse {
+                    PreconditionerKind::Hybrid
+                } else {
+                    PreconditionerKind::Jacobi
+                },
                 self.backend,
-                &self.jacobi,
                 b,
-                x,
-                self.options,
-                remaining,
-                &mut self.workspace,
-            )?;
+                base_metrics,
+            ));
+        }
+
+        // Acceptable progress is only a controller boundary, not a Krylov
+        // restart. Continue the exact same PCG recurrence with the same base
+        // preconditioner for the remaining budget.
+        if !poor_progress {
+            let continuation_start = Instant::now();
+            let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+            let continuation = if let Some(coarse) = self.algebraic_coarse.as_ref() {
+                pcg_continue_with_workspace(
+                    operator,
+                    coarse,
+                    b,
+                    x,
+                    remaining,
+                    &mut current_pcg,
+                    &mut self.workspace,
+                )?
+            } else {
+                pcg_continue_with_workspace(
+                    operator,
+                    &self.jacobi,
+                    b,
+                    x,
+                    remaining,
+                    &mut current_pcg,
+                    &mut self.workspace,
+                )?
+            };
             let outcome = combine_outcomes(probe, continuation);
             let mut metrics = base_metrics;
-            metrics.restart_seconds = continuation_seconds;
+            metrics.restart_seconds = continuation_start.elapsed().as_secs_f64();
             return Ok(report_from_outcome(
                 outcome,
-                SolverKind::Pcg,
-                PreconditionerKind::Jacobi,
+                if base_uses_coarse {
+                    SolverKind::Hybrid
+                } else {
+                    SolverKind::Pcg
+                },
+                if base_uses_coarse {
+                    PreconditionerKind::Hybrid
+                } else {
+                    PreconditionerKind::Jacobi
+                },
                 self.backend,
                 b,
                 metrics,
@@ -645,9 +745,6 @@ impl HybitPreparedSystem {
         let mut metrics = base_metrics;
         let mut active_regions: Vec<Vec<usize>> = Vec::new();
         let mut current_hybrid: Option<HybridPreconditioner> = None;
-        // A PCG session belongs to the current fixed preconditioner. It is
-        // discarded exactly when escalation constructs a different one.
-        let mut current_pcg: Option<PcgSession> = None;
 
         while remaining > 0 && metrics.escalations < self.hybrid_options.max_escalations {
             let diagnostics_start = Instant::now();
@@ -703,13 +800,6 @@ impl HybitPreparedSystem {
                 break;
             }
 
-            metrics.algebraic_coarse_seconds += self.ensure_algebraic_coarse(matrix)?;
-            if let Some(coarse) = self.algebraic_coarse.as_ref() {
-                metrics.algebraic_coarse_dimension = coarse.coarse_dimension();
-                metrics.algebraic_coarse_factor_bytes = coarse.factor_bytes();
-                metrics.algebraic_coarse_aggregate_nodes = self.algebraic_coarse_aggregate_nodes;
-            }
-
             let factor_start = Instant::now();
             let next_hybrid =
                 match HybridPreconditioner::from_csr32(matrix, budgeted.regions.clone()) {
@@ -735,6 +825,8 @@ impl HybitPreparedSystem {
             let mut stage_options = self.options;
             stage_options.max_iterations = stage_budget;
 
+            // The local correction changes the SPD preconditioner, so this is
+            // the one place where restarting PCG is mathematically required.
             let restart_start = Instant::now();
             let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
             let pcg_context = HybridPcgContext {
@@ -777,7 +869,7 @@ impl HybitPreparedSystem {
             remaining = remaining.saturating_sub(stage_iterations);
             outcome = combine_outcomes(outcome, stage);
             current_hybrid = Some(next_hybrid);
-            current_pcg = Some(stage_pcg);
+            current_pcg = stage_pcg;
 
             if stage_status == SolveStatus::Converged
                 || stage_status == SolveStatus::Breakdown
@@ -795,52 +887,45 @@ impl HybitPreparedSystem {
         }
 
         // Finish with the strongest successfully constructed preconditioner.
-        // If no local factor was admitted or every factorization attempt failed,
-        // continue with Jacobi exactly as the pre-0.7 controller did.
+        // A controller-only boundary preserves the live PCG recurrence; only a
+        // genuine local-preconditioner strengthening above replaced the session.
         if remaining > 0
             && outcome.status != SolveStatus::Converged
             && outcome.status != SolveStatus::Breakdown
         {
-            let mut continuation_options = self.options;
-            continuation_options.max_iterations = remaining;
             let continuation_start = Instant::now();
+            let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
             let continuation = if let Some(hybrid) = current_hybrid.as_ref() {
-                let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
-                if let Some(session) = current_pcg.as_mut() {
-                    // Same operator and same preconditioner: preserve the PCG
-                    // recurrence instead of restarting from x.
-                    let pcg_context = HybridPcgContext {
-                        operator,
-                        coarse: self.algebraic_coarse.as_ref(),
-                        local: hybrid,
-                        b,
-                    };
-                    pcg_context.continue_with_workspace(
-                        x,
-                        remaining,
-                        session,
-                        &mut self.workspace,
-                    )?
-                } else {
-                    // Defensive fallback for a future controller path that may
-                    // install a hybrid preconditioner without a live session.
-                    run_hybrid_pcg(
-                        operator,
-                        self.algebraic_coarse.as_ref(),
-                        hybrid,
-                        b,
-                        x,
-                        continuation_options,
-                        &mut self.workspace,
-                    )?
-                }
+                let pcg_context = HybridPcgContext {
+                    operator,
+                    coarse: self.algebraic_coarse.as_ref(),
+                    local: hybrid,
+                    b,
+                };
+                pcg_context.continue_with_workspace(
+                    x,
+                    remaining,
+                    &mut current_pcg,
+                    &mut self.workspace,
+                )?
+            } else if let Some(coarse) = self.algebraic_coarse.as_ref() {
+                pcg_continue_with_workspace(
+                    operator,
+                    coarse,
+                    b,
+                    x,
+                    remaining,
+                    &mut current_pcg,
+                    &mut self.workspace,
+                )?
             } else {
-                pcg_with_workspace(
-                    operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
+                pcg_continue_with_workspace(
+                    operator,
                     &self.jacobi,
                     b,
                     x,
-                    continuation_options,
+                    remaining,
+                    &mut current_pcg,
                     &mut self.workspace,
                 )?
             };
@@ -848,8 +933,8 @@ impl HybitPreparedSystem {
             outcome = combine_outcomes(outcome, continuation);
         }
 
-        let used_hybrid = current_hybrid.is_some();
-        if used_hybrid && outcome.status != SolveStatus::Breakdown {
+        let used_hybrid = current_hybrid.is_some() || self.algebraic_coarse.is_some();
+        if current_hybrid.is_some() && outcome.status != SolveStatus::Breakdown {
             // Prepared solve-many reuses the strongest successfully learned
             // multi-stage local-direct state for later RHS vectors.
             self.hybrid = current_hybrid;
@@ -1461,45 +1546,6 @@ fn operator_for_backend<'a>(
         MatrixBackend::Abtm => abtm.expect("ABTM storage initialized"),
         MatrixBackend::MatrixFree => unreachable!(),
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn run_continuation(
-    matrix: &Csr32Matrix,
-    abtm: Option<&AbtmMatrix>,
-    backend: MatrixBackend,
-    jacobi: &JacobiPreconditioner,
-    b: &[f64],
-    x: &mut [f64],
-    base_options: SolverOptions,
-    remaining: usize,
-    workspace: &mut PcgWorkspace,
-) -> Result<(KrylovOutcome, f64), HybitError> {
-    if remaining == 0 {
-        let r = residual(matrix, b, x)?;
-        let norm = l2_norm(&r);
-        return Ok((
-            KrylovOutcome {
-                status: SolveStatus::MaxIterations,
-                iterations: 0,
-                initial_residual: norm,
-                final_residual: norm,
-            },
-            0.0,
-        ));
-    }
-    let mut options = base_options;
-    options.max_iterations = remaining;
-    let start = Instant::now();
-    let outcome = pcg_with_workspace(
-        operator_for_backend(matrix, abtm, backend),
-        jacobi,
-        b,
-        x,
-        options,
-        workspace,
-    )?;
-    Ok((outcome, start.elapsed().as_secs_f64()))
 }
 
 struct HybridPcgContext<'a> {
@@ -2683,6 +2729,9 @@ mod tests {
             .unwrap();
         solver
             .set_hybrid_options(HybridOptions {
+                // Keep this test on the coarse + local reuse path even though
+                // r32 starts with coarse PCG instead of Jacobi PCG.
+                escalation_residual_ratio: 1.0e-300,
                 algebraic_coarse: AlgebraicCoarseOptions {
                     enabled: true,
                     dofs_per_node: 1,
@@ -2723,6 +2772,228 @@ mod tests {
             second.algebraic_coarse_factor_bytes,
             first.algebraic_coarse_factor_bytes
         );
+    }
+
+    #[test]
+    fn prepared_context_reuses_coarse_without_local_hybrid() {
+        let a = poisson_1d(96);
+        let mut solver = HybitSolver::new();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 200,
+            })
+            .unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 3,
+                escalation_residual_ratio: 1.0e300,
+                algebraic_coarse: AlgebraicCoarseOptions {
+                    enabled: true,
+                    dofs_per_node: 1,
+                    target_coarse_dimension: 16,
+                    aggregation: TwoLevelAggregation::Contiguous,
+                    basis: TwoLevelBasis::PiecewiseConstant,
+                    transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+                    transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                    apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
+                },
+                ..HybridOptions::default()
+            })
+            .unwrap();
+
+        let analysis = solver.analyze_csr32(&a).unwrap();
+        let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+        let b1 = vec![1.0; a.nrows()];
+        let mut x1 = vec![0.0; a.nrows()];
+        let first = prepared.solve(&a, &b1, &mut x1).unwrap();
+        assert!(first.converged());
+        assert!(!prepared.has_cached_hybrid());
+        assert!(!first.preconditioner_reused);
+        assert!(first.algebraic_coarse_seconds > 0.0);
+        assert!(first.algebraic_coarse_dimension > 0);
+
+        let mut b2 = vec![1.0; a.nrows()];
+        b2[0] = 2.0;
+        let mut x2 = vec![0.0; a.nrows()];
+        let second = prepared.solve(&a, &b2, &mut x2).unwrap();
+        assert!(second.converged());
+        assert!(!prepared.has_cached_hybrid());
+        assert!(second.preconditioner_reused);
+        assert_eq!(second.algebraic_coarse_seconds, 0.0);
+        assert_eq!(
+            second.algebraic_coarse_dimension,
+            first.algebraic_coarse_dimension
+        );
+        assert_eq!(
+            second.algebraic_coarse_factor_bytes,
+            first.algebraic_coarse_factor_bytes
+        );
+    }
+
+    #[test]
+    fn explicitly_enabled_algebraic_coarse_runs_from_initial_probe() {
+        let a = poisson_1d(64);
+        let mut solver = HybitSolver::new();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 100,
+            })
+            .unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 1,
+                // Any finite one-step coarse residual ratio is below this
+                // threshold, so local escalation is deliberately not requested.
+                escalation_residual_ratio: 1.0e300,
+                coupling_risk_threshold: 100.0,
+                scale_jump_threshold: 1.0e12,
+                algebraic_coarse: AlgebraicCoarseOptions {
+                    enabled: true,
+                    dofs_per_node: 1,
+                    target_coarse_dimension: 16,
+                    aggregation: TwoLevelAggregation::Contiguous,
+                    basis: TwoLevelBasis::PiecewiseConstant,
+                    transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+                    transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                    apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
+                },
+                ..HybridOptions::default()
+            })
+            .unwrap();
+
+        let b = vec![1.0; a.nrows()];
+        let mut x = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
+
+        assert!(report.converged());
+        assert_eq!(report.escalations, 0);
+        assert_eq!(report.hard_dofs, 0);
+        assert_eq!(report.local_direct_regions, 0);
+        assert!(report.algebraic_coarse_dimension > 0);
+        assert!(report.algebraic_coarse_factor_bytes > 0);
+        assert_eq!(report.preconditioner, PreconditionerKind::Hybrid);
+    }
+
+    #[test]
+    fn algebraic_coarse_probe_preserves_direct_pcg_recurrence() {
+        let a = poisson_1d(96);
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 200,
+        };
+        let coarse_options = AlgebraicCoarseOptions {
+            enabled: true,
+            dofs_per_node: 1,
+            target_coarse_dimension: 16,
+            aggregation: TwoLevelAggregation::Contiguous,
+            basis: TwoLevelBasis::PiecewiseConstant,
+            transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+            transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+            transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+            apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
+        };
+        let aggregate_nodes =
+            recommend_algebraic_aggregate_nodes(a.nrows(), coarse_options).unwrap();
+        let coarse =
+            TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
+                &a,
+                coarse_options.dofs_per_node,
+                aggregate_nodes,
+                coarse_options.aggregation,
+                coarse_options.basis,
+                coarse_options.apply_policy,
+                TwoLevelTransferOptions {
+                    apply_policy: coarse_options.transfer_apply_policy,
+                    storage_policy: coarse_options.transfer_storage_policy,
+                    value_storage_policy: coarse_options.transfer_value_storage_policy,
+                },
+            )
+            .unwrap();
+        let b = vec![1.0; a.nrows()];
+        let mut x_direct = vec![0.0; a.nrows()];
+        let direct = pcg(&a, &coarse, &b, &mut x_direct, options).unwrap();
+
+        let mut solver = HybitSolver::new();
+        solver.set_options(options).unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 3,
+                // Keep the preconditioner fixed after the controller boundary.
+                escalation_residual_ratio: 1.0e300,
+                algebraic_coarse: coarse_options,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+        let mut x_segmented = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut x_segmented).unwrap();
+
+        assert!(report.converged());
+        assert_eq!(report.probe_iterations, 3);
+        assert_eq!(report.escalations, 0);
+        assert_eq!(report.iterations, direct.iterations);
+        assert_eq!(report.preconditioner, PreconditionerKind::Hybrid);
+        for (&segmented, &direct_value) in x_segmented.iter().zip(&x_direct) {
+            let scale = segmented.abs().max(direct_value.abs()).max(1.0);
+            assert!((segmented - direct_value).abs() <= 1.0e-12 * scale);
+        }
+    }
+
+    #[test]
+    fn explicitly_enabled_algebraic_coarse_survives_local_factor_budget_rejection() {
+        let a = poisson_1d(64);
+        let mut solver = HybitSolver::new();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 100,
+            })
+            .unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 1,
+                // Force the controller into the diagnostic/escalation path.
+                escalation_residual_ratio: 1.0e-300,
+                // The empty hybrid state itself needs matrix_rows * sizeof(u16)
+                // bytes for multiplicity bookkeeping.  Give exactly that much
+                // capacity so every non-empty local factor is rejected while
+                // the explicitly requested coarse space must still be built.
+                max_local_factor_bytes: 64 * std::mem::size_of::<u16>(),
+                algebraic_coarse: AlgebraicCoarseOptions {
+                    enabled: true,
+                    dofs_per_node: 1,
+                    target_coarse_dimension: 16,
+                    aggregation: TwoLevelAggregation::Contiguous,
+                    basis: TwoLevelBasis::PiecewiseConstant,
+                    transfer_apply_policy: TwoLevelTransferApplyPolicy::Serial,
+                    transfer_storage_policy: TwoLevelTransferStoragePolicy::Wide,
+                    transfer_value_storage_policy: TwoLevelTransferValueStoragePolicy::F64,
+                    apply_policy: TwoLevelCoarseApplyPolicy::FactorSolve,
+                },
+                ..HybridOptions::default()
+            })
+            .unwrap();
+
+        let b = vec![1.0; a.nrows()];
+        let mut x = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
+
+        assert!(report.converged());
+        assert_eq!(report.escalations, 0);
+        assert!(report.hard_dofs > 0);
+        assert_eq!(report.local_direct_regions, 0);
+        assert!(report.local_factor_budget_limited);
+        assert!(report.local_factor_regions_skipped_for_budget > 0);
+        assert!(report.algebraic_coarse_dimension > 0);
+        assert!(report.algebraic_coarse_factor_bytes > 0);
+        assert_eq!(report.preconditioner, PreconditionerKind::Hybrid);
     }
 
     #[test]

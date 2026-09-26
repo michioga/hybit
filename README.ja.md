@@ -105,23 +105,26 @@ prepare
   |-- optional ABTM
   v
 solve #1
-  |-- Jacobi-PCG probe
+  |-- base preconditioner選択
+  |      |-- algebraic coarse明示時はcoarse
+  |      +-- それ以外はJacobi
+  |-- 短いcontroller PCG stage
   |      |
-  |      +-- progress良好 -> PCG継続
+  |      +-- progress良好 -> 同じPCG sessionを継続
   |      |
   |      +-- progress不良
   |             |-- residual/risk mask
   |             |-- hard region分離
   |             |-- ABTM halo展開
   |             |-- local Cholesky
-  |             +-- Hybrid PCG restart
+  |             +-- 前処理器を強化した場合だけPCG restart
   v
-local factor cache
+local factor / coarse state cache
   v
 solve #2..N
-  |-- factor再利用
+  |-- coarse/local factor再利用
   |-- workspace再利用
-  +-- probe/factorization省略
+  +-- cached local Hybridならdiagnostics/factorization省略
 ```
 
 PCG反復の途中で前処理器を変更せず、前処理器を強化するときはKrylov系列をrestartする設計です。

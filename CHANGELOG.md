@@ -1,3 +1,21 @@
+## 0.7.0-r32 - coarse-first resumable controller
+
+- Start an explicitly enabled algebraic coarse preconditioner at Krylov iteration zero instead of first mutating the solution with a Jacobi-PCG probe and then restarting under coarse-PCG.
+- Reinterpret `probe_iterations` as a controller-stage boundary: the initial stage uses algebraic coarse when enabled and Jacobi otherwise, and an unchanged preconditioner continues the same `PcgSession` without losing conjugacy.
+- Preserve the same live PCG recurrence after an acceptable initial stage and after diagnostics that admit no new local-direct region; restart only when selective-direct strengthening actually changes the SPD preconditioner.
+- Reuse an already-built coarse-only preconditioner across prepared solve-many RHS vectors and report that reuse without requiring a cached local hybrid factor.
+- Add regression coverage requiring segmented coarse probing to match uninterrupted direct coarse-PCG iteration counts and solution values, plus prepared coarse-only reuse coverage.
+- Keep the r31 algebraic-coarse activation fix and the existing coarse+local additive hybrid path; this checkpoint changes controller sequencing rather than the coarse-space numerics.
+- Motivation: on `boneS01` (127224 DOF), r31a coarse-PCG after a 12-iteration Jacobi probe required 391 total iterations, while the identical direct coarse preconditioner required 331; r32 removes that destructive pre-probe/restart path.
+
+## 0.7.0-r31 - explicit algebraic-coarse controller fix
+
+- Treat an explicitly enabled generic algebraic coarse space as a requested preconditioner component after the initial Jacobi probe, rather than constructing it only as a side effect of selective-direct escalation.
+- When the Jacobi probe makes acceptable early progress but has not converged, build the requested coarse preconditioner and spend the remaining Krylov budget with coarse-PCG instead of silently continuing with Jacobi.
+- In the poor-progress escalation path, construct the requested coarse space before the empty/unchanged local-region early exit so a local-factor budget rejection cannot suppress coarse setup.
+- Add a coarse-only continuation fallback when no local-direct factor is admitted, while preserving the existing local+coarse hybrid path when hard regions are accepted.
+- Add regression tests for both the acceptable-probe case and the forced-poor-progress case where the local-factor budget rejects every candidate region.
+
 ## 0.7.0-r30 - algebraic coarse cross-validation harness
 
 - Added `fem_coarse_crosscheck`, a benchmark-only example that constructs the generic Graph + JacobiSmoothed + Parallel + Wide/F32 algebraic two-level preconditioner directly, independent of selective-direct escalation.

@@ -115,23 +115,26 @@ CSR32 matrix
     |-- optional ABTM backend
     v
  prepared solve #1
-    |-- short Jacobi-PCG probe
+    |-- choose base preconditioner
+    |       |-- algebraic coarse when explicitly enabled
+    |       +-- Jacobi otherwise
+    |-- short controller PCG stage
     |       |
-    |       +-- good progress ------> continue PCG
+    |       +-- good progress ------> continue the same PCG session
     |       |
     |       +-- poor progress
     |             |-- residual/risk masks
     |             |-- hard-region components
     |             |-- ABTM halo expansion
     |             |-- local Cholesky factors
-    |             +-- Hybrid PCG restart
+    |             +-- restart only if the preconditioner is strengthened
     v
- cache learned local factors
+ cache learned local factors / coarse state
     v
  prepared solve #2..N
-    |-- reuse factors
+    |-- reuse coarse/local factors
     |-- reuse Krylov workspace
-    +-- skip adaptive probe/factor build
+    +-- cached local Hybrid skips adaptive diagnostics/factor build
 ```
 
 ## Hybrid preconditioner

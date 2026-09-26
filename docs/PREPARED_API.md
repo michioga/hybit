@@ -22,17 +22,18 @@ The prepare phase does not require a RHS.
 
 ### Solve-many
 
-The first prepared solve performs the normal adaptive probe. If poor progress is detected, it builds the selected local Cholesky/Schwarz preconditioner and caches it.
+The first prepared solve performs the normal adaptive controller stage. If algebraic coarse is explicitly enabled, that coarse preconditioner is built before Krylov iteration zero and is used for the stage; otherwise the stage uses Jacobi. If poor progress is detected, HyBIT may build the selected local Cholesky/Schwarz correction and restart PCG only because the preconditioner has changed. If no strengthening occurs, the same PCG session continues across the controller boundary.
 
 Subsequent RHS solves reuse:
 
 - the PCG workspace;
 - ABTM topology;
 - Jacobi data;
+- algebraic coarse state when enabled;
 - learned local region mappings;
 - local Cholesky factors and overlap weights.
 
-They therefore skip probe, hard-region diagnostics, and factorization when a cached Hybrid preconditioner exists.
+A cached local Hybrid preconditioner skips probe, hard-region diagnostics, and factorization. A coarse-only prepared context reuses the already-built coarse state; its short controller boundary does not restart PCG when no local correction is added.
 
 ## Matrix immutability in 0.5
 

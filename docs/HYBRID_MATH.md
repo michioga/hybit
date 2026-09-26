@@ -2,7 +2,7 @@
 
 HyBIT 0.5 remains restricted to real SPD systems and PCG.
 
-Let the global SPD matrix be `A`. After an initial Jacobi-PCG probe, the policy identifies hard-core DOF sets and grows each set independently through the ABTM graph by a configurable number of halo layers. For local region `H_k`, HyBIT forms the principal matrix
+Let the global SPD matrix be `A`. The controller starts with the configured base SPD preconditioner: algebraic two-level coarse when explicitly enabled, otherwise Jacobi. The initial `probe_iterations` segment is only a controller boundary; if the preconditioner is unchanged, HyBIT resumes the same PCG recurrence. When that stage shows poor progress, the policy identifies hard-core DOF sets and grows each set independently through the ABTM graph by a configurable number of halo layers. For local region `H_k`, HyBIT forms the principal matrix
 
 `A_k = A[H_k, H_k]`.
 
@@ -24,7 +24,7 @@ The conceptual preconditioner is
 
 `M^-1 = J_uncovered + sum_k R_k^T W_k A_k^-1 W_k R_k`.
 
-This construction is intended to remain compatible with standard PCG assumptions. HyBIT still restarts PCG whenever the preconditioner changes; it does not mutate the preconditioner inside an active PCG recurrence.
+This construction is intended to remain compatible with standard PCG assumptions. HyBIT restarts PCG only when selective-direct strengthening changes the preconditioner. Controller/telemetry boundaries with an unchanged preconditioner retain the same resumable PCG session and therefore preserve conjugacy.
 
 ## Bounded memory
 
