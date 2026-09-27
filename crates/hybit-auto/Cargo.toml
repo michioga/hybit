@@ -9,11 +9,11 @@ repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Adaptive solver policy and selective-direct escalation for HyBIT"
+description = "Adaptive solver policy, algebraic coarse control, and selective-direct escalation for HyBIT"
 publish = ["crates-io"]
 
 [dependencies]
-hybit-core = { version = "0.6.0", path = "../hybit-core" }
-hybit-matrix = { version = "0.6.0", path = "../hybit-matrix" }
-hybit-precond = { version = "0.6.0", path = "../hybit-precond" }
-hybit-krylov = { version = "0.6.0", path = "../hybit-krylov" }
+hybit-core = { version = "0.7.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.7.0", path = "../hybit-matrix" }
+hybit-precond = { version = "0.7.0", path = "../hybit-precond" }
+hybit-krylov = { version = "0.7.0", path = "../hybit-krylov" }

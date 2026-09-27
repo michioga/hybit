@@ -25,7 +25,7 @@ if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 if (-not [double]::IsFinite($Tolerance) -or $Tolerance -le 0.0) { throw "Tolerance must be finite and > 0" }
 if ($MaxIterations -le 0) { throw "MaxIterations must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 additive vs balanced structural benchmark =="
+Write-Host "== HyBIT 0.7.0 additive vs balanced structural benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

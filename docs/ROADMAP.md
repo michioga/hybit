@@ -2,50 +2,46 @@
 
 This roadmap describes direction, not guaranteed release dates.
 
-## 0.6.0 release-candidate work
+## 0.7.0 release-candidate work
 
-The r25 structural production path is feature-frozen on `develop/0.6.0`. Before merging the release candidate to `main`, the immediate work is validation rather than new solver functionality:
+The r32 production line is feature-frozen on `develop/0.7.0`. Remaining 0.7 work is release engineering:
 
-- run the full Rust workspace test suite in release mode;
-- run C ABI, C, C++, and Fortran build/runtime checks;
-- validate tiny-problem serial fallbacks and explicit parallel policy paths;
-- rerun the physical-load L-angle structural case and independently verify `||Ax-b||/||b|| < 1e-8`;
-- validate prepared structural solve-many reuse, including cached coarse factors, parallel aggregate index, and Krylov workspace;
-- run `cargo fmt --check`, Clippy, package metadata checks, and `cargo package --list`/dry-run gates;
-- reconcile README, API documentation, changelog, release notes, and benchmark documentation with the exact release commit.
+- keep the r32 solver/controller behavior fixed except for release-blocking correctness defects;
+- run the full Rust workspace test, formatting, Clippy, MSRV, package, ABI, C/C++/Fortran, source-integrity, and physical L-angle gates;
+- keep Cargo versions, C ABI version reporting, README/README.ja, changelog, release notes, publishing instructions, and benchmark documentation synchronized;
+- publish exactly the commit that passes the complete gate.
 
-## Completed in the 0.6 development line
+## Completed for 0.7
 
-- Matrix Market import/export and reproducible real-FEM benchmark paths.
-- Geometry-aware six-mode rigid-body two-level correction for 3-D structural SPD systems.
-- Graph-connected structural aggregation with deterministic fallback to contiguous aggregation in Auto mode.
-- Packed lower-triangular coarse Cholesky storage.
-- Reusable structural `analyze -> prepare -> solve-many` execution.
-- Rayon-parallel CSR SpMV for large structural systems.
-- Parallel 3x3 block-Jacobi, rigid-body restriction, and prolongation; the dense packed coarse triangular solve remains serial.
-- Parallel/fused PCG vector reductions and updates for sufficiently large structural systems and Rayon pools with at least four workers.
-- Independent structural execution policies for aggregation, SpMV, preconditioning, and PCG vector kernels.
+- Generic algebraic two-level coarse correction for SPD/PCG solves.
+- Graph aggregation in addition to contiguous aggregation.
+- Jacobi-smoothed transfer basis and Galerkin `P^T A P` construction.
+- Parallel coarse restriction/prolongation.
+- Wide/compact transfer-index storage and F64/F32/Auto transfer-value storage.
+- FactorSolve/ExplicitInverse/Auto coarse application.
+- Coarse-first explicit-coarse controller sequencing.
+- Resumable PCG continuation when the preconditioner is unchanged.
+- Prepared coarse-only reuse.
+- Retention of the validated 0.6 structural Graph rigid-body, parallel SpMV/preconditioner, and parallel/fused PCG path.
 
-## Post-0.6 solver coverage
+## Post-0.7 numerical research
 
+- Improve long-tail convergence on difficult SPD matrices using genuine local spectral/GenEO-style coarse enrichment rather than the discarded r36 filtered proxy.
+- Develop progress/watchdog logic that diagnoses late stagnation without automatically applying harmful local-direct restarts.
+- Improve coarse-space selection using a fixed SuiteSparse representative/stress corpus.
 - Add MINRES for symmetric indefinite systems.
 - Add GMRES and/or BiCGStab for nonsymmetric systems.
-- Generalize adaptive escalation rules beyond SPD/PCG.
-- Generalize the current structural rigid-body coarse correction toward broader algebraic/multilevel coarse spaces and Schur/interface methods.
+- Generalize adaptive escalation beyond SPD/PCG.
 
-## Post-0.6 parallel execution
+## Parallel and large-scale execution
 
 - Parallel independent local factorizations where setup cost warrants it.
-- Improve CPU sparse-kernel scheduling and NUMA/cache behavior on larger multi-core systems.
-- GPU backends for suitable matrix/vector kernels with persistent device residency.
+- Improve CPU sparse-kernel scheduling and NUMA/cache behavior.
+- GPU backends with persistent device residency.
 - Distributed-memory domain decomposition and communication-aware topology handling.
+- Separate symbolic/topological reuse from numerical refactorization when values change on fixed sparsity.
+- Investigate out-of-core prepared state when problem scale requires it.
 
-## Storage and execution
+## Non-goals for 0.7.0
 
-- Separate symbolic/topological reuse from numerical refactorization when coefficient values change on fixed sparsity patterns.
-- Refine adaptive tile geometry beyond the current row-oriented ABTM representation.
-- Investigate out-of-core storage for cold local factors and prepared state when problem scale requires it.
-
-## Non-goals for 0.6.0
-
-HyBIT 0.6.0 does not attempt to support every sparse matrix class, replace established general-purpose sparse solvers, or claim universal performance improvements. The release goal is a transparent and reproducible SPD/PCG hybrid architecture with a validated structural-FEM path and conservative automatic policy selection.
+HyBIT 0.7.0 does not claim universal sparse-solver coverage or universal performance improvement. The automatic path remains real SPD/PCG. The release goal is a reproducible hybrid solver architecture with both validated structural-FEM and generic algebraic-coarse paths, stable C/C++/Fortran consumption through the existing C ABI, and conservative release gates.

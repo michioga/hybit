@@ -61,7 +61,7 @@ meaningful before tuning for throughput.
 ## Structural block-Jacobi diagnostic
 
 For vector-valued structural FEM matrices whose free displacement DOFs remain
-contiguous per node, HyBIT 0.6 development includes a separate block-Jacobi
+contiguous per node, HyBIT includes a separate block-Jacobi
 benchmark. This intentionally stays outside `HybitSolver` Auto policy until it
 has been measured on real matrices.
 

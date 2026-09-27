@@ -1,4 +1,4 @@
-# Structural Auto API (0.6 development)
+# Structural Auto API (retained in 0.7)
 
 HyBIT's generic `solve_csr32` path remains geometry-free and backward compatible.
 For 3-D structural SPD systems, callers can provide node coordinates explicitly:

@@ -1,56 +1,34 @@
-# HyBIT 0.6 development status
+# HyBIT 0.7 development status
 
-Last updated: 2026-09-20
+Last updated: 2026-09-27
 
 ## Branch and release state
 
-- Active development branch: `develop/0.6.0`
-- Published baseline: 0.5.0
-- Current development checkpoint: 0.6.0-r26 release-gate hardening (solver code remains r25)
-- Structural production path: feature-frozen for 0.6.0 release-candidate validation
-- `main` should remain at the last validated public-release line until the 0.6.0 release gate passes.
+- Release branch: `develop/0.7.0`
+- Published baseline before this release: 0.6.0
+- Production freeze point for 0.7.0: r32 (`coarse-first resumable PCG controller`)
+- Post-r32 watchdog, local-energy-gate, and filtered spectral-enrichment experiments are intentionally excluded from 0.7.0.
+- `main` remains the last published release until the exact 0.7.0 candidate passes the complete release gate and is merged.
 
-## Current structural production path
+## 0.7 production additions
 
-For large 3-D structural SPD systems, Structural Auto can select:
+The 0.7 line retains the validated 0.6 structural FEM path and adds a generic algebraic two-level path for real SPD/PCG systems:
 
-1. Graph-connected rigid-body aggregation with conservative contiguous fallback.
-2. Six rigid-body coarse modes per aggregate.
-3. Packed lower-triangular dense coarse Cholesky storage.
-4. Parallel CSR SpMV.
-5. Parallel 3x3 block-Jacobi, restriction, and prolongation; coarse triangular solve remains serial.
-6. Parallel/fused PCG vector reductions and updates when the system is large enough and the shared Rayon pool has at least four workers.
-7. Prepared solve-many reuse of matrix-dependent factors, aggregate index, and Krylov workspace.
+1. Graph or contiguous aggregation for the generic algebraic coarse space.
+2. Piecewise-constant or one-step Jacobi-smoothed transfer basis.
+3. Serial or Rayon-parallel restriction/prolongation.
+4. Wide or compact transfer-index storage.
+5. F64, F32, or Auto persistent transfer-value storage.
+6. Packed factor-solve, parallel explicit-inverse, or Auto coarse application.
+7. Coarse-first controller sequencing when algebraic coarse correction is explicitly enabled.
+8. Resumable PCG continuation across controller boundaries when the preconditioner is unchanged.
+9. Prepared coarse-only reuse across repeated right-hand sides.
 
-The generic `solve_csr32` path remains separate and unchanged by these structural execution policies.
-
-## r25 L-angle reference
-
-Physical-load reduced structural system:
-
-- DOFs: 358065
-- CSR nnz: 28239653
-- Rayon workers: 8
-- aggregation: Graph
-- aggregate count: 233
-- target coarse dimension: 1536
-- actual coarse dimension: 1398
-- SpMV policy: Parallel
-- preconditioner policy: Parallel
-- PCG vector policy: Parallel
-- PCG iterations: 220
-- solver-reported relative residual: `9.378495e-9`
-- independently verified relative residual: `9.378557e-9`
-- analysis: 326.212 ms
-- prepare: 744.797 ms
-- solve: 1725.863 ms
-- analysis + prepare + solve: 2796.872 ms
-
-These values are a regression reference for this matrix, RHS, machine, and revision. They are not a general performance guarantee.
+The generic automatic path remains real SPD + PCG. The C ABI remains compatible with the 0.6 surface; its version query reports 0.7.0. C, C++, and Fortran examples remain part of the release gate.
 
 ## Release-candidate gate
 
-`release-candidate-gate.ps1` is now the authoritative local RC gate. From a clean `develop/0.6.0` worktree, run:
+From a clean `develop/0.7.0` worktree, run:
 
 ```powershell
 .\release-candidate-gate.ps1 `
@@ -60,8 +38,6 @@ These values are a regression reference for this matrix, RHS, machine, and revis
   -RayonThreads 8
 ```
 
-The gate checks source hashes, package metadata, formatting, Clippy, workspace release tests, Rust 1.73 MSRV, ABI/C/C++/Fortran runtime examples, crates.io package contents/dry-run, the real L-angle Auto path, independently verified residual, iteration guard, and prepared solve-many reuse. Runtime performance is reported but is not a pass/fail criterion.
+The complete gate checks source hashes, workspace/package metadata, `cargo fmt --check`, Clippy with warnings denied, workspace release tests, all release targets, Rust 1.73 MSRV, ABI and C/C++/Fortran build/runtime examples, crates.io package contents/dry-run, and the physical-load L-angle structural regression including independent residual and prepared-reuse checks. Skip switches are for intermediate diagnosis only and do not qualify a commit for publication.
 
-The Rayon-using published crates pin `rayon = "=1.10.0"` and `rayon-core = "=1.12.1"` so the declared Rust 1.73 MSRV is preserved even when Cargo resolves dependencies without a workspace lockfile.
-
-Do not add new solver features before the 0.6.0 release candidate is stabilized. After the complete gate passes without skip switches, record the validated commit hash, merge that exact commit to `main`, rerun the complete gate on `main`, then tag `v0.6.0` and publish in dependency order.
+After the complete gate passes, record the exact commit, merge that commit to `main`, rerun the complete gate on `main`, publish the six Rust crates in dependency order, and tag `v0.7.0`.

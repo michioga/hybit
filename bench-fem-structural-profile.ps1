@@ -28,7 +28,7 @@ if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path -LiteralPath $R
 if ($TargetCoarseDimensions.Count -eq 0) { throw "TargetCoarseDimensions may not be empty" }
 if ($KernelRepeats -le 0) { throw "KernelRepeats must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 structural kernel profile =="
+Write-Host "== HyBIT 0.7.0 structural kernel profile =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

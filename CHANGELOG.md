@@ -1,3 +1,14 @@
+# Changelog
+
+## 0.7.0
+
+- Release the r32 production line: generic algebraic two-level coarse correction, validated transfer/coarse-apply policy controls, and coarse-first resumable PCG controller sequencing.
+- Preserve active PCG recurrence across controller boundaries when the preconditioner is unchanged; restart only after actual selective-direct strengthening.
+- Retain the validated 0.6 structural FEM execution path and existing C ABI/C++/Fortran consumption model.
+- Keep post-r32 watchdog, energy-gate, and filtered spectral-enrichment experiments out of the 0.7.0 release.
+- Synchronize workspace/package versions, C ABI version reporting, release gates, CI branch targeting, publishing documentation, and release notes for 0.7.0.
+- Keep `hybit-ffi` as a repository-only `cdylib` target (no redundant `rlib`) so full-workspace builds do not collide with the Rust facade crate's `libhybit.rlib`; the external DLL remains `hybit.dll`.
+
 ## 0.7.0-r32 - coarse-first resumable controller
 
 - Start an explicitly enabled algebraic coarse preconditioner at Krylov iteration zero instead of first mutating the solution with a Jacobi-PCG probe and then restarting under coarse-PCG.

@@ -54,7 +54,7 @@ if ($Tolerance -le 0.0) { Fail "Tolerance must be > 0" }
 $oldThreads = $env:RAYON_NUM_THREADS
 $env:RAYON_NUM_THREADS = "$RayonThreads"
 try {
-    Write-Host "=== HYBIT 0.6.0 REAL FEM RELEASE GATE ==="
+    Write-Host "=== HYBIT 0.7.0 REAL FEM RELEASE GATE ==="
     Write-Host "matrix             : $Matrix"
     Write-Host "coordinates        : $Coordinates"
     Write-Host "RHS                : $Rhs"
@@ -123,7 +123,7 @@ try {
     Write-Host ("verified residual    : {0:E6}" -f $verified)
     Write-Host "prepared reuse       : PASS"
     Write-Host "performance timing   : recorded above, not a pass/fail criterion"
-    Write-Host "=== HYBIT 0.6.0 REAL FEM RELEASE GATE PASS ==="
+    Write-Host "=== HYBIT 0.7.0 REAL FEM RELEASE GATE PASS ==="
 }
 finally {
     $env:RAYON_NUM_THREADS = $oldThreads

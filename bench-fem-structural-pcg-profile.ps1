@@ -22,7 +22,7 @@ if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 if ($MaxIterations -lt 1) { throw "MaxIterations must be >= 1" }
 if ($Tolerance -le 0) { throw "Tolerance must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 PCG vector-kernel profile =="
+Write-Host "== HyBIT 0.7.0 PCG vector-kernel profile =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 Write-Host "RHS: $Rhs"

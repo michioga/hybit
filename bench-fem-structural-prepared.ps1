@@ -27,7 +27,7 @@ if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 if ($RayonThreads -lt 0) { throw "RayonThreads must be >= 0 (0 keeps the environment/default pool)" }
 if ($Repeats -lt 2) { throw "Repeats must be >= 2" }
 
-Write-Host "== HyBIT 0.6.0 prepared structural solve-many benchmark =="
+Write-Host "== HyBIT 0.7.0 prepared structural solve-many benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

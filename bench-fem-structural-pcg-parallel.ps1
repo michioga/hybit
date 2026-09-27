@@ -27,7 +27,7 @@ if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path -LiteralPath $R
 if ($Threads.Count -eq 0) { throw "Threads may not be empty" }
 if ($Threads | Where-Object { $_ -le 0 }) { throw "all thread counts must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 production vs parallel/fused PCG vector benchmark =="
+Write-Host "== HyBIT 0.7.0 production vs parallel/fused PCG vector benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

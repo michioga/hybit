@@ -9,7 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "== HyBIT 0.6.0 two-level FEM benchmark =="
+Write-Host "== HyBIT 0.7.0 two-level FEM benchmark =="
 Write-Host "Matrix: $Matrix"
 
 & cargo run --release -p hybit --example fem_twolevel_bench -- `

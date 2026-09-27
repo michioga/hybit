@@ -8,7 +8,7 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     }
 }
 
-Write-Host "== HyBIT 0.6.0 build =="
+Write-Host "== HyBIT 0.7.0 build =="
 Invoke-Checked "cargo test --release" { cargo test --release }
 Invoke-Checked "build C ABI DLL" { cargo build --release -p hybit-ffi }
 Invoke-Checked "run basic example" { cargo run --release -p hybit --example basic }

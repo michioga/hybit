@@ -1,22 +1,18 @@
-# Publishing HyBIT 0.6.0
+# Publishing HyBIT 0.7.0
 
-The public repository is:
+Public repository: `https://github.com/michioga/hybit`
 
-`https://github.com/michioga/hybit`
+User-facing Rust crate: `https://crates.io/crates/hybit`
 
-The user-facing Rust crate is:
+HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` remains repository-only and is not published to crates.io in 0.7.0; its C ABI is built and runtime-tested by the release gate.
 
-`https://crates.io/crates/hybit`
+## Release branch and exact-source rule
 
-HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` is intentionally not published to crates.io in 0.6.0.
+The 0.7 release candidate is prepared on `develop/0.7.0`. The production freeze point is r32; later watchdog/energy-gate/spectral experiments are not part of 0.7.0. Keep `main` at the last published release until the exact candidate commit passes the complete gate. Merge that exact commit to `main`, rerun the gate from `main`, and only then publish immutable crates and create the tag.
 
-## Development branch and release candidate
+## Complete release-candidate gate
 
-Active 0.6 work is kept on `develop/0.6.0`. Keep `main` at the last validated public release until the 0.6 release candidate passes the full release gate. Once the exact candidate commit is validated, merge that commit to `main`, rerun the gate from the final source tree, and only then create/publish immutable release artifacts.
-
-## Before publishing
-
-Run the release-candidate gate from a clean `develop/0.6.0` (or final `main`) worktree. The complete gate includes formatting, Clippy, workspace tests, Rust 1.73 MSRV, ABI/language-binding checks, package inspection, source-integrity verification, and the real L-angle structural regression:
+Run from a clean `develop/0.7.0` worktree:
 
 ```powershell
 .\release-candidate-gate.ps1 `
@@ -26,51 +22,48 @@ Run the release-candidate gate from a clean `develop/0.6.0` (or final `main`) wo
   -RayonThreads 8
 ```
 
-For an intermediate local check only, `-SkipMsrv` and `-SkipRealFem` are available. A run using either skip switch is **not** eligible for tag/publication. The lower-level gates remain available for diagnosis:
+The complete gate includes source-integrity verification, workspace metadata/version checks, formatting, Clippy, workspace release tests, all release targets, Rust 1.73 MSRV, Rust/C ABI/C/C++/Fortran build and runtime checks, package inspection, a dry-run for the dependency-root crate, and the real L-angle structural regression. `-SkipMsrv` and `-SkipRealFem` are diagnostic conveniences only; a run using either switch is not eligible for publication.
 
-```powershell
-.\build.ps1
-.\release-gate.ps1
-.\crates-package-gate.ps1
-.\public-release-gate.ps1
-```
-
-Review `cargo package --list` output and make sure no build directories, local secrets, large generated files, or private data are included.
-
-Create the GitHub repository and push the exact source that will be published before publishing crates. This makes the `repository` metadata immediately valid.
+Before the final gate, regenerate `MANIFEST.txt` / `SOURCE_SHA256.txt` after the final formatting/documentation changes and ensure the worktree is clean.
 
 ## crates.io authentication
 
-Create an API token on crates.io and authenticate locally with `cargo login`. Treat the token as a secret. Do not commit Cargo credentials or paste the token into issue logs.
+Authenticate locally with a crates.io API token using `cargo login`. Treat the token as a secret; never commit Cargo credentials or paste tokens into logs.
 
 ## Publish order
 
-Publish each package only after the previous dependency level has appeared in the crates.io index:
+Publish only after the exact source is pushed to GitHub. Immediately before each real publication, run the corresponding dry-run. Higher-level dry-runs can resolve only after same-version internal dependencies are visible in the crates.io index.
 
 ```powershell
+cargo publish -p hybit-core --dry-run
 cargo publish -p hybit-core
 
+# Wait until 0.7.0 hybit-core is visible in the index.
+cargo publish -p hybit-matrix --dry-run
+cargo publish -p hybit-krylov --dry-run
 cargo publish -p hybit-matrix
 cargo publish -p hybit-krylov
 
+# Continue after each dependency level is indexed.
+cargo publish -p hybit-precond --dry-run
 cargo publish -p hybit-precond
 
+cargo publish -p hybit-auto --dry-run
 cargo publish -p hybit-auto
 
+cargo publish -p hybit --dry-run
 cargo publish -p hybit
 ```
 
-Use `cargo publish --dry-run -p <package>` immediately before each real publish. Higher-level dry-runs can only resolve after their internal dependencies are visible on crates.io.
+Published crate versions are immutable. Fix a serious post-publication problem with a new version rather than rewriting an existing release.
 
-Published crate versions are immutable. If a published package contains a serious problem, publish a new version; yanking is available for preventing new dependency resolution, but it is not a replacement for careful preflight checks.
+## Tag and GitHub Release
 
-## Git tag and release
-
-After the source is committed and the crate set is published, tag the exact commit:
+After the six crates are published from the validated source commit:
 
 ```powershell
-git tag -a v0.6.0 -m "HyBIT 0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "HyBIT 0.7.0"
+git push origin v0.7.0
 ```
 
-Use `RELEASE_NOTES_0.6.0.md` as the starting point for the GitHub Release text.
+Use `RELEASE_NOTES_0.7.0.md` as the GitHub Release text. Verify the crates.io and docs.rs pages after publication, including the installation command `cargo add hybit@0.7.0`.

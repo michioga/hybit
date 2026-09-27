@@ -29,7 +29,7 @@ if ($Rhs) {
     $argsList += @("--rhs", $Rhs)
 }
 
-Write-Host "== HyBIT 0.6.0 FEM benchmark =="
+Write-Host "== HyBIT 0.7.0 FEM benchmark =="
 Write-Host "Matrix: $Matrix"
 & cargo @argsList
 if ($LASTEXITCODE -ne 0) {

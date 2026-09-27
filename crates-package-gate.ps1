@@ -10,7 +10,7 @@ function Invoke-Step([string]$Description, [scriptblock]$Command) {
     }
 }
 
-Write-Host "=== HYBIT 0.6.0 CRATES.IO PACKAGE GATE ==="
+Write-Host "=== HYBIT 0.7.0 CRATES.IO PACKAGE GATE ==="
 
 Invoke-Step "cargo metadata" { cargo metadata --no-deps --format-version 1 | Out-Null }
 Invoke-Step "workspace release tests" { cargo test --workspace --release }
@@ -51,4 +51,4 @@ Write-Host "  3. hybit-precond"
 Write-Host "  4. hybit-auto"
 Write-Host "  5. hybit"
 Write-Host ""
-Write-Host "=== HYBIT 0.6.0 CRATES.IO PACKAGE GATE PASS ==="
+Write-Host "=== HYBIT 0.7.0 CRATES.IO PACKAGE GATE PASS ==="

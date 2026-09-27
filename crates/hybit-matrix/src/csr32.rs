@@ -149,7 +149,7 @@ impl Csr32Matrix {
 
     /// Apply CSR SpMV using Rayon over independent matrix rows.
     ///
-    /// This is an explicit opt-in experimental path in HyBIT 0.6.0. The
+    /// This is an explicit opt-in experimental path in HyBIT 0.7.0. The
     /// ordinary `LinearOperator` implementation remains serial so existing
     /// callers retain their execution policy. The matrix is immutable after
     /// construction and its CSR indices are validated, allowing the hot inner

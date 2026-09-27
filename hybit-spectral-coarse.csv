@@ -1,0 +1,4 @@
+"Repeat","Basis","Status","Iterations","VerifiedResidual","CoarseDimension","AggregateNodes","TransferValues","CoarseMiB","CoarseSetupMs","SolverMs","WallMs","MsPerIter"
+"1","smoothed","MaxIterations","3000","4.254268E-07","1530","615","F32","100.069","3308.066","162877.003","168751.94","54.29233433333333"
+"1","spectral1","MaxIterations","3000","1.942449E-07","1532","820","F32","112.12","5100.695","161448.135","169098.249","53.816045"
+"1","spectral2","MaxIterations","3000","1.901999E-07","1530","1025","F32","123.617","6831.836","162657.795","172032.983","54.21926500000001"

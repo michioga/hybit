@@ -21,7 +21,7 @@ if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path -LiteralPath $R
 if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 if ($RayonThreads -le 0) { throw "RayonThreads must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 integrated structural preconditioner A/B benchmark =="
+Write-Host "== HyBIT 0.7.0 integrated structural preconditioner A/B benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

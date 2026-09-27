@@ -17,7 +17,7 @@ if (-not (Test-Path $Coordinates)) { throw "coordinate sidecar not found: $Coord
 if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path $Rhs)) { throw "RHS file not found: $Rhs" }
 if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 
-Write-Host "== HyBIT 0.6.0 structural aggregation A/B benchmark =="
+Write-Host "== HyBIT 0.7.0 structural aggregation A/B benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

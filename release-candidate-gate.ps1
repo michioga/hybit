@@ -25,14 +25,14 @@ function Invoke-ScriptChecked([string]$Description, [string]$Script, [object[]]$
     if ($LASTEXITCODE -ne 0) { Fail "$Description failed with exit code $LASTEXITCODE" }
 }
 
-Write-Host "=== HYBIT 0.6.0 RELEASE CANDIDATE GATE ==="
+Write-Host "=== HYBIT 0.7.0 RELEASE CANDIDATE GATE ==="
 
 $git = Get-Command git -ErrorAction SilentlyContinue
 if (-not $git) { Fail "git is required" }
 $branch = (git branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0) { Fail "could not read current git branch" }
-if ($branch -ne "develop/0.6.0" -and $branch -ne "main") {
-    Fail "run the RC gate from develop/0.6.0 or main; current branch is '$branch'"
+if ($branch -ne "develop/0.7.0" -and $branch -ne "main") {
+    Fail "run the RC gate from develop/0.7.0 or main; current branch is '$branch'"
 }
 $dirty = @(git status --porcelain)
 if ($LASTEXITCODE -ne 0) { Fail "git status failed" }
@@ -92,12 +92,12 @@ $commitAfter = (git rev-parse HEAD).Trim()
 if ($commitAfter -ne $commit) { Fail "HEAD changed during the release gate" }
 
 Write-Host ""
-Write-Host "=== HYBIT 0.6.0 RELEASE CANDIDATE GATE PASS ==="
+Write-Host "=== HYBIT 0.7.0 RELEASE CANDIDATE GATE PASS ==="
 Write-Host "validated branch    : $branch"
 Write-Host "validated commit    : $commit"
 Write-Host "final worktree      : clean"
 if ($SkipMsrv -or $SkipRealFem) {
     Write-Host "NOTE: one or more release-critical gates were explicitly skipped; do not tag/publish this run."
 } else {
-    Write-Host "This commit is eligible to become the 0.6.0 release candidate."
+    Write-Host "This commit is eligible to become the 0.7.0 release candidate."
 }

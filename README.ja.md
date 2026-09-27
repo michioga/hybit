@@ -1,19 +1,20 @@
 # HyBIT
 
-> **開発状況:** 0.6.0 は `develop/0.6.0` で開発中です。crates.io の最新公開版は 0.5.0 です。r25の構造FEM production pathはfeature freezeとし、0.6.0 release gate準備へ移行しています。
+> **開発状況:** このソースツリーは `develop/0.7.0` 上の HyBIT 0.7.0 を対象としています。0.7では検証済みの0.6構造FEM経路を維持しつつ、generic algebraic two-level coarseとcoarse-first resumable PCG controllerを追加しています。
 
 **HyBIT — Autonomous Hybrid Sparse Solver** は、FEM/HPCで現れる大規模疎行列を対象としたRust-firstの線形ソルバーフレームワークです。
 
 低コストな反復法から開始し、収束状況を観測し、進捗が悪い場合には数値的に難しい自由度を抽出して、限定された局所領域だけをCholesky直接法へ昇格させます。ABTMのbitmap topology metadataは、選択領域の近傍展開や構造処理に内部利用します。利用側は通常のCSR32行列を渡すだけです。
 
-> **現在の位置づけ:** HyBIT 0.6.0（開発版） はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
+> **現在の位置づけ:** HyBIT 0.7.0 はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
 
 ## 主な機能
 
 - Rustを中核とし、C ABI経由でC/C++/Fortranから利用可能
 - 公開入力形式はCSR32、ABTMは内部backend/topology engineとして利用
-- 再利用可能なworkspaceを持つPCG
-- 収束進捗の自動probeとselective local direct escalation
+- 再利用可能なworkspaceと、前処理器が変わらないcontroller stage間で継続できるPCG session
+- generic algebraic two-level coarse（Graph aggregation、Jacobi-smoothed transfer、transfer storage/value policy、coarse apply policy）
+- 収束進捗の自動probeとselective local direct escalation。前処理器が実際に変わる場合だけPCG restart
 - 複数hard regionとweighted overlapping Schwarz correction
 - SPD principal submatrixに対するbounded local dense Cholesky
 - `analyze -> prepare -> solve-many`
@@ -24,15 +25,17 @@
 ## crates.ioから利用
 
 ```bash
-cargo add hybit
+cargo add hybit@0.7.0
 ```
 
 または、`Cargo.toml`へ以下を追加します。
 
 ```toml
 [dependencies]
-hybit = "0.5.0"
+hybit = "0.7.0"
 ```
+
+0.7.0がcrates.io indexへ反映される前のrelease-candidate検証では、GitHub上の同一ソースツリーを使用してください。
 
 Rust 1.73以降を対象とします。
 
@@ -129,23 +132,21 @@ solve #2..N
 
 PCG反復の途中で前処理器を変更せず、前処理器を強化するときはKrylov系列をrestartする設計です。
 
-## 0.5.0公開版を基準にした0.6開発
+## 0.7.0のリリース内容
 
-0.5.0はRust/C ABI/C/C++/Fortranのrelease gateとcrates.io外部smoke testを通過した公開基準版です。0.6.0では、この数値基盤を維持したまま実FEM行列を評価するMatrix Market入出力とベンチマーク経路を追加します。
+0.7.0では、0.6で検証した構造FEM経路を維持したまま、r23-r32で検証したgeneric algebraic coarse経路を追加します。主な追加点はGraph aggregation、Jacobi-smoothed transfer basis、parallel transfer、Wide/Compact index storage、F64/F32/Auto transfer-value storage、FactorSolve/ExplicitInverse/Auto coarse apply、明示coarseをiteration 0から使うcoarse-first controller、前処理器が変わらない場合の`PcgSession`継続、prepared coarse-only reuseです。
 
-synthetic SPD regressionでは、単一hard regionでJacobi-PCG 33反復に対してHyBIT Auto 13反復、2つのhard regionでは25反復に対して13反復でした。prepared solve-manyでは、最初の難しいRHSで13反復、2本目ではlocal factorを再利用して1反復となり、2回目のlocal factorizationは発生しませんでした。
-
-これらは制御フローと数値挙動を確認するための**小規模synthetic regression**です。実FEM問題全般で同等の高速化を保証するものではありません。絶対時間の比較も、現段階では性能主張には使用しません。
+r33-r36で実験したwatchdog、energy gate、filtered spectral enrichmentは0.7.0には含めず、post-0.7の研究項目として分離します。ベンチマーク値は回帰・設計判断のための測定であり、一般的な高速化を保証するものではありません。
 
 ## 現在の制約
 
-現在は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。3次元構造FEM向けには6剛体モードの二段coarse correctionを実装済みですが、一般的なAMGではありません。MINRES/GMRES/BiCGStab、MPI、GPU、out-of-coreはまだ未実装です。prepared contextは現段階ではsingle-threaded利用を想定しています。
+HyBIT 0.7.0は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。3次元構造FEM向けには6剛体モードの二段coarse correctionを実装済みですが、一般的なAMGではありません。MINRES/GMRES/BiCGStab、MPI、GPU、out-of-coreはまだ未実装です。prepared contextは現段階ではsingle-threaded利用を想定しています。
 
 したがって、現時点のHyBITは実験的な数値ソフトウェアです。工学的判断へ利用する場合は、残差だけでなく物理量・参照解・独立ソルバー等による検証を行ってください。
 
 ## 実FEM / Matrix Marketベンチマーク
 
-0.6では、拘束条件適用後のSPD剛性行列をMatrix Market (`.mtx`) から読み込み、同じ初期値・許容誤差・最大反復数でplain Jacobi-PCGとHyBIT Autoを比較できます。
+0.6で導入し0.7でも維持しているベンチマーク経路では、拘束条件適用後のSPD剛性行列をMatrix Market (`.mtx`) から読み込み、同じ初期値・許容誤差・最大反復数でplain Jacobi-PCGとHyBIT Autoを比較できます。
 
 ```powershell
 .\bench-fem.ps1 D:\path\to\K.mtx
@@ -184,7 +185,7 @@ API documentation: https://docs.rs/hybit
 
 ## 公開前ゲート
 
-0.6.0 release candidateでは `release-candidate-gate.ps1` を正式なclean-tree gateとします。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認します。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
+0.7.0 release candidateでは `release-candidate-gate.ps1` を正式なclean-tree gateとします。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認します。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
 
 ```powershell
 .\release-candidate-gate.ps1 `
@@ -201,9 +202,9 @@ API documentation: https://docs.rs/hybit
 MIT Licenseです。詳細は [LICENSE](LICENSE) を参照してください。
 
 
-## HyBIT 0.6 構造FEM実験
+## HyBIT 0.6 構造FEM基盤（0.7でも維持）
 
-開発版には、scalar Jacobi、3x3 Block-Jacobi、並進のみのaggregationに加え、
+0.7ソースツリーには、scalar Jacobi、3x3 Block-Jacobi、並進のみのaggregationに加え、
 3次元構造問題向けの6剛体モード（Tx/Ty/Tz/Rx/Ry/Rz）粗空間を比較する
 Matrix Marketベンチマークを含みます。Structural Autoはgraph-connected aggregateを
 第一選択とし、graph coarse factorizationが数値的に特異な場合、または6剛体モードを構成できないほど小さい非連結componentを含む場合にRCM順contiguous
@@ -212,15 +213,15 @@ aggregationへfallbackします。検証済みの構造FEM経路は
 `HybitPreparedStructuralSystem` に統合しました。generic `solve_csr32` の挙動は変更していません。
 
 
-### 0.6.0 開発チェックポイント
+### 0.6構造FEM基準点
 
-0.6系の作業は `develop/0.6.0` で継続し、`main` は0.6 release gate通過まで直近の公開安定系列として維持します。r25時点で0.6.0に予定していたCPU構造FEM経路、すなわちGraph rigid-body aggregation、packed coarse Cholesky、Parallel CSR SpMV、Parallel rigid-body preconditioner、Parallel/fused PCG vector kernelsのproduction統合まで完了しました。以後0.6.0では新機能追加を止め、release candidateの回帰試験・package/ABI/documentation確認を優先します。
+0.6 r25で検証したCPU構造FEM経路、すなわちGraph rigid-body aggregation、packed coarse Cholesky、Parallel CSR SpMV、Parallel rigid-body preconditioner、Parallel/fused PCG vector kernelsを0.7でも構造FEM基準経路として維持します。0.7のgeneric algebraic coarse/controller追加はこの構造APIを置き換えません。
 
 
-### 0.6 structural execution policy (development)
+### 構造FEM execution policy
 Structural Auto は `StructuralSpmvPolicy`、`StructuralPreconditionerPolicy`、`StructuralPcgVectorPolicy` により、CSR SpMV、剛体二段前処理、PCG密ベクトルカーネルを独立に並列化できます。大規模構造問題では並列経路を選択し、小規模問題ではRayonオーバーヘッドを避けるためserialを維持します。PCG vectorの`Auto`は共有Rayon poolが4 worker以上の場合にのみ有効化されます。thread数は`RAYON_NUM_THREADS`等で外部から制御します。
 
-> 開発チェックポイント (0.6 r25): 358065 DOF / 28.24M nnzのL-angle実荷重問題で、8 Rayon worker時にStructural AutoはGraph aggregation + Parallel CSR SpMV + Parallel rigid-body preconditioner + Parallel/fused PCG vectorsを選択しました。220反復、verified relative residual `9.378557e-9`、solve 1.726秒、analysis+prepare+solve 2.797秒でした（Ryzen 7 7800X3D上の開発測定値であり、一般的な性能保証ではありません）。r25 production pathはfeature freezeとし、次は0.6.0 release gateへ進みます。
+> 0.6 r25 回帰基準値: 358065 DOF / 28.24M nnzのL-angle実荷重問題で、8 Rayon worker時にStructural AutoはGraph aggregation + Parallel CSR SpMV + Parallel rigid-body preconditioner + Parallel/fused PCG vectorsを選択しました。220反復、verified relative residual `9.378557e-9`、solve 1.726秒、analysis+prepare+solve 2.797秒でした（Ryzen 7 7800X3D上の開発測定値であり、一般的な性能保証ではありません）。r25 structural pathは0.7でも回帰基準として維持します。
 
 ### Hybrid coarse dimension sweep
 

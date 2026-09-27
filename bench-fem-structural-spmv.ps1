@@ -29,7 +29,7 @@ if ($Threads.Count -eq 0) { throw "Threads may not be empty" }
 if ($Threads | Where-Object { $_ -le 0 }) { throw "all thread counts must be > 0" }
 if ($KernelRepeats -le 0) { throw "KernelRepeats must be > 0" }
 
-Write-Host "== HyBIT 0.6.0 serial vs parallel CSR structural benchmark =="
+Write-Host "== HyBIT 0.7.0 serial vs parallel CSR structural benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

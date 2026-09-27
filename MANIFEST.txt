@@ -3,6 +3,7 @@
 .gitignore
 CHANGELOG.md
 CONTRIBUTING.md
+Cargo.lock
 Cargo.toml
 LICENSE
 MANIFEST.txt
@@ -10,6 +11,7 @@ README.ja.md
 README.md
 RELEASE_NOTES_0.5.0.md
 RELEASE_NOTES_0.6.0.md
+RELEASE_NOTES_0.7.0.md
 SECURITY.md
 SOURCE_SHA256.txt
 bench-fem-block.ps1

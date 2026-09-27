@@ -178,7 +178,7 @@ pub extern "C" fn hybit_version_major() -> u32 {
 }
 #[no_mangle]
 pub extern "C" fn hybit_version_minor() -> u32 {
-    6
+    7
 }
 #[no_mangle]
 pub extern "C" fn hybit_version_patch() -> u32 {
@@ -588,6 +588,22 @@ pub unsafe extern "C" fn hybit_solve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ffi_version_matches_package_version() {
+        assert_eq!(
+            hybit_version_major(),
+            env!("CARGO_PKG_VERSION_MAJOR").parse::<u32>().unwrap()
+        );
+        assert_eq!(
+            hybit_version_minor(),
+            env!("CARGO_PKG_VERSION_MINOR").parse::<u32>().unwrap()
+        );
+        assert_eq!(
+            hybit_version_patch(),
+            env!("CARGO_PKG_VERSION_PATCH").parse::<u32>().unwrap()
+        );
+    }
 
     #[test]
     fn ffi_end_to_end() {

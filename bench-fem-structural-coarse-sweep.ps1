@@ -44,7 +44,7 @@ if ($MaxIterations -le 0) {
     throw "MaxIterations must be > 0"
 }
 
-Write-Host "== HyBIT 0.6.0 structural Graph coarse-dimension sweep =="
+Write-Host "== HyBIT 0.7.0 structural Graph coarse-dimension sweep =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) {

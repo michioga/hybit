@@ -25,7 +25,7 @@ if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path $Rhs)) { throw 
 if ($TargetCoarseDimension -lt 6) { throw "TargetCoarseDimension must be >= 6" }
 if ($RayonThreads -lt 0) { throw "RayonThreads must be >= 0 (0 keeps the environment/default pool)" }
 
-Write-Host "== HyBIT 0.6.0 structural-auto FEM benchmark =="
+Write-Host "== HyBIT 0.7.0 structural-auto FEM benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) { Write-Host "RHS: $Rhs" }

@@ -20,7 +20,7 @@ if (-not [string]::IsNullOrWhiteSpace($Rhs) -and -not (Test-Path -LiteralPath $R
     throw "RHS file not found: $Rhs"
 }
 
-Write-Host "== HyBIT 0.6.0 rigid-body two-level FEM benchmark =="
+Write-Host "== HyBIT 0.7.0 rigid-body two-level FEM benchmark =="
 Write-Host "Matrix: $Matrix"
 Write-Host "Coordinates: $Coordinates"
 if (-not [string]::IsNullOrWhiteSpace($Rhs)) {

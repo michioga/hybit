@@ -6,7 +6,7 @@ function Fail([string]$Message) {
     throw "source integrity gate: $Message"
 }
 
-Write-Host "=== HYBIT 0.6.0 SOURCE INTEGRITY GATE ==="
+Write-Host "=== HYBIT 0.7.0 SOURCE INTEGRITY GATE ==="
 
 if (-not (Test-Path .\MANIFEST.txt)) { Fail "MANIFEST.txt is missing" }
 if (-not (Test-Path .\SOURCE_SHA256.txt)) { Fail "SOURCE_SHA256.txt is missing" }
@@ -47,4 +47,4 @@ if ($unexpectedHashes.Count -ne 0) {
 
 Write-Host ("manifest files      : {0}" -f $manifest.Count)
 Write-Host ("verified SHA-256    : {0}" -f $expectedHashed.Count)
-Write-Host "=== HYBIT 0.6.0 SOURCE INTEGRITY GATE PASS ==="
+Write-Host "=== HYBIT 0.7.0 SOURCE INTEGRITY GATE PASS ==="

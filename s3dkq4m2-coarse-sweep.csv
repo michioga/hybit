@@ -1,0 +1,5 @@
+"Repeat","TargetCoarseDim","ActualCoarseDim","EffectiveApply","Status","Iterations","VerifiedResidual","Escalations","LocalRegions","FactorMiB","CoarseMiB","CoarseSetupMs","SolverMs","WallMs","MsPerIter"
+"1","1536","1535","ExplicitInverse","MaxIterations","3000","8.576407E-08","0","0","0","22.313","663.088","8157.624","8960.97","2.719208"
+"1","2048","2010","ExplicitInverse","MaxIterations","3000","8.402123E-08","0","0","0","35.647","1328.581","8792.564","10260.752","2.930854666666667"
+"1","2560","2513","ExplicitInverse","MaxIterations","3000","8.512598E-08","0","0","0","53.46","2441.349","9449.179","12030.649","3.149726333333333"
+"1","3072","3017","ExplicitInverse","MaxIterations","3000","8.671652E-08","0","0","0","74.927","4161.403","10103.586","14405.838","3.3678619999999997"

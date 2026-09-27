@@ -52,7 +52,7 @@ The prepared PCG path owns its five `n`-length vectors once. Each local Schwarz 
 Diagnostics during the first adaptive escalation may still allocate temporary masks/region vectors; those are outside the repeated Krylov inner loop.
 
 
-## Structural prepared execution (0.6 development)
+## Structural prepared execution (retained in 0.7)
 
 Three-dimensional structural systems may provide reduced/ordered node coordinates
 through the geometry-aware API. `HybitSolver::prepare_structural_csr32` builds a

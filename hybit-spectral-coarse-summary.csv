@@ -1,0 +1,4 @@
+"Basis","Runs","ConvergedRuns","AllConverged","MedianIterations","MaxVerifiedResidual","MedianCoarseDimension","MedianAggregateNodes","MedianCoarseMiB","MedianCoarseSetupMs","MedianMsPerIteration","MedianSolverMs","MedianWallMs"
+"smoothed","1","0","False","3000","4.254268E-07","1530","615","100.069","3308.066","54.29233433333333","162877.003","168751.94"
+"spectral1","1","0","False","3000","1.942449E-07","1532","820","112.12","5100.695","53.816045","161448.135","169098.249"
+"spectral2","1","0","False","3000","1.901999E-07","1530","1025","123.617","6831.836","54.21926500000001","162657.795","172032.983"

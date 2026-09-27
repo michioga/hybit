@@ -35,7 +35,7 @@ checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
 name = "hybit"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hybit-auto",
  "hybit-core",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "hybit-auto"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hybit-core",
  "hybit-krylov",
@@ -56,11 +56,11 @@ dependencies = [
 
 [[package]]
 name = "hybit-core"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "hybit-ffi"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hybit-auto",
  "hybit-core",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "hybit-krylov"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hybit-core",
  "rayon",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "hybit-matrix"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hybit-core",
  "rayon",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "hybit-precond"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hybit-core",
  "hybit-matrix",

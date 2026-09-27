@@ -32,6 +32,6 @@ Prefer small, explicit numerical kernels and clear error paths. Avoid hidden glo
 By contributing, you agree that your contribution will be licensed under the MIT License used by this repository.
 
 
-## 0.6 development branch
+## 0.7 release branch
 
-Active 0.6 work is integrated on `develop/0.6.0`. Keep `main` at the last validated public release until the 0.6 release gate passes. Experimental performance work should be committed separately from validated production-path integrations so it can be reverted independently. The r25 structural production path is currently feature-frozen; until 0.6.0 is released, prefer regression fixes, release-gate work, and documentation corrections over new solver features.
+HyBIT 0.7 release-candidate work is integrated on `develop/0.7.0`. Keep post-r32 experimental solver work separate from the 0.7 production line. Until 0.7.0 is published, changes on the release branch should be limited to regression fixes, release-gate hardening, package/ABI maintenance, and documentation synchronization. Any C ABI change must continue to update and test C, C++, and Fortran consumers together.
