@@ -44,3 +44,5 @@ The post-r32 experiments involving late-progress watchdogs, local residual-energ
 ## Publication gate
 
 The exact release commit must pass `release-candidate-gate.ps1` without skip switches, including Rust 1.73 MSRV, workspace tests, Clippy, source integrity, package metadata, C ABI plus C/C++/Fortran build/runtime checks, and the physical-load L-angle structural regression. Publication then proceeds in dependency order as documented in `docs/PUBLISHING.md`.
+Release hygiene is also tightened: when run inside a Git worktree, the source-integrity gate now requires the tracked-file set to match `MANIFEST.txt`, preventing stale experimental or generated files from being accidentally committed into a release candidate.
+

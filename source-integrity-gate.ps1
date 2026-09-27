@@ -30,6 +30,25 @@ foreach ($path in $manifest) {
     }
 }
 
+# In a Git worktree, MANIFEST.txt is also the release-source allowlist.
+# Reject stale experimental/generated files that may survive an archive overlay
+# and accidentally become tracked before a release commit.
+$git = Get-Command git -ErrorAction SilentlyContinue
+if ($git -and (Test-Path .\.git)) {
+    $tracked = @(git ls-files | ForEach-Object { $_.Trim().Replace('\\','/') } | Where-Object { $_ -ne "" })
+    if ($LASTEXITCODE -ne 0) { Fail "git ls-files failed" }
+
+    $unexpectedTracked = @($tracked | Where-Object { $manifest -notcontains $_ })
+    if ($unexpectedTracked.Count -ne 0) {
+        Fail ("tracked files are absent from MANIFEST.txt: " + ($unexpectedTracked -join ", "))
+    }
+
+    $untrackedManifest = @($manifest | Where-Object { $tracked -notcontains $_ })
+    if ($untrackedManifest.Count -ne 0) {
+        Fail ("MANIFEST.txt contains files that are not tracked by Git: " + ($untrackedManifest -join ", "))
+    }
+}
+
 foreach ($path in $expectedHashed) {
     if (-not $hashMap.ContainsKey($path)) {
         Fail "missing SHA-256 entry: $path"

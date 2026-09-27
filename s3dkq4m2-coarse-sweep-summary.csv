@@ -1,5 +1,0 @@
-"TargetCoarseDim","ActualCoarseDim","EffectiveApply","Runs","ConvergedRuns","AllConverged","MedianIterations","MaxVerifiedResidual","MedianEscalations","MedianLocalRegions","MedianFactorMiB","MedianCoarseMiB","MedianCoarseSetupMs","MedianMsPerIteration","MedianSolverMs","MedianWallMs","MinWallMs","MaxWallMs"
-"1536","1535","ExplicitInverse","1","0","False","3000","8.576407E-08","0","0","0","22.313","663.088","2.719208","8157.624","8960.97","8960.97","8960.97"
-"2048","2010","ExplicitInverse","1","0","False","3000","8.402123E-08","0","0","0","35.647","1328.581","2.930854666666667","8792.564","10260.752","10260.752","10260.752"
-"2560","2513","ExplicitInverse","1","0","False","3000","8.512598E-08","0","0","0","53.46","2441.349","3.149726333333333","9449.179","12030.649","12030.649","12030.649"
-"3072","3017","ExplicitInverse","1","0","False","3000","8.671652E-08","0","0","0","74.927","4161.403","3.3678619999999997","10103.586","14405.838","14405.838","14405.838"

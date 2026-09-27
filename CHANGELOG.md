@@ -2,6 +2,7 @@
 
 ## 0.7.0
 
+- Harden the source-integrity gate so a release worktree fails if Git tracks files outside `MANIFEST.txt`, preventing stale experimental artifacts from entering a release commit.
 - Release the r32 production line: generic algebraic two-level coarse correction, validated transfer/coarse-apply policy controls, and coarse-first resumable PCG controller sequencing.
 - Preserve active PCG recurrence across controller boundaries when the preconditioner is unchanged; restart only after actual selective-direct strengthening.
 - Retain the validated 0.6 structural FEM execution path and existing C ABI/C++/Fortran consumption model.
