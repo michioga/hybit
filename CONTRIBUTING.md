@@ -32,6 +32,6 @@ Prefer small, explicit numerical kernels and clear error paths. Avoid hidden glo
 By contributing, you agree that your contribution will be licensed under the MIT License used by this repository.
 
 
-## 0.7 release branch
+## Current development line
 
-HyBIT 0.7 release-candidate work is integrated on `develop/0.7.0`. Keep post-r32 experimental solver work separate from the 0.7 production line. Until 0.7.0 is published, changes on the release branch should be limited to regression fixes, release-gate hardening, package/ABI maintenance, and documentation synchronization. Any C ABI change must continue to update and test C, C++, and Fortran consumers together.
+HyBIT 0.7.0 is published and the immutable release source is tagged `v0.7.0`. New numerical work belongs to the post-0.7 / 0.8 development line rather than modifying the released 0.7.0 source. Keep experimental solver changes separate from maintenance and documentation-only changes where practical. Any C ABI change must continue to update and test C, C++, and Fortran consumers together.

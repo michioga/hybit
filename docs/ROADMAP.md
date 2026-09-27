@@ -2,16 +2,13 @@
 
 This roadmap describes direction, not guaranteed release dates.
 
-## 0.7.0 release-candidate work
+## Current baseline
 
-The r32 production line is feature-frozen on `develop/0.7.0`. Remaining 0.7 work is release engineering:
+HyBIT 0.7.0 is published. The immutable release source is tagged `v0.7.0` at commit `1fdcd6a1b8127c84306c38c3fdbad42563538ad8`.
 
-- keep the r32 solver/controller behavior fixed except for release-blocking correctness defects;
-- run the full Rust workspace test, formatting, Clippy, MSRV, package, ABI, C/C++/Fortran, source-integrity, and physical L-angle gates;
-- keep Cargo versions, C ABI version reporting, README/README.ja, changelog, release notes, publishing instructions, and benchmark documentation synchronized;
-- publish exactly the commit that passes the complete gate.
+The 0.7 production line is therefore closed except for fixes that would be delivered as a new version. Post-release documentation changes and future numerical research must not move or rewrite the `v0.7.0` tag.
 
-## Completed for 0.7
+## Completed in 0.7
 
 - Generic algebraic two-level coarse correction for SPD/PCG solves.
 - Graph aggregation in addition to contiguous aggregation.
@@ -23,8 +20,10 @@ The r32 production line is feature-frozen on `develop/0.7.0`. Remaining 0.7 work
 - Resumable PCG continuation when the preconditioner is unchanged.
 - Prepared coarse-only reuse.
 - Retention of the validated 0.6 structural Graph rigid-body, parallel SpMV/preconditioner, and parallel/fused PCG path.
+- Rust 1.73 MSRV, source-integrity, package, ABI, C/C++/Fortran runtime, crates.io dry-run, and physical L-angle release gates.
+- Publication of all six Rust crates as 0.7.0 plus the `v0.7.0` GitHub release.
 
-## Post-0.7 numerical research
+## Post-0.7 / 0.8 numerical research
 
 - Improve long-tail convergence on difficult SPD matrices using genuine local spectral/GenEO-style coarse enrichment rather than the discarded r36 filtered proxy.
 - Develop progress/watchdog logic that diagnoses late stagnation without automatically applying harmful local-direct restarts.
@@ -42,6 +41,13 @@ The r32 production line is feature-frozen on `develop/0.7.0`. Remaining 0.7 work
 - Separate symbolic/topological reuse from numerical refactorization when values change on fixed sparsity.
 - Investigate out-of-core prepared state when problem scale requires it.
 
-## Non-goals for 0.7.0
+## Compatibility and release discipline
 
-HyBIT 0.7.0 does not claim universal sparse-solver coverage or universal performance improvement. The automatic path remains real SPD/PCG. The release goal is a reproducible hybrid solver architecture with both validated structural-FEM and generic algebraic-coarse paths, stable C/C++/Fortran consumption through the existing C ABI, and conservative release gates.
+- Preserve the C ABI where practical; update C, C++, and Fortran consumers together when it changes.
+- Keep release tags immutable.
+- Keep experimental benchmark artifacts out of release source sets unless they are intentionally documented and manifested.
+- Continue using source-integrity, MSRV, package, ABI/language-binding, and real-FEM regression gates for future releases.
+
+## Non-goals inherited from 0.7.0
+
+HyBIT 0.7.0 does not claim universal sparse-solver coverage or universal performance improvement. Its automatic path remains real SPD/PCG. Future work may broaden that scope, but any extension should preserve reproducible residual validation and conservative release gating.

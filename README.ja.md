@@ -1,6 +1,6 @@
 # HyBIT
 
-> **開発状況:** このソースツリーは `develop/0.7.0` 上の HyBIT 0.7.0 を対象としています。0.7では検証済みの0.6構造FEM経路を維持しつつ、generic algebraic two-level coarseとcoarse-first resumable PCG controllerを追加しています。
+> **公開状況:** HyBIT 0.7.0 は現在の公開版です。crates.ioから利用でき、GitHubでは `v0.7.0` タグに公開ソースを固定しています。0.7では検証済みの0.6構造FEM経路を維持しつつ、generic algebraic two-level coarseとcoarse-first resumable PCG controllerを追加しました。
 
 **HyBIT — Autonomous Hybrid Sparse Solver** は、FEM/HPCで現れる大規模疎行列を対象としたRust-firstの線形ソルバーフレームワークです。
 
@@ -35,7 +35,7 @@ cargo add hybit@0.7.0
 hybit = "0.7.0"
 ```
 
-0.7.0がcrates.io indexへ反映される前のrelease-candidate検証では、GitHub上の同一ソースツリーを使用してください。
+HyBIT 0.7.0はcrates.ioへ公開済みです。対応する公開ソースはGitHubの `v0.7.0` タグから取得できます。
 
 Rust 1.73以降を対象とします。
 
@@ -134,7 +134,7 @@ PCG反復の途中で前処理器を変更せず、前処理器を強化する�
 
 ## 0.7.0のリリース内容
 
-0.7.0では、0.6で検証した構造FEM経路を維持したまま、r23-r32で検証したgeneric algebraic coarse経路を追加します。主な追加点はGraph aggregation、Jacobi-smoothed transfer basis、parallel transfer、Wide/Compact index storage、F64/F32/Auto transfer-value storage、FactorSolve/ExplicitInverse/Auto coarse apply、明示coarseをiteration 0から使うcoarse-first controller、前処理器が変わらない場合の`PcgSession`継続、prepared coarse-only reuseです。
+0.7.0では、0.6で検証した構造FEM経路を維持したまま、r23-r32で検証したgeneric algebraic coarse経路を追加しました。主な追加点はGraph aggregation、Jacobi-smoothed transfer basis、parallel transfer、Wide/Compact index storage、F64/F32/Auto transfer-value storage、FactorSolve/ExplicitInverse/Auto coarse apply、明示coarseをiteration 0から使うcoarse-first controller、前処理器が変わらない場合の`PcgSession`継続、prepared coarse-only reuseです。
 
 r33-r36で実験したwatchdog、energy gate、filtered spectral enrichmentは0.7.0には含めず、post-0.7の研究項目として分離します。ベンチマーク値は回帰・設計判断のための測定であり、一般的な高速化を保証するものではありません。
 
@@ -183,9 +183,9 @@ crates.io: https://crates.io/crates/hybit
 
 API documentation: https://docs.rs/hybit
 
-## 公開前ゲート
+## 0.7.0公開時の検証ゲート
 
-0.7.0 release candidateでは `release-candidate-gate.ps1` を正式なclean-tree gateとします。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認します。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
+0.7.0は、`v0.7.0` に固定した公開ソースcommitに対して `release-candidate-gate.ps1` を実行し、clean treeで合格した状態から公開しました。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認しています。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
 
 ```powershell
 .\release-candidate-gate.ps1 `

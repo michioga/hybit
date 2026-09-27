@@ -1,69 +1,96 @@
-# Publishing HyBIT 0.7.0
+# Publishing HyBIT
 
 Public repository: `https://github.com/michioga/hybit`
 
 User-facing Rust crate: `https://crates.io/crates/hybit`
 
-HyBIT is a Cargo workspace. The facade crate depends on internal crates, so crates.io publication must follow dependency order. `hybit-ffi` remains repository-only and is not published to crates.io in 0.7.0; its C ABI is built and runtime-tested by the release gate.
+## HyBIT 0.7.0 publication record
 
-## Release branch and exact-source rule
+HyBIT 0.7.0 was published on 2026-09-27 from the exact validated source commit:
 
-The 0.7 release candidate is prepared on `develop/0.7.0`. The production freeze point is r32; later watchdog/energy-gate/spectral experiments are not part of 0.7.0. Keep `main` at the last published release until the exact candidate commit passes the complete gate. Merge that exact commit to `main`, rerun the gate from `main`, and only then publish immutable crates and create the tag.
-
-## Complete release-candidate gate
-
-Run from a clean `develop/0.7.0` worktree:
-
-```powershell
-.\release-candidate-gate.ps1 `
-  -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
-  -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
-  -Rhs D:\Work\mf_rhs\L-angle-b.txt `
-  -RayonThreads 8
+```text
+1fdcd6a1b8127c84306c38c3fdbad42563538ad8
 ```
 
-The complete gate includes source-integrity verification, workspace metadata/version checks, formatting, Clippy, workspace release tests, all release targets, Rust 1.73 MSRV, Rust/C ABI/C/C++/Fortran build and runtime checks, package inspection, a dry-run for the dependency-root crate, and the real L-angle structural regression. `-SkipMsrv` and `-SkipRealFem` are diagnostic conveniences only; a run using either switch is not eligible for publication.
+The immutable release tag is `v0.7.0`, and the GitHub Release uses `RELEASE_NOTES_0.7.0.md`.
 
-Before the final gate, regenerate `MANIFEST.txt` / `SOURCE_SHA256.txt` after the final formatting/documentation changes and ensure the worktree is clean.
+The published Rust crates are:
+
+1. `hybit-core`
+2. `hybit-matrix`
+3. `hybit-krylov`
+4. `hybit-precond`
+5. `hybit-auto`
+6. `hybit`
+
+`hybit-ffi` remains repository-only and is not published to crates.io. Its C ABI, C++ wrapper, and Fortran `ISO_C_BINDING` consumer path are built and runtime-tested by the repository release gate.
+
+## 0.7.0 qualification record
+
+The r32 numerical production line was frozen before release. Later watchdog, local-energy-gate, and filtered spectral-enrichment experiments were excluded from 0.7.0.
+
+The exact release commit passed the complete `release-candidate-gate.ps1` on `develop/0.7.0`, was fast-forwarded to `main`, and passed the complete gate again on `main` before publication.
+
+The qualifying gate covered:
+
+- source-integrity verification, including tracked-file/`MANIFEST.txt` agreement;
+- workspace metadata and version checks;
+- formatting and Clippy with warnings denied;
+- workspace release tests and all release targets;
+- Rust 1.73 MSRV;
+- Rust/C ABI plus C, C++, and Fortran build/runtime checks;
+- package inspection and crates.io dry-run validation;
+- the real L-angle structural regression;
+- independently verified residual, iteration guard, and prepared solve-many reuse.
+
+The release-reference L-angle solve converged in 220 iterations with independently verified relative residual `9.378557e-9`. Prepared reuse also passed.
+
+## Immutable release rule
+
+Published crate versions and release tags are immutable.
+
+Do not move `v0.7.0` to a later documentation or development commit. A serious defect in 0.7.0 must be corrected with a new version such as 0.7.1 or a later release, not by rewriting the existing tag or crates.io artifacts.
+
+Post-release documentation commits may advance `main`; they do not alter the 0.7.0 release source.
 
 ## crates.io authentication
 
 Authenticate locally with a crates.io API token using `cargo login`. Treat the token as a secret; never commit Cargo credentials or paste tokens into logs.
 
-## Publish order
+For GitHub Release automation, GitHub CLI may be authenticated with `gh auth login`. Authentication tokens and device codes must not be committed or included in release logs.
 
-Publish only after the exact source is pushed to GitHub. Immediately before each real publication, run the corresponding dry-run. Higher-level dry-runs can resolve only after same-version internal dependencies are visible in the crates.io index.
+## Dependency order for future workspace releases
 
-```powershell
-cargo publish -p hybit-core --dry-run
-cargo publish -p hybit-core
+HyBIT is a Cargo workspace. Higher-level crates depend on lower-level crates, so publication must preserve this dependency order:
 
-# Wait until 0.7.0 hybit-core is visible in the index.
-cargo publish -p hybit-matrix --dry-run
-cargo publish -p hybit-krylov --dry-run
-cargo publish -p hybit-matrix
-cargo publish -p hybit-krylov
-
-# Continue after each dependency level is indexed.
-cargo publish -p hybit-precond --dry-run
-cargo publish -p hybit-precond
-
-cargo publish -p hybit-auto --dry-run
-cargo publish -p hybit-auto
-
-cargo publish -p hybit --dry-run
-cargo publish -p hybit
+```text
+hybit-core
+    |
+    +--> hybit-matrix
+    +--> hybit-krylov
+              |
+              v
+         hybit-precond
+              |
+              v
+          hybit-auto
+              |
+              v
+            hybit
 ```
 
-Published crate versions are immutable. Fix a serious post-publication problem with a new version rather than rewriting an existing release.
+`hybit-matrix` and `hybit-krylov` may be published at the same dependency level after `hybit-core` is visible in the crates.io index.
 
-## Tag and GitHub Release
+For each future release:
 
-After the six crates are published from the validated source commit:
+1. Freeze the exact numerical source set and exclude unintended experimental/generated artifacts.
+2. Regenerate `MANIFEST.txt` and `SOURCE_SHA256.txt`.
+3. Run the complete release-candidate gate without release-qualifying skip switches.
+4. Merge the exact validated commit to `main`.
+5. Rerun the complete gate on `main`.
+6. Publish crates in dependency order, confirming each dependency level is visible in crates.io before publishing dependents.
+7. Create an immutable annotated version tag on the exact published source commit.
+8. Create the GitHub Release from the matching release notes.
+9. Perform any post-release documentation synchronization in a later docs-only commit without moving the release tag.
 
-```powershell
-git tag -a v0.7.0 -m "HyBIT 0.7.0"
-git push origin v0.7.0
-```
-
-Use `RELEASE_NOTES_0.7.0.md` as the GitHub Release text. Verify the crates.io and docs.rs pages after publication, including the installation command `cargo add hybit@0.7.0`.
+The release gate records performance measurements for regression context, but correctness, residual verification, compatibility, and prepared reuse remain the publication criteria.

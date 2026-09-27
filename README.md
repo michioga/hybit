@@ -9,7 +9,7 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
-> **Project status:** This source tree targets HyBIT 0.7.0 on `develop/0.7.0`. The 0.7 release line adds a generic algebraic two-level coarse path and a coarse-first resumable PCG controller while retaining the validated 0.6 structural path. The automatic solver path remains restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
+> **Project status:** HyBIT 0.7.0 is the current published release. It is available from crates.io and tagged as `v0.7.0` in this repository. The 0.7 release adds a generic algebraic two-level coarse path and a coarse-first resumable PCG controller while retaining the validated 0.6 structural path. The automatic solver path remains restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
@@ -35,7 +35,7 @@ The HyBIT 0.7.0 release uses the `hybit` facade crate together with its internal
 cargo add hybit@0.7.0
 ```
 
-During release-candidate validation, before 0.7.0 appears in the crates.io index, build this exact source tree from the repository instead.
+HyBIT 0.7.0 is published on crates.io; the matching release source is tagged `v0.7.0`.
 
 Rust 1.73 or newer is required.
 
@@ -180,7 +180,7 @@ Prepared execution is available through the C ABI functions `hybit_prepare`, `hy
 
 ## 0.7.0 release focus
 
-HyBIT 0.7.0 keeps the 0.6 structural FEM execution path and adds the generic algebraic coarse work validated through the r23-r32 development checkpoints. The release candidate includes:
+HyBIT 0.7.0 keeps the 0.6 structural FEM execution path and adds the generic algebraic coarse work validated through the r23-r32 development checkpoints. The release includes:
 
 - algebraic two-level coarse correction for generic SPD/PCG solves;
 - Graph aggregation and one-step Jacobi-smoothed transfer basis;
@@ -239,7 +239,7 @@ cd hybit
 .\build.ps1
 ```
 
-For the 0.7.0 release candidate, `release-candidate-gate.ps1` is the authoritative clean-tree gate. It adds source-integrity, metadata, formatting, Clippy, Rust 1.73 MSRV, ABI/language-binding, package, real-FEM residual/iteration, and prepared-reuse validation. The L-angle files are supplied externally rather than stored in the repository:
+HyBIT 0.7.0 was qualified with `release-candidate-gate.ps1` on the exact source commit later tagged as `v0.7.0`. The gate covers source integrity, metadata, formatting, Clippy, Rust 1.73 MSRV, ABI/language bindings, package validation, real-FEM residual/iteration checks, and prepared reuse. The L-angle files are supplied externally rather than stored in the repository:
 
 ```powershell
 .\release-candidate-gate.ps1 `
@@ -265,7 +265,7 @@ cargo run --release -p hybit --example fem_bench -- --matrix benchmarks/data/poi
 
 Near-term work is focused on real FEM validation, separation of symbolic reuse from numerical refactorization, broader Krylov coverage, stronger diagnostics, and scalable local/coarse corrections. Parallel CPU, GPU, and distributed-memory backends are longer-term directions.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for future work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current 0.7 release-candidate checkpoint.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for post-0.7 / 0.8 work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current published-release status.
 
 ## Contributing
 
@@ -293,7 +293,7 @@ path is exposed through `HybitSolver::solve_structural_csr32` and reusable
 
 ### 0.6 structural baseline retained in 0.7
 
-The validated 0.6 structural production path is retained unchanged as the structural baseline in 0.7: Graph rigid-body aggregation, packed coarse Cholesky, parallel CSR SpMV, parallel rigid-body fine/coarse transfer kernels, and parallel/fused PCG vector kernels. The 0.7 release candidate adds the generic algebraic coarse/controller work without replacing that structural API.
+The validated 0.6 structural production path is retained unchanged as the structural baseline in 0.7: Graph rigid-body aggregation, packed coarse Cholesky, parallel CSR SpMV, parallel rigid-body fine/coarse transfer kernels, and parallel/fused PCG vector kernels. The 0.7 release adds the generic algebraic coarse/controller work without replacing that structural API.
 
 ## RHS parsing diagnostics
 
