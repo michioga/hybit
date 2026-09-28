@@ -1,3 +1,9 @@
+mod execution;
+
+pub use execution::{
+    pcg_with_execution, CpuKrylovExecution, KrylovExecutionBackend, ResidentPcgWorkspace,
+};
+
 use hybit_core::{
     dot, l2_norm, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions,
 };

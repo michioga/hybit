@@ -63,6 +63,7 @@ crates/hybit-core/src/lib.rs
 crates/hybit-ffi/Cargo.toml
 crates/hybit-ffi/src/lib.rs
 crates/hybit-krylov/Cargo.toml
+crates/hybit-krylov/src/execution.rs
 crates/hybit-krylov/src/lib.rs
 crates/hybit-matrix/Cargo.toml
 crates/hybit-matrix/src/abtm.rs

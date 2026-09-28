@@ -1,6 +1,22 @@
-# HyBIT 0.6 architecture
+# HyBIT architecture
 
 HyBIT 0.6 retains the staged-PCG safety and reusable prepared execution model from 0.5, and adds an explicit geometry-aware structural path. The generic `solve_csr32` behavior remains separate from structural policy selection.
+
+## 0.8 execution-layer direction
+
+The 0.8 development line separates three concepts that were previously easy to conflate:
+
+- `MatrixBackend`: sparse/operator representation such as CSR32, ABTM, or matrix-free;
+- `ExecutionTarget`: where Krylov work runs (`Cpu` today, `Gpu` as the resident-device target);
+- `MatrixProblemClass`: the mathematical contract (`Spd`, `SymmetricIndefinite`, or `GeneralSquare`).
+
+`MatrixProblemClass` is declarative. HyBIT does not infer positive definiteness from a positive diagonal or other weak structural checks.
+
+`hybit-krylov` now contains an experimental `KrylovExecutionBackend` boundary plus `ResidentPcgWorkspace`. The established `pcg_with_workspace` implementation remains the production CPU path in 0.8-a1. A CPU reference execution backend runs the same PCG recurrence through resident vectors and is regression-tested against the established path.
+
+The resident workspace owns solution, RHS, and Krylov scratch vectors. A future CUDA/CubeCL backend can therefore upload matrix/preconditioner state during prepare, upload one RHS and initial solution per solve, keep Krylov vectors resident for the complete iteration loop, and download only the final solution/report data. This avoids designing a GPU backend around per-kernel host/device transfers.
+
+The same low-level execution boundary is intentionally broader than PCG so later MINRES and flexible GMRES work can reuse device vector operations. The automatic solver/controller remains real SPD + PCG in this checkpoint; no existing call is silently routed to GPU or to a non-PCG method.
 
 ## Generic one-shot and prepared path
 

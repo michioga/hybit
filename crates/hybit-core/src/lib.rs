@@ -59,6 +59,31 @@ pub trait Preconditioner {
     fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError>;
 }
 
+/// Mathematical class declared for a square linear system.
+///
+/// This is a solver contract, not an automatic proof of matrix properties.
+/// HyBIT 0.8 starts from the validated `Spd` path. Symmetric-indefinite and
+/// general-square classes reserve the architecture needed by future MINRES
+/// and flexible GMRES/BiCGStab paths. Rectangular systems are intentionally
+/// outside this first 0.8 execution-layer checkpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatrixProblemClass {
+    Spd,
+    SymmetricIndefinite,
+    GeneralSquare,
+}
+
+/// Where Krylov vector/operator work executes.
+///
+/// `Cpu` is the only production target in this checkpoint. `Gpu` is an
+/// architectural target for resident CUDA/CubeCL backends; adding the enum
+/// does not silently move existing solver calls to a device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionTarget {
+    Cpu,
+    Gpu,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatrixBackend {
     Csr32,

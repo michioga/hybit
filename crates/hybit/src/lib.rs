@@ -37,12 +37,14 @@ pub use hybit_auto::{
     STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
 };
 pub use hybit_core::{
-    HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend, Preconditioner,
-    PreconditionerKind, SolveReport, SolveStatus, SolverKind, SolverOptions,
+    ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
+    MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind,
+    SolverOptions,
 };
 pub use hybit_krylov::{
-    parallel_vector_worker_count, pcg, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
-    KrylovOutcome, PcgWorkspace, PARALLEL_PCG_VECTOR_CHUNK,
+    parallel_vector_worker_count, pcg, pcg_with_execution, pcg_with_workspace,
+    pcg_with_workspace_parallel_vectors, CpuKrylovExecution, KrylovExecutionBackend, KrylovOutcome,
+    PcgWorkspace, ResidentPcgWorkspace, PARALLEL_PCG_VECTOR_CHUNK,
 };
 pub use hybit_matrix::{
     analyze_csr32, read_matrix_market, read_matrix_market_from_reader, write_matrix_market_general,
