@@ -115,6 +115,13 @@ impl<V> ResidentPcgWorkspace<V> {
     }
 }
 
+impl ResidentPcgWorkspace<Vec<f64>> {
+    /// Persistent bytes owned by the seven host-resident f64 vectors.
+    pub fn bytes(&self) -> usize {
+        7 * self.r.len() * std::mem::size_of::<f64>()
+    }
+}
+
 /// CPU reference implementation of the resident execution boundary.
 ///
 /// It deliberately delegates operator and preconditioner application to the

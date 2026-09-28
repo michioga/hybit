@@ -26,6 +26,14 @@ Likewise, `MatrixProblemClass::Spd` remains the only executable automatic-solver
 
 Analyze records the resolved execution target and declared problem class, and prepare verifies that those contracts have not changed. This keeps prepared-state reuse deterministic as additional execution targets and Krylov methods are introduced.
 
+### 0.8-a3 resident CPU cross-check
+
+`ExecutionPolicy::CpuResident` connects the generic `HybitSolver` prepare/solve path to `CpuKrylovExecution` and `ResidentPcgWorkspace` for fixed-Jacobi PCG. This is an explicit validation policy rather than the default: `Auto` and `Cpu` continue to use the established staged PCG implementation.
+
+The a3 resident path deliberately requires `HybridOptions.enabled = false`. This keeps the first production-level cross-check focused on the fixed-preconditioner recurrence that will also form the first CUDA PoC. Public tests compare legacy and resident CPU solves for convergence status, iteration count, residual, and solution, and verify solve-many reuse of the resident vectors.
+
+For this validation checkpoint the prepared object retains both the established five-vector PCG workspace and the seven-vector resident workspace, so the reported Krylov workspace bytes include both. Once resident execution becomes the normal prepared representation, the duplicate legacy workspace can be removed.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

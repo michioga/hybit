@@ -8,8 +8,8 @@ use hybit_core::{
 };
 use hybit_krylov::{
     parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
-    pcg_with_workspace, pcg_with_workspace_parallel_vectors, KrylovOutcome, PcgSession,
-    PcgWorkspace,
+    pcg_with_execution, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
+    CpuKrylovExecution, KrylovOutcome, PcgSession, PcgWorkspace, ResidentPcgWorkspace,
 };
 use hybit_matrix::{
     analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
@@ -35,13 +35,17 @@ pub enum BackendPolicy {
 
 /// High-level execution target policy.
 ///
-/// `Auto` and `Cpu` both resolve to the established CPU path in 0.8-a2.
-/// `Gpu` is intentionally rejected before preparation until a resident GPU
-/// backend has passed numerical and transfer-cost validation.
+/// `Auto` and `Cpu` retain the established CPU implementation.
+/// `CpuResident` is the 0.8-a3 validation path that executes fixed-Jacobi PCG
+/// through `KrylovExecutionBackend` with resident vectors. It intentionally
+/// requires the adaptive hybrid controller to be disabled until resumable
+/// resident sessions are implemented.
+/// `Gpu` remains rejected until a device backend is available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutionPolicy {
     Auto,
     Cpu,
+    CpuResident,
     Gpu,
 }
 
@@ -351,6 +355,7 @@ impl Default for HybitSolver {
 pub struct HybitAnalysis {
     profile: MatrixProfile,
     backend: MatrixBackend,
+    execution_policy: ExecutionPolicy,
     execution_target: ExecutionTarget,
     problem_class: MatrixProblemClass,
     structure_signature: u64,
@@ -364,6 +369,9 @@ impl HybitAnalysis {
     }
     pub fn backend(&self) -> MatrixBackend {
         self.backend
+    }
+    pub fn execution_policy(&self) -> ExecutionPolicy {
+        self.execution_policy
     }
     pub fn execution_target(&self) -> ExecutionTarget {
         self.execution_target
@@ -381,6 +389,7 @@ pub struct HybitPreparedSystem {
     options: SolverOptions,
     hybrid_options: HybridOptions,
     backend: MatrixBackend,
+    execution_policy: ExecutionPolicy,
     execution_target: ExecutionTarget,
     problem_class: MatrixProblemClass,
     structure_signature: u64,
@@ -393,6 +402,7 @@ pub struct HybitPreparedSystem {
     algebraic_coarse: Option<TwoLevelBlockJacobiPreconditioner>,
     algebraic_coarse_aggregate_nodes: usize,
     workspace: PcgWorkspace,
+    resident_workspace: Option<ResidentPcgWorkspace<Vec<f64>>>,
     solve_sequence: usize,
 }
 
@@ -430,6 +440,9 @@ impl HybitPreparedSystem {
     pub fn backend(&self) -> MatrixBackend {
         self.backend
     }
+    pub fn execution_policy(&self) -> ExecutionPolicy {
+        self.execution_policy
+    }
     pub fn execution_target(&self) -> ExecutionTarget {
         self.execution_target
     }
@@ -447,6 +460,10 @@ impl HybitPreparedSystem {
     }
     pub fn krylov_workspace_bytes(&self) -> usize {
         self.workspace.bytes()
+            + self
+                .resident_workspace
+                .as_ref()
+                .map_or(0, ResidentPcgWorkspace::bytes)
     }
     pub fn has_cached_hybrid(&self) -> bool {
         self.hybrid.is_some()
@@ -582,6 +599,58 @@ impl HybitPreparedSystem {
         self.solve_uncached(matrix, b, x, sequence, charge_context_setup)
     }
 
+    fn solve_resident_jacobi(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+        sequence: usize,
+        charge_context_setup: bool,
+    ) -> Result<SolveReport, HybitError> {
+        debug_assert_eq!(self.execution_policy, ExecutionPolicy::CpuResident);
+        debug_assert!(!self.hybrid_options.enabled);
+
+        let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+        let resident_workspace =
+            self.resident_workspace
+                .as_mut()
+                .ok_or(HybitError::InvalidArgument(
+                    "CpuResident prepared workspace is unavailable",
+                ))?;
+        let mut execution = CpuKrylovExecution::new(operator, &self.jacobi);
+
+        let start = Instant::now();
+        let outcome = pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?;
+        let elapsed = start.elapsed().as_secs_f64();
+
+        let metrics = ReportMetrics {
+            analysis_seconds: if charge_context_setup {
+                self.analysis_seconds
+            } else {
+                0.0
+            },
+            prepare_seconds: if charge_context_setup {
+                self.prepare_seconds
+            } else {
+                0.0
+            },
+            restart_seconds: elapsed,
+            preconditioner_reused: sequence > 1,
+            solve_sequence: sequence,
+            krylov_workspace_bytes: self.krylov_workspace_bytes(),
+            ..ReportMetrics::default()
+        };
+
+        Ok(report_from_outcome(
+            outcome,
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            self.backend,
+            b,
+            metrics,
+        ))
+    }
+
     fn solve_uncached(
         &mut self,
         matrix: &Csr32Matrix,
@@ -590,6 +659,10 @@ impl HybitPreparedSystem {
         sequence: usize,
         charge_context_setup: bool,
     ) -> Result<SolveReport, HybitError> {
+        if self.execution_policy == ExecutionPolicy::CpuResident {
+            return self.solve_resident_jacobi(matrix, b, x, sequence, charge_context_setup);
+        }
+
         let coarse_requested =
             self.hybrid_options.enabled && self.hybrid_options.algebraic_coarse.enabled;
         let coarse_was_cached = coarse_requested && self.algebraic_coarse.is_some();
@@ -1302,11 +1375,22 @@ impl HybitSolver {
 
     fn resolve_execution_target(&self) -> Result<ExecutionTarget, HybitError> {
         match self.execution_policy {
-            ExecutionPolicy::Auto | ExecutionPolicy::Cpu => Ok(ExecutionTarget::Cpu),
+            ExecutionPolicy::Auto | ExecutionPolicy::Cpu | ExecutionPolicy::CpuResident => {
+                Ok(ExecutionTarget::Cpu)
+            }
             ExecutionPolicy::Gpu => Err(HybitError::InvalidArgument(
-                "GPU execution is recognized but not implemented in HyBIT 0.8-a2",
+                "GPU execution is recognized but not implemented in HyBIT 0.8-a3",
             )),
         }
+    }
+
+    fn execution_policies_compatible(analyzed: ExecutionPolicy, current: ExecutionPolicy) -> bool {
+        analyzed == current
+            || matches!(
+                (analyzed, current),
+                (ExecutionPolicy::Auto, ExecutionPolicy::Cpu)
+                    | (ExecutionPolicy::Cpu, ExecutionPolicy::Auto)
+            )
     }
 
     fn validate_problem_class(&self, profile: &MatrixProfile) -> Result<(), HybitError> {
@@ -1326,10 +1410,10 @@ impl HybitSolver {
                 Ok(())
             }
             MatrixProblemClass::SymmetricIndefinite => Err(HybitError::InvalidArgument(
-                "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a2",
+                "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a3",
             )),
             MatrixProblemClass::GeneralSquare => Err(HybitError::InvalidArgument(
-                "general square systems are recognized but FGMRES/BiCGStab is not implemented in HyBIT 0.8-a2",
+                "general square systems are recognized but FGMRES/BiCGStab is not implemented in HyBIT 0.8-a3",
             )),
         }
     }
@@ -1340,6 +1424,11 @@ impl HybitSolver {
         let start = Instant::now();
         let profile = analyze_csr32(matrix)?;
         self.validate_problem_class(&profile)?;
+        if self.execution_policy == ExecutionPolicy::CpuResident && self.hybrid_options.enabled {
+            return Err(HybitError::InvalidArgument(
+                "CpuResident validation currently requires HybridOptions.enabled = false",
+            ));
+        }
         let execution_target = self.resolve_execution_target()?;
         let backend = match self.backend_policy {
             BackendPolicy::Auto | BackendPolicy::Csr32 => MatrixBackend::Csr32,
@@ -1349,6 +1438,7 @@ impl HybitSolver {
         Ok(HybitAnalysis {
             profile,
             backend,
+            execution_policy: self.execution_policy,
             execution_target,
             problem_class: self.problem_class,
             structure_signature,
@@ -1372,6 +1462,10 @@ impl HybitSolver {
         let current_execution_target = self.resolve_execution_target()?;
         if analysis.problem_class != self.problem_class
             || analysis.execution_target != current_execution_target
+            || !Self::execution_policies_compatible(
+                analysis.execution_policy,
+                self.execution_policy,
+            )
         {
             return Err(HybitError::InvalidArgument(
                 "solver execution/problem policy changed between analyze and prepare",
@@ -1396,11 +1490,22 @@ impl HybitSolver {
             None
         };
         let workspace = PcgWorkspace::new(matrix.nrows());
+        let resident_workspace = if self.execution_policy == ExecutionPolicy::CpuResident {
+            let operator = operator_for_backend(matrix, abtm.as_ref(), analysis.backend);
+            let mut execution = CpuKrylovExecution::new(operator, &jacobi);
+            Some(ResidentPcgWorkspace::allocate_with(
+                &mut execution,
+                matrix.nrows(),
+            )?)
+        } else {
+            None
+        };
         let prepare_seconds = start.elapsed().as_secs_f64();
         Ok(HybitPreparedSystem {
             options: self.options,
             hybrid_options: self.hybrid_options,
             backend: analysis.backend,
+            execution_policy: self.execution_policy,
             execution_target: analysis.execution_target,
             problem_class: analysis.problem_class,
             structure_signature,
@@ -1413,6 +1518,7 @@ impl HybitSolver {
             algebraic_coarse: None,
             algebraic_coarse_aggregate_nodes: 0,
             workspace,
+            resident_workspace,
             solve_sequence: 0,
         })
     }
