@@ -2,8 +2,9 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use hybit_core::{
-    l2_norm, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
-    Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind, SolverOptions,
+    l2_norm, ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator,
+    MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport,
+    SolveStatus, SolverKind, SolverOptions,
 };
 use hybit_krylov::{
     parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
@@ -30,6 +31,18 @@ pub enum BackendPolicy {
     Auto,
     Csr32,
     Abtm,
+}
+
+/// High-level execution target policy.
+///
+/// `Auto` and `Cpu` both resolve to the established CPU path in 0.8-a2.
+/// `Gpu` is intentionally rejected before preparation until a resident GPU
+/// backend has passed numerical and transfer-cost validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionPolicy {
+    Auto,
+    Cpu,
+    Gpu,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,6 +328,8 @@ impl HybridOptions {
 pub struct HybitSolver {
     options: SolverOptions,
     backend_policy: BackendPolicy,
+    execution_policy: ExecutionPolicy,
+    problem_class: MatrixProblemClass,
     hybrid_options: HybridOptions,
     structural_options: StructuralOptions,
 }
@@ -324,6 +339,8 @@ impl Default for HybitSolver {
         Self {
             options: SolverOptions::default(),
             backend_policy: BackendPolicy::Auto,
+            execution_policy: ExecutionPolicy::Auto,
+            problem_class: MatrixProblemClass::Spd,
             hybrid_options: HybridOptions::default(),
             structural_options: StructuralOptions::default(),
         }
@@ -334,6 +351,8 @@ impl Default for HybitSolver {
 pub struct HybitAnalysis {
     profile: MatrixProfile,
     backend: MatrixBackend,
+    execution_target: ExecutionTarget,
+    problem_class: MatrixProblemClass,
     structure_signature: u64,
     value_signature: u64,
     analysis_seconds: f64,
@@ -346,6 +365,12 @@ impl HybitAnalysis {
     pub fn backend(&self) -> MatrixBackend {
         self.backend
     }
+    pub fn execution_target(&self) -> ExecutionTarget {
+        self.execution_target
+    }
+    pub fn problem_class(&self) -> MatrixProblemClass {
+        self.problem_class
+    }
     pub fn analysis_seconds(&self) -> f64 {
         self.analysis_seconds
     }
@@ -356,6 +381,8 @@ pub struct HybitPreparedSystem {
     options: SolverOptions,
     hybrid_options: HybridOptions,
     backend: MatrixBackend,
+    execution_target: ExecutionTarget,
+    problem_class: MatrixProblemClass,
     structure_signature: u64,
     value_signature: u64,
     analysis_seconds: f64,
@@ -402,6 +429,12 @@ fn recommend_algebraic_aggregate_nodes(
 impl HybitPreparedSystem {
     pub fn backend(&self) -> MatrixBackend {
         self.backend
+    }
+    pub fn execution_target(&self) -> ExecutionTarget {
+        self.execution_target
+    }
+    pub fn problem_class(&self) -> MatrixProblemClass {
+        self.problem_class
     }
     pub fn analysis_seconds(&self) -> f64 {
         self.analysis_seconds
@@ -1221,6 +1254,15 @@ impl HybitSolver {
     pub fn options(&self) -> SolverOptions {
         self.options
     }
+    pub fn backend_policy(&self) -> BackendPolicy {
+        self.backend_policy
+    }
+    pub fn execution_policy(&self) -> ExecutionPolicy {
+        self.execution_policy
+    }
+    pub fn problem_class(&self) -> MatrixProblemClass {
+        self.problem_class
+    }
     pub fn hybrid_options(&self) -> HybridOptions {
         self.hybrid_options
     }
@@ -1250,21 +1292,55 @@ impl HybitSolver {
         self.backend_policy = policy;
     }
 
+    pub fn set_execution_policy(&mut self, policy: ExecutionPolicy) {
+        self.execution_policy = policy;
+    }
+
+    pub fn set_problem_class(&mut self, problem_class: MatrixProblemClass) {
+        self.problem_class = problem_class;
+    }
+
+    fn resolve_execution_target(&self) -> Result<ExecutionTarget, HybitError> {
+        match self.execution_policy {
+            ExecutionPolicy::Auto | ExecutionPolicy::Cpu => Ok(ExecutionTarget::Cpu),
+            ExecutionPolicy::Gpu => Err(HybitError::InvalidArgument(
+                "GPU execution is recognized but not implemented in HyBIT 0.8-a2",
+            )),
+        }
+    }
+
+    fn validate_problem_class(&self, profile: &MatrixProfile) -> Result<(), HybitError> {
+        if !profile.square {
+            return Err(HybitError::InvalidMatrix(
+                "HyBIT automatic solve currently supports square systems",
+            ));
+        }
+
+        match self.problem_class {
+            MatrixProblemClass::Spd => {
+                if !profile.full_diagonal || !profile.positive_diagonal {
+                    return Err(HybitError::InvalidMatrix(
+                        "PCG path requires a complete positive diagonal",
+                    ));
+                }
+                Ok(())
+            }
+            MatrixProblemClass::SymmetricIndefinite => Err(HybitError::InvalidArgument(
+                "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a2",
+            )),
+            MatrixProblemClass::GeneralSquare => Err(HybitError::InvalidArgument(
+                "general square systems are recognized but FGMRES/BiCGStab is not implemented in HyBIT 0.8-a2",
+            )),
+        }
+    }
+
     pub fn analyze_csr32(&self, matrix: &Csr32Matrix) -> Result<HybitAnalysis, HybitError> {
         self.options.validate()?;
         self.hybrid_options.validate()?;
         let start = Instant::now();
         let profile = analyze_csr32(matrix)?;
-        if !profile.square {
-            return Err(HybitError::InvalidMatrix(
-                "AutoSolver currently supports square SPD systems",
-            ));
-        }
-        if !profile.full_diagonal || !profile.positive_diagonal {
-            return Err(HybitError::InvalidMatrix(
-                "PCG path requires a complete positive diagonal",
-            ));
-        }
+        self.validate_problem_class(&profile)?;
+        let execution_target = self.resolve_execution_target()?;
         let backend = match self.backend_policy {
             BackendPolicy::Auto | BackendPolicy::Csr32 => MatrixBackend::Csr32,
             BackendPolicy::Abtm => MatrixBackend::Abtm,
@@ -1273,6 +1349,8 @@ impl HybitSolver {
         Ok(HybitAnalysis {
             profile,
             backend,
+            execution_target,
+            problem_class: self.problem_class,
             structure_signature,
             value_signature,
             analysis_seconds: start.elapsed().as_secs_f64(),
@@ -1291,6 +1369,14 @@ impl HybitSolver {
     ) -> Result<HybitPreparedSystem, HybitError> {
         self.options.validate()?;
         self.hybrid_options.validate()?;
+        let current_execution_target = self.resolve_execution_target()?;
+        if analysis.problem_class != self.problem_class
+            || analysis.execution_target != current_execution_target
+        {
+            return Err(HybitError::InvalidArgument(
+                "solver execution/problem policy changed between analyze and prepare",
+            ));
+        }
         let (structure_signature, value_signature) = matrix_signatures(matrix);
         if structure_signature != analysis.structure_signature
             || value_signature != analysis.value_signature
@@ -1315,6 +1401,8 @@ impl HybitSolver {
             options: self.options,
             hybrid_options: self.hybrid_options,
             backend: analysis.backend,
+            execution_target: analysis.execution_target,
+            problem_class: analysis.problem_class,
             structure_signature,
             value_signature,
             analysis_seconds: analysis.analysis_seconds,

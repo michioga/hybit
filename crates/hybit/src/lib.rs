@@ -30,11 +30,12 @@
 //! systems with PCG. See the repository README for current limitations.
 
 pub use hybit_auto::{
-    AlgebraicCoarseOptions, BackendPolicy, HybitAnalysis, HybitPreparedStructuralSystem,
-    HybitPreparedSystem, HybitSolver, HybridOptions, LocalFactorSelectionPolicy, StructuralOptions,
-    StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
-    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS,
-    STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
+    AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, HybitAnalysis,
+    HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver, HybridOptions,
+    LocalFactorSelectionPolicy, StructuralOptions, StructuralPcgVectorPolicy,
+    StructuralPreconditionerPolicy, StructuralSpmvPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
+    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS, STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ,
+    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
 };
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,

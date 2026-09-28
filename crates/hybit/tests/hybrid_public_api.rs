@@ -1,4 +1,7 @@
-use hybit::{Csr32Matrix, HybitSolver, PreconditionerKind, SolverOptions};
+use hybit::{
+    Csr32Matrix, ExecutionPolicy, ExecutionTarget, HybitError, HybitSolver, MatrixProblemClass,
+    PreconditionerKind, SolverOptions,
+};
 
 fn test_matrix() -> Csr32Matrix {
     let easy = 16usize;
@@ -82,4 +85,103 @@ fn public_prepared_context_reuses_local_factors() {
     assert_eq!(second.probe_iterations, 0);
     assert_eq!(second.local_factor_seconds, 0.0);
     assert_eq!(second.solve_sequence, 2);
+}
+#[test]
+fn default_execution_and_problem_policy_preserve_spd_cpu_path() {
+    let a = test_matrix();
+    let solver = HybitSolver::new();
+
+    assert_eq!(solver.execution_policy(), ExecutionPolicy::Auto);
+    assert_eq!(solver.problem_class(), MatrixProblemClass::Spd);
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    assert_eq!(analysis.execution_target(), ExecutionTarget::Cpu);
+    assert_eq!(analysis.problem_class(), MatrixProblemClass::Spd);
+
+    let prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+    assert_eq!(prepared.execution_target(), ExecutionTarget::Cpu);
+    assert_eq!(prepared.problem_class(), MatrixProblemClass::Spd);
+}
+
+#[test]
+fn explicit_cpu_execution_preserves_current_solver_path() {
+    let a = test_matrix();
+    let b = vec![1.0; 48];
+
+    let mut default_x = vec![0.0; 48];
+    let default_report = HybitSolver::new()
+        .solve_csr32(&a, &b, &mut default_x)
+        .unwrap();
+
+    let mut cpu_solver = HybitSolver::new();
+    cpu_solver.set_execution_policy(ExecutionPolicy::Cpu);
+    let mut cpu_x = vec![0.0; 48];
+    let cpu_report = cpu_solver.solve_csr32(&a, &b, &mut cpu_x).unwrap();
+
+    assert_eq!(cpu_report.status, default_report.status);
+    assert_eq!(cpu_report.iterations, default_report.iterations);
+    assert_eq!(cpu_report.preconditioner, default_report.preconditioner);
+    for (cpu, default) in cpu_x.iter().zip(&default_x) {
+        assert!((cpu - default).abs() <= 1.0e-14);
+    }
+}
+
+#[test]
+fn gpu_policy_is_explicitly_rejected_until_backend_exists() {
+    let a = test_matrix();
+    let mut solver = HybitSolver::new();
+    solver.set_execution_policy(ExecutionPolicy::Gpu);
+
+    let error = solver.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument(
+            "GPU execution is recognized but not implemented in HyBIT 0.8-a2"
+        )
+    ));
+}
+
+#[test]
+fn future_square_problem_classes_are_recognized_but_not_silently_routed_to_pcg() {
+    let a = test_matrix();
+
+    let mut symmetric_indefinite = HybitSolver::new();
+    symmetric_indefinite.set_problem_class(MatrixProblemClass::SymmetricIndefinite);
+    let error = symmetric_indefinite.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument(
+            "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a2"
+        )
+    ));
+
+    let mut general = HybitSolver::new();
+    general.set_problem_class(MatrixProblemClass::GeneralSquare);
+    let error = general.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument(
+            "general square systems are recognized but FGMRES/BiCGStab is not implemented in HyBIT 0.8-a2"
+        )
+    ));
+}
+
+#[test]
+fn prepare_rejects_policy_changes_after_analysis() {
+    let a = test_matrix();
+    let mut solver = HybitSolver::new();
+    let analysis = solver.analyze_csr32(&a).unwrap();
+
+    solver.set_execution_policy(ExecutionPolicy::Cpu);
+    // Auto and Cpu resolve to the same CPU target, so this is intentionally safe.
+    solver.prepare_csr32(&a, &analysis).unwrap();
+
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    let error = solver.prepare_csr32(&a, &analysis).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument(
+            "solver execution/problem policy changed between analyze and prepare"
+        )
+    ));
 }

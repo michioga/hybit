@@ -18,6 +18,14 @@ The resident workspace owns solution, RHS, and Krylov scratch vectors. A future 
 
 The same low-level execution boundary is intentionally broader than PCG so later MINRES and flexible GMRES work can reuse device vector operations. The automatic solver/controller remains real SPD + PCG in this checkpoint; no existing call is silently routed to GPU or to a non-PCG method.
 
+### 0.8-a2 control plane
+
+`HybitSolver` now exposes independent `ExecutionPolicy` and `MatrixProblemClass` controls. `ExecutionPolicy::Auto` and `ExecutionPolicy::Cpu` resolve to the established CPU implementation. `ExecutionPolicy::Gpu` is recognized but rejected before preparation until a resident GPU backend is implemented and validated.
+
+Likewise, `MatrixProblemClass::Spd` remains the only executable automatic-solver class in this checkpoint. `SymmetricIndefinite` and `GeneralSquare` are represented explicitly so future MINRES and FGMRES/BiCGStab work does not require another API redesign, but neither class is silently routed through PCG.
+
+Analyze records the resolved execution target and declared problem class, and prepare verifies that those contracts have not changed. This keeps prepared-state reuse deterministic as additional execution targets and Krylov methods are introduced.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.
