@@ -57,11 +57,12 @@ pub use hybit_matrix::{
 pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,
     BlockJacobiPreconditioner, HybridPreconditioner, IdentityPreconditioner, JacobiPreconditioner,
-    LocalCholeskyRegion, ParallelRigidBodyTwoLevelPreconditioner, RigidBodyAggregation,
-    RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelAggregation,
-    TwoLevelBasis, TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy,
-    TwoLevelTransferApplyPolicy, TwoLevelTransferOptions, TwoLevelTransferStoragePolicy,
-    TwoLevelTransferValueStoragePolicy, EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION,
+    LocalCholeskyRegion, ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
+    RigidBodyAggregation, RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner,
+    TwoLevelAggregation, TwoLevelBasis, TwoLevelBlockJacobiPreconditioner,
+    TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy, TwoLevelTransferOptions,
+    TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
+    EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION, PARALLEL_JACOBI_CHUNK,
 };
 
 pub fn solve(matrix: &Csr32Matrix, b: &[f64]) -> Result<(Vec<f64>, SolveReport), HybitError> {

@@ -93,6 +93,62 @@ impl Preconditioner for JacobiPreconditioner {
     }
 }
 
+/// Chunk size used by the explicit Rayon Jacobi view.
+pub const PARALLEL_JACOBI_CHUNK: usize = 16_384;
+
+/// Read-only Rayon execution view over an already prepared Jacobi inverse.
+///
+/// The ordinary [`JacobiPreconditioner`] trait implementation remains serial,
+/// preserving its low-overhead behavior and allowing controlled A/B tests.
+/// This wrapper shares the inverse diagonal and owns no additional persistent
+/// numerical storage.
+#[derive(Clone, Copy, Debug)]
+pub struct ParallelJacobiPreconditioner<'a> {
+    inner: &'a JacobiPreconditioner,
+}
+
+impl<'a> ParallelJacobiPreconditioner<'a> {
+    pub fn new(inner: &'a JacobiPreconditioner) -> Self {
+        Self { inner }
+    }
+
+    pub fn rayon_threads(&self) -> usize {
+        rayon::current_num_threads()
+    }
+}
+
+impl Preconditioner for ParallelJacobiPreconditioner<'_> {
+    fn len(&self) -> usize {
+        self.inner.inv_diag.len()
+    }
+
+    fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
+        let n = self.inner.inv_diag.len();
+        if r.len() != n {
+            return Err(HybitError::DimensionMismatch {
+                expected: n,
+                actual: r.len(),
+            });
+        }
+        if z.len() != n {
+            return Err(HybitError::DimensionMismatch {
+                expected: n,
+                actual: z.len(),
+            });
+        }
+
+        z.par_chunks_mut(PARALLEL_JACOBI_CHUNK)
+            .zip(r.par_chunks(PARALLEL_JACOBI_CHUNK))
+            .zip(self.inner.inv_diag.par_chunks(PARALLEL_JACOBI_CHUNK))
+            .for_each(|((zz, rr), dd)| {
+                for i in 0..zz.len() {
+                    zz[i] = dd[i] * rr[i];
+                }
+            });
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 struct BlockJacobiFactor {
     start: usize,
@@ -4193,5 +4249,22 @@ mod structural_auto_tests {
             let tail = nodes % aggregate;
             assert!(aggregate >= nodes || tail == 0 || tail >= 3);
         }
+    }
+    #[test]
+    fn parallel_jacobi_matches_serial_application() {
+        let n = 131_072usize;
+        let jacobi = JacobiPreconditioner {
+            inv_diag: (0..n).map(|i| 0.25 + (i % 17) as f64 * 0.03125).collect(),
+        };
+        let r: Vec<f64> = (0..n).map(|i| -1.0 + (i % 29) as f64 * 0.0625).collect();
+
+        let mut serial = vec![0.0; n];
+        let mut parallel = vec![0.0; n];
+
+        jacobi.apply(&r, &mut serial).unwrap();
+        let view = ParallelJacobiPreconditioner::new(&jacobi);
+        view.apply(&r, &mut parallel).unwrap();
+
+        assert_eq!(parallel, serial);
     }
 }

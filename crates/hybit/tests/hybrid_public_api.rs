@@ -228,8 +228,73 @@ fn cpu_resident_rayon_requires_csr32_backend() {
     let error = solver.analyze_csr32(&a).unwrap_err();
     assert!(matches!(
         error,
-        HybitError::InvalidArgument("CpuResidentRayon requires the CSR32 backend")
+        HybitError::InvalidArgument("resident Rayon execution requires the CSR32 backend")
     ));
+}
+
+#[test]
+fn cpu_resident_rayon_jacobi_requires_fixed_preconditioner_checkpoint() {
+    let a = test_matrix();
+    let mut solver = HybitSolver::new();
+    solver.set_execution_policy(ExecutionPolicy::CpuResidentRayonJacobi);
+
+    let error = solver.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument(
+            "CpuResidentRayonJacobi validation currently requires HybridOptions.enabled = false"
+        )
+    ));
+}
+
+#[test]
+fn cpu_resident_rayon_jacobi_matches_rayon_serial_jacobi_path() {
+    let a = test_matrix();
+    let b = vec![1.0; 48];
+    let options = SolverOptions {
+        relative_tolerance: 1.0e-10,
+        absolute_tolerance: 0.0,
+        max_iterations: 160,
+    };
+
+    let mut b2 = HybitSolver::new();
+    b2.set_execution_policy(ExecutionPolicy::CpuResidentRayon);
+    b2.set_options(options).unwrap();
+    let mut b2_hybrid = b2.hybrid_options();
+    b2_hybrid.enabled = false;
+    b2.set_hybrid_options(b2_hybrid).unwrap();
+
+    let mut x_b2 = vec![0.0; 48];
+    let b2_report = b2.solve_csr32(&a, &b, &mut x_b2).unwrap();
+    assert!(b2_report.converged());
+
+    let mut b3 = HybitSolver::new();
+    b3.set_execution_policy(ExecutionPolicy::CpuResidentRayonJacobi);
+    b3.set_options(options).unwrap();
+    let mut b3_hybrid = b3.hybrid_options();
+    b3_hybrid.enabled = false;
+    b3.set_hybrid_options(b3_hybrid).unwrap();
+
+    let analysis = b3.analyze_csr32(&a).unwrap();
+    assert_eq!(
+        analysis.execution_policy(),
+        ExecutionPolicy::CpuResidentRayonJacobi
+    );
+    assert_eq!(analysis.execution_target(), ExecutionTarget::Cpu);
+
+    let mut prepared = b3.prepare_csr32(&a, &analysis).unwrap();
+    let mut x_b3 = vec![0.0; 48];
+    let b3_report = prepared.solve(&a, &b, &mut x_b3).unwrap();
+
+    assert!(b3_report.converged());
+    assert_eq!(b3_report.status, b2_report.status);
+    assert_eq!(b3_report.iterations, b2_report.iterations);
+    assert_eq!(b3_report.preconditioner, PreconditionerKind::Jacobi);
+    assert!((b3_report.final_residual - b2_report.final_residual).abs() <= 1.0e-12);
+
+    for (b3_value, b2_value) in x_b3.iter().zip(&x_b2) {
+        assert!((b3_value - b2_value).abs() <= 1.0e-12);
+    }
 }
 
 #[test]

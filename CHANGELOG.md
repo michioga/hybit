@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0-b3 development checkpoint
+
+- Add `ParallelJacobiPreconditioner`, a zero-copy read-only Rayon view over the prepared inverse diagonal.
+- Add explicit `ExecutionPolicy::CpuResidentRayonJacobi` to combine parallel CSR SpMV, resident Rayon vector kernels, and parallel Jacobi application under the same `pcg_with_execution` recurrence.
+- Preserve `CpuResidentRayon` with serial Jacobi so b2 and b3 execution layers remain directly benchmarkable in one build.
+- Keep all automatic/default execution policies unchanged and retain the fixed-preconditioner/CSR32 restrictions for resident Rayon validation.
 ## 0.8.0-b2 development checkpoint
 
 - Add explicit `ExecutionPolicy::CpuResidentRayon`, combining `RayonKrylovExecution` with `ParallelCsr32Operator` under the existing resident PCG recurrence.

@@ -52,6 +52,14 @@ GPU work is intentionally deferred until CubeCL 0.11 reaches a stable release. M
 
 The resident workspace is still reused across right-hand sides. This checkpoint does not yet parallelize generic Jacobi application and does not route any default policy into the resident Rayon path.
 
+### 0.8-b3 resident Rayon Jacobi execution
+
+`ParallelJacobiPreconditioner` is a read-only Rayon view over the already prepared inverse diagonal. It adds no persistent numerical storage and leaves the ordinary `JacobiPreconditioner` trait implementation serial for low-overhead and A/B use.
+
+`ExecutionPolicy::CpuResidentRayonJacobi` composes three explicit CPU layers: `ParallelCsr32Operator`, `RayonKrylovExecution`, and `ParallelJacobiPreconditioner`. The b2 `CpuResidentRayon` policy remains available with serial Jacobi, so serial-all, parallel-CSR+vectors, and parallel-CSR+vectors+Jacobi can be compared in one build.
+
+No automatic policy is changed in this checkpoint.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.
