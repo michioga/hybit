@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0-b4 development checkpoint
+
+- Add `HybitPreparedStructuralSystem::solve_resident_rayon` as an explicit same-preconditioner cross-check for the fully parallel structural CPU path.
+- Reuse the prepared rigid-body two-level factors, parallel CSR operator, and parallel rigid-body preconditioner while executing PCG through `RayonKrylovExecution`.
+- Allocate the seven-vector structural resident workspace lazily on first use and reuse it across right-hand sides; ordinary production `solve` keeps its existing five-vector workspace and behavior.
+- Add a public regression comparing legacy parallel structural PCG with resident Rayon structural PCG for convergence, iteration count, residual, solution, and workspace accounting.
 ## 0.8.0-b3 development checkpoint
 
 - Add `ParallelJacobiPreconditioner`, a zero-copy read-only Rayon view over the prepared inverse diagonal.

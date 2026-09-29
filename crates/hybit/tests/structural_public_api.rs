@@ -373,6 +373,65 @@ fn structural_auto_keeps_tiny_pcg_vectors_serial() {
 }
 
 #[test]
+fn structural_resident_rayon_matches_legacy_parallel_path() {
+    let a = connected_cube_matrix();
+    let coords = cube_coordinates();
+    let n = a.nrows();
+    let b = a.spmv(&vec![1.0; n]).unwrap();
+
+    let mut solver = HybitSolver::new();
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 50,
+        })
+        .unwrap();
+    solver
+        .set_structural_options(StructuralOptions {
+            target_coarse_dimension: 6,
+            aggregation: RigidBodyAggregation::Graph,
+            spmv_policy: StructuralSpmvPolicy::Parallel,
+            preconditioner_policy: StructuralPreconditionerPolicy::Parallel,
+            pcg_vector_policy: StructuralPcgVectorPolicy::Parallel,
+        })
+        .unwrap();
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let mut prepared = solver
+        .prepare_structural_csr32(&a, &analysis, &coords)
+        .unwrap();
+
+    assert!(!prepared.resident_workspace_allocated());
+    assert_eq!(prepared.krylov_workspace_bytes(), 5 * n * 8);
+
+    let mut legacy_x = vec![0.0; n];
+    let legacy = prepared.solve(&a, &b, &mut legacy_x).unwrap();
+    assert!(legacy.converged());
+
+    let mut resident_x = vec![0.0; n];
+    let resident = prepared
+        .solve_resident_rayon(&a, &b, &mut resident_x)
+        .unwrap();
+    assert!(resident.converged());
+
+    assert_eq!(resident.status, legacy.status);
+    assert_eq!(resident.iterations, legacy.iterations);
+    assert_eq!(
+        resident.preconditioner,
+        PreconditionerKind::RigidBodyTwoLevel
+    );
+    assert!((resident.relative_residual - legacy.relative_residual).abs() <= 1.0e-12);
+
+    for (resident_value, legacy_value) in resident_x.iter().zip(&legacy_x) {
+        assert!((resident_value - legacy_value).abs() <= 1.0e-12);
+    }
+
+    assert!(prepared.resident_workspace_allocated());
+    assert_eq!(prepared.krylov_workspace_bytes(), 12 * n * 8);
+}
+
+#[test]
 fn structural_explicit_parallel_pcg_vectors_are_available() {
     let a = connected_cube_matrix();
     let coords = cube_coordinates();

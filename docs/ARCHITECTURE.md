@@ -60,6 +60,14 @@ The resident workspace is still reused across right-hand sides. This checkpoint 
 
 No automatic policy is changed in this checkpoint.
 
+### 0.8-b4 resident structural cross-check
+
+`HybitPreparedStructuralSystem::solve_resident_rayon` adds an explicit validation path for the fully parallel structural configuration. It reuses the already prepared `RigidBodyTwoLevelBlockJacobiPreconditioner`, `ParallelCsr32Operator`, and `ParallelRigidBodyTwoLevelPreconditioner`, but runs PCG through `RayonKrylovExecution`.
+
+The seven-vector resident workspace is allocated lazily on the first resident structural solve and reused for later right-hand sides. Ordinary `solve` remains the production path and pays no resident-workspace memory cost unless the validation method is called.
+
+This checkpoint intentionally requires effective Parallel policies for SpMV, structural preconditioning, and PCG vectors. It is a same-preconditioner recurrence cross-check, not a new automatic policy.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

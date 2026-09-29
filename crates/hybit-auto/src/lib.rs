@@ -1125,6 +1125,7 @@ pub struct HybitPreparedStructuralSystem {
     effective_preconditioner_policy: StructuralPreconditionerPolicy,
     effective_pcg_vector_policy: StructuralPcgVectorPolicy,
     workspace: PcgWorkspace,
+    resident_workspace: Option<ResidentPcgWorkspace<Vec<f64>>>,
     solve_sequence: usize,
 }
 
@@ -1143,6 +1144,13 @@ impl HybitPreparedStructuralSystem {
     }
     pub fn krylov_workspace_bytes(&self) -> usize {
         self.workspace.bytes()
+            + self
+                .resident_workspace
+                .as_ref()
+                .map_or(0, ResidentPcgWorkspace::bytes)
+    }
+    pub fn resident_workspace_allocated(&self) -> bool {
+        self.resident_workspace.is_some()
     }
     pub fn aggregate_nodes(&self) -> usize {
         self.aggregate_nodes
@@ -1214,6 +1222,102 @@ impl HybitPreparedStructuralSystem {
         Ok(())
     }
 
+    /// Experimental resident execution cross-check for the fully parallel
+    /// structural CPU path.
+    ///
+    /// This uses the same prepared rigid-body two-level preconditioner and the
+    /// same parallel CSR/preconditioner implementations as `solve`, but runs
+    /// the PCG recurrence through `RayonKrylovExecution` and a reusable
+    /// `ResidentPcgWorkspace`. Production `solve` behavior is unchanged.
+    pub fn solve_resident_rayon(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
+        self.validate_matrix(matrix)?;
+        if b.len() != matrix.nrows() {
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.nrows(),
+                actual: b.len(),
+            });
+        }
+        if x.len() != matrix.ncols() {
+            return Err(HybitError::DimensionMismatch {
+                expected: matrix.ncols(),
+                actual: x.len(),
+            });
+        }
+        if self.backend != MatrixBackend::Csr32 {
+            return Err(HybitError::InvalidArgument(
+                "resident structural Rayon execution requires the CSR32 backend",
+            ));
+        }
+        if self.effective_spmv_policy != StructuralSpmvPolicy::Parallel
+            || self.effective_preconditioner_policy != StructuralPreconditionerPolicy::Parallel
+            || self.effective_pcg_vector_policy != StructuralPcgVectorPolicy::Parallel
+        {
+            return Err(HybitError::InvalidArgument(
+                "resident structural Rayon validation requires parallel SpMV, preconditioner, and PCG vectors",
+            ));
+        }
+
+        if self.resident_workspace.is_none() {
+            let workspace = {
+                let operator = ParallelCsr32Operator::new(matrix);
+                let preconditioner =
+                    ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
+                let mut execution = RayonKrylovExecution::new(&operator, &preconditioner);
+                ResidentPcgWorkspace::allocate_with(&mut execution, matrix.nrows())?
+            };
+            self.resident_workspace = Some(workspace);
+        }
+
+        self.solve_sequence += 1;
+        let sequence = self.solve_sequence;
+        let charge_context_setup = sequence == 1;
+
+        let operator = ParallelCsr32Operator::new(matrix);
+        let preconditioner = ParallelRigidBodyTwoLevelPreconditioner::new(&self.preconditioner)?;
+        let resident_workspace =
+            self.resident_workspace
+                .as_mut()
+                .ok_or(HybitError::InvalidArgument(
+                    "resident structural workspace is unavailable",
+                ))?;
+        let mut execution = RayonKrylovExecution::new(&operator, &preconditioner);
+
+        let start = Instant::now();
+        let outcome = pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?;
+        let elapsed = start.elapsed().as_secs_f64();
+
+        let metrics = ReportMetrics {
+            analysis_seconds: if charge_context_setup {
+                self.analysis_seconds
+            } else {
+                0.0
+            },
+            prepare_seconds: if charge_context_setup {
+                self.prepare_seconds
+            } else {
+                0.0
+            },
+            restart_seconds: elapsed,
+            preconditioner_reused: sequence > 1,
+            solve_sequence: sequence,
+            krylov_workspace_bytes: self.krylov_workspace_bytes(),
+            ..ReportMetrics::default()
+        };
+
+        Ok(report_from_outcome(
+            outcome,
+            SolverKind::Pcg,
+            PreconditionerKind::RigidBodyTwoLevel,
+            self.backend,
+            b,
+            metrics,
+        ))
+    }
     pub fn solve(
         &mut self,
         matrix: &Csr32Matrix,
@@ -1760,6 +1864,7 @@ impl HybitSolver {
             effective_preconditioner_policy,
             effective_pcg_vector_policy,
             workspace,
+            resident_workspace: None,
             solve_sequence: 0,
         })
     }
