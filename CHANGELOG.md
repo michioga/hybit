@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-b1 development checkpoint
+
+- Add `RayonKrylovExecution` as a resident CPU implementation of `KrylovExecutionBackend` while preserving the same `pcg_with_execution` recurrence used by the serial resident backend.
+- Reuse the validated chunked Rayon dot/norm, fused solution/residual update, and search-direction kernels already exercised by the structural CPU path; keep sparse operator and preconditioner policy independent.
+- Add a conservative resident-vector recommendation matching the validated structural threshold: at least 131072 unknowns and at least four Rayon workers.
+- Cross-check large-vector serial-resident and Rayon-resident PCG execution and keep `HybitSolver` defaults unchanged.
+- Defer GPU integration until CubeCL 0.11 reaches a stable release; keep MPI after single-node Rayon work.
 ## 0.7.0
 
 - Harden the source-integrity gate so a release worktree fails if Git tracks files outside `MANIFEST.txt`, preventing stale experimental artifacts from entering a release commit.

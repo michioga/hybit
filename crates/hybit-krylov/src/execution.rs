@@ -2,6 +2,7 @@ use crate::KrylovOutcome;
 use hybit_core::{
     ExecutionTarget, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions,
 };
+use rayon::prelude::*;
 
 /// Execution boundary for Krylov methods whose vectors may live outside host memory.
 ///
@@ -264,6 +265,171 @@ impl KrylovExecutionBackend for CpuKrylovExecution<'_> {
     }
 }
 
+/// Minimum vector length for recommending the Rayon resident-vector backend.
+///
+/// This deliberately matches the validated Structural Auto PCG-vector crossover
+/// used by the current CPU FEM path. Operator and preconditioner parallelism
+/// remain independent decisions.
+pub const RESIDENT_RAYON_MIN_N: usize = 131_072;
+
+/// Minimum shared Rayon worker count for recommending resident vector kernels.
+pub const RESIDENT_RAYON_MIN_THREADS: usize = 4;
+
+#[inline]
+fn resident_rayon_recommended_for(n: usize, workers: usize) -> bool {
+    n >= RESIDENT_RAYON_MIN_N && workers >= RESIDENT_RAYON_MIN_THREADS
+}
+
+/// Returns whether large resident dense-vector operations should prefer Rayon
+/// on the current shared Rayon pool.
+///
+/// This is a recommendation for vector kernels only. Sparse operator and
+/// preconditioner implementations remain independently selectable.
+pub fn resident_rayon_recommended(n: usize) -> bool {
+    resident_rayon_recommended_for(n, rayon::current_num_threads())
+}
+
+/// Rayon implementation of the resident Krylov execution boundary.
+///
+/// Matrix/operator and preconditioner application deliberately remain delegated
+/// to their existing traits. This backend parallelizes only resident dense
+/// vector work, allowing it to compose with either serial or parallel sparse
+/// operators/preconditioners without coupling those policies.
+pub struct RayonKrylovExecution<'a> {
+    operator: &'a dyn LinearOperator,
+    preconditioner: &'a dyn Preconditioner,
+}
+
+impl<'a> RayonKrylovExecution<'a> {
+    pub fn new(operator: &'a dyn LinearOperator, preconditioner: &'a dyn Preconditioner) -> Self {
+        Self {
+            operator,
+            preconditioner,
+        }
+    }
+}
+
+impl KrylovExecutionBackend for RayonKrylovExecution<'_> {
+    type Vector = Vec<f64>;
+
+    fn target(&self) -> ExecutionTarget {
+        ExecutionTarget::Cpu
+    }
+
+    fn rows(&self) -> usize {
+        self.operator.rows()
+    }
+
+    fn cols(&self) -> usize {
+        self.operator.cols()
+    }
+
+    fn preconditioner_len(&self) -> usize {
+        self.preconditioner.len()
+    }
+
+    fn allocate_vector(&mut self, len: usize) -> Result<Self::Vector, HybitError> {
+        Ok(vec![0.0; len])
+    }
+
+    fn upload(&mut self, host: &[f64], vector: &mut Self::Vector) -> Result<(), HybitError> {
+        require_len(vector.len(), host.len())?;
+        vector.copy_from_slice(host);
+        Ok(())
+    }
+
+    fn download(&mut self, vector: &Self::Vector, host: &mut [f64]) -> Result<(), HybitError> {
+        require_len(vector.len(), host.len())?;
+        host.copy_from_slice(vector);
+        Ok(())
+    }
+
+    fn copy(&mut self, src: &Self::Vector, dst: &mut Self::Vector) -> Result<(), HybitError> {
+        require_len(src.len(), dst.len())?;
+        dst.copy_from_slice(src);
+        Ok(())
+    }
+
+    fn apply_operator(&mut self, x: &Self::Vector, y: &mut Self::Vector) -> Result<(), HybitError> {
+        require_len(self.cols(), x.len())?;
+        require_len(self.rows(), y.len())?;
+        self.operator.apply(x, y)
+    }
+
+    fn apply_preconditioner(
+        &mut self,
+        r: &Self::Vector,
+        z: &mut Self::Vector,
+    ) -> Result<(), HybitError> {
+        require_len(self.preconditioner_len(), r.len())?;
+        require_len(self.preconditioner_len(), z.len())?;
+        self.preconditioner.apply(r, z)
+    }
+
+    fn dot(&mut self, a: &Self::Vector, b: &Self::Vector) -> Result<f64, HybitError> {
+        require_len(a.len(), b.len())?;
+        Ok(crate::parallel_dot(a, b))
+    }
+
+    fn axpy(
+        &mut self,
+        alpha: f64,
+        x: &Self::Vector,
+        y: &mut Self::Vector,
+    ) -> Result<(), HybitError> {
+        require_len(x.len(), y.len())?;
+        y.par_chunks_mut(crate::PARALLEL_PCG_VECTOR_CHUNK)
+            .zip(x.par_chunks(crate::PARALLEL_PCG_VECTOR_CHUNK))
+            .for_each(|(yy, xx)| {
+                for (yi, xi) in yy.iter_mut().zip(xx) {
+                    *yi += alpha * *xi;
+                }
+            });
+        Ok(())
+    }
+
+    fn scale(&mut self, alpha: f64, x: &mut Self::Vector) -> Result<(), HybitError> {
+        x.par_chunks_mut(crate::PARALLEL_PCG_VECTOR_CHUNK)
+            .for_each(|chunk| {
+                for value in chunk {
+                    *value *= alpha;
+                }
+            });
+        Ok(())
+    }
+
+    fn update_x_r_and_norm(
+        &mut self,
+        solution: &mut Self::Vector,
+        residual: &mut Self::Vector,
+        direction: &Self::Vector,
+        operator_direction: &Self::Vector,
+        alpha: f64,
+    ) -> Result<f64, HybitError> {
+        let n = solution.len();
+        require_len(n, residual.len())?;
+        require_len(n, direction.len())?;
+        require_len(n, operator_direction.len())?;
+        Ok(crate::parallel_update_x_r_and_norm(
+            solution,
+            residual,
+            direction,
+            operator_direction,
+            alpha,
+        ))
+    }
+
+    fn update_search_direction(
+        &mut self,
+        direction: &mut Self::Vector,
+        preconditioned_residual: &Self::Vector,
+        beta: f64,
+    ) -> Result<(), HybitError> {
+        require_len(direction.len(), preconditioned_residual.len())?;
+        crate::parallel_update_p(direction, preconditioned_residual, beta);
+        Ok(())
+    }
+}
 /// PCG recurrence over an execution backend with resident vectors.
 ///
 /// Existing `pcg_with_workspace` remains the production CPU path in 0.8-a1.
@@ -461,6 +627,89 @@ mod tests {
 
         for (actual, expected) in resident_x.iter().zip(&legacy_x) {
             assert!((actual - expected).abs() <= 1.0e-14);
+        }
+    }
+
+    #[test]
+    fn resident_rayon_pcg_matches_serial_execution_on_large_vector() {
+        let n = RESIDENT_RAYON_MIN_N;
+        let a = IdentityOperator(n);
+        let m = IdentityPreconditioner(n);
+        let rhs: Vec<f64> = (0..n).map(|i| 0.5 + (i % 31) as f64 * 0.03125).collect();
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 8,
+        };
+
+        let mut serial_x = vec![0.0; n];
+        let mut serial_backend = CpuKrylovExecution::new(&a, &m);
+        let mut serial_workspace =
+            ResidentPcgWorkspace::allocate_with(&mut serial_backend, n).unwrap();
+        let serial = pcg_with_execution(
+            &mut serial_backend,
+            &rhs,
+            &mut serial_x,
+            options,
+            &mut serial_workspace,
+        )
+        .unwrap();
+
+        let mut rayon_x = vec![0.0; n];
+        let mut rayon_backend = RayonKrylovExecution::new(&a, &m);
+        let mut rayon_workspace =
+            ResidentPcgWorkspace::allocate_with(&mut rayon_backend, n).unwrap();
+        let parallel = pcg_with_execution(
+            &mut rayon_backend,
+            &rhs,
+            &mut rayon_x,
+            options,
+            &mut rayon_workspace,
+        )
+        .unwrap();
+
+        assert_eq!(serial.status, SolveStatus::Converged);
+        assert_eq!(parallel.status, SolveStatus::Converged);
+        assert_eq!(serial.iterations, 1);
+        assert_eq!(parallel.iterations, 1);
+        assert!((serial.initial_residual - parallel.initial_residual).abs() <= 1.0e-9);
+        assert!((serial.final_residual - parallel.final_residual).abs() <= 1.0e-12);
+
+        for (serial_value, parallel_value) in serial_x.iter().zip(&rayon_x) {
+            assert!((serial_value - parallel_value).abs() <= 1.0e-14);
+        }
+    }
+
+    #[test]
+    fn resident_rayon_recommendation_uses_validated_cpu_thresholds() {
+        assert!(!resident_rayon_recommended_for(
+            RESIDENT_RAYON_MIN_N - 1,
+            RESIDENT_RAYON_MIN_THREADS
+        ));
+        assert!(!resident_rayon_recommended_for(
+            RESIDENT_RAYON_MIN_N,
+            RESIDENT_RAYON_MIN_THREADS - 1
+        ));
+        assert!(resident_rayon_recommended_for(
+            RESIDENT_RAYON_MIN_N,
+            RESIDENT_RAYON_MIN_THREADS
+        ));
+    }
+
+    struct IdentityOperator(usize);
+
+    impl LinearOperator for IdentityOperator {
+        fn rows(&self) -> usize {
+            self.0
+        }
+
+        fn cols(&self) -> usize {
+            self.0
+        }
+
+        fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+            y.copy_from_slice(x);
+            Ok(())
         }
     }
 }

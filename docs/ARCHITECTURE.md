@@ -34,6 +34,16 @@ The a3 resident path deliberately requires `HybridOptions.enabled = false`. This
 
 For this validation checkpoint the prepared object retains both the established five-vector PCG workspace and the seven-vector resident workspace, so the reported Krylov workspace bytes include both. Once resident execution becomes the normal prepared representation, the duplicate legacy workspace can be removed.
 
+### 0.8-b1 Rayon resident backend
+
+`RayonKrylovExecution` adds a second CPU implementation of `KrylovExecutionBackend` without changing the PCG recurrence. It reuses the already-validated parallel/fused dense-vector kernels from the structural CPU path for dot/norm reductions, fused solution/residual updates, and search-direction updates. Generic axpy/scale operations use the same chunked shared Rayon pool.
+
+Sparse operator and preconditioner application remain delegated through the existing traits. Rayon vector execution can therefore compose independently with serial or parallel CSR and preconditioner implementations; this checkpoint does not change `HybitSolver`, `ExecutionPolicy::CpuResident`, or production defaults.
+
+The resident Rayon recommendation initially mirrors the validated Structural Auto vector crossover: at least 131072 unknowns and at least four shared Rayon workers. This is a CPU-vector scheduling heuristic, not a new `ExecutionTarget`.
+
+GPU work is intentionally deferred until CubeCL 0.11 reaches a stable release. MPI remains a later distributed-memory layer after single-node CPU parallel execution is consolidated.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

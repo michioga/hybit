@@ -1,7 +1,8 @@
 mod execution;
 
 pub use execution::{
-    pcg_with_execution, CpuKrylovExecution, KrylovExecutionBackend, ResidentPcgWorkspace,
+    pcg_with_execution, resident_rayon_recommended, CpuKrylovExecution, KrylovExecutionBackend,
+    RayonKrylovExecution, ResidentPcgWorkspace, RESIDENT_RAYON_MIN_N, RESIDENT_RAYON_MIN_THREADS,
 };
 
 use hybit_core::{
