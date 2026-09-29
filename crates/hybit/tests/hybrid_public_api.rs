@@ -201,6 +201,95 @@ fn cpu_resident_requires_fixed_preconditioner_checkpoint() {
 }
 
 #[test]
+fn cpu_resident_rayon_requires_fixed_preconditioner_checkpoint() {
+    let a = test_matrix();
+    let mut solver = HybitSolver::new();
+    solver.set_execution_policy(ExecutionPolicy::CpuResidentRayon);
+
+    let error = solver.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument(
+            "CpuResidentRayon validation currently requires HybridOptions.enabled = false"
+        )
+    ));
+}
+
+#[test]
+fn cpu_resident_rayon_requires_csr32_backend() {
+    let a = test_matrix();
+    let mut solver = HybitSolver::new();
+    solver.set_execution_policy(ExecutionPolicy::CpuResidentRayon);
+    solver.set_backend_policy(hybit::BackendPolicy::Abtm);
+    let mut hybrid = solver.hybrid_options();
+    hybrid.enabled = false;
+    solver.set_hybrid_options(hybrid).unwrap();
+
+    let error = solver.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidArgument("CpuResidentRayon requires the CSR32 backend")
+    ));
+}
+
+#[test]
+fn cpu_resident_rayon_matches_serial_resident_path() {
+    let a = test_matrix();
+    let b = vec![1.0; 48];
+    let options = SolverOptions {
+        relative_tolerance: 1.0e-10,
+        absolute_tolerance: 0.0,
+        max_iterations: 160,
+    };
+
+    let mut serial = HybitSolver::new();
+    serial.set_execution_policy(ExecutionPolicy::CpuResident);
+    serial.set_options(options).unwrap();
+    let mut serial_hybrid = serial.hybrid_options();
+    serial_hybrid.enabled = false;
+    serial.set_hybrid_options(serial_hybrid).unwrap();
+
+    let mut x_serial = vec![0.0; 48];
+    let serial_report = serial.solve_csr32(&a, &b, &mut x_serial).unwrap();
+    assert!(serial_report.converged());
+
+    let mut rayon = HybitSolver::new();
+    rayon.set_execution_policy(ExecutionPolicy::CpuResidentRayon);
+    rayon.set_options(options).unwrap();
+    let mut rayon_hybrid = rayon.hybrid_options();
+    rayon_hybrid.enabled = false;
+    rayon.set_hybrid_options(rayon_hybrid).unwrap();
+
+    let analysis = rayon.analyze_csr32(&a).unwrap();
+    assert_eq!(
+        analysis.execution_policy(),
+        ExecutionPolicy::CpuResidentRayon
+    );
+    assert_eq!(analysis.execution_target(), ExecutionTarget::Cpu);
+
+    let mut prepared = rayon.prepare_csr32(&a, &analysis).unwrap();
+    assert_eq!(
+        prepared.execution_policy(),
+        ExecutionPolicy::CpuResidentRayon
+    );
+
+    let mut x_rayon = vec![0.0; 48];
+    let rayon_report = prepared.solve(&a, &b, &mut x_rayon).unwrap();
+
+    assert!(rayon_report.converged());
+    assert_eq!(rayon_report.status, serial_report.status);
+    assert_eq!(rayon_report.iterations, serial_report.iterations);
+    assert_eq!(rayon_report.preconditioner, PreconditionerKind::Jacobi);
+    assert!((rayon_report.final_residual - serial_report.final_residual).abs() <= 1.0e-12);
+
+    for (rayon_value, serial_value) in x_rayon.iter().zip(&x_serial) {
+        assert!((rayon_value - serial_value).abs() <= 1.0e-12);
+    }
+
+    assert_eq!(prepared.krylov_workspace_bytes(), 12 * 48 * 8);
+}
+
+#[test]
 fn cpu_resident_fixed_jacobi_matches_legacy_cpu_path() {
     let a = test_matrix();
     let b = vec![1.0; 48];

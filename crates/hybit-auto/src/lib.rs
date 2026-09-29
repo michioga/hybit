@@ -9,7 +9,8 @@ use hybit_core::{
 use hybit_krylov::{
     parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
     pcg_with_execution, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
-    CpuKrylovExecution, KrylovOutcome, PcgSession, PcgWorkspace, ResidentPcgWorkspace,
+    CpuKrylovExecution, KrylovOutcome, PcgSession, PcgWorkspace, RayonKrylovExecution,
+    ResidentPcgWorkspace,
 };
 use hybit_matrix::{
     analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
@@ -36,16 +37,18 @@ pub enum BackendPolicy {
 /// High-level execution target policy.
 ///
 /// `Auto` and `Cpu` retain the established CPU implementation.
-/// `CpuResident` is the 0.8-a3 validation path that executes fixed-Jacobi PCG
-/// through `KrylovExecutionBackend` with resident vectors. It intentionally
-/// requires the adaptive hybrid controller to be disabled until resumable
-/// resident sessions are implemented.
-/// `Gpu` remains rejected until a device backend is available.
+/// `CpuResident` is the serial resident fixed-Jacobi validation path.
+/// `CpuResidentRayon` keeps the same resident PCG recurrence but combines the
+/// Rayon dense-vector backend with Rayon-parallel CSR SpMV. Both resident
+/// policies intentionally require the adaptive hybrid controller to be disabled
+/// until resumable resident sessions are implemented.
+/// `Gpu` remains rejected until a portable device backend is available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutionPolicy {
     Auto,
     Cpu,
     CpuResident,
+    CpuResidentRayon,
     Gpu,
 }
 
@@ -607,20 +610,39 @@ impl HybitPreparedSystem {
         sequence: usize,
         charge_context_setup: bool,
     ) -> Result<SolveReport, HybitError> {
-        debug_assert_eq!(self.execution_policy, ExecutionPolicy::CpuResident);
+        debug_assert!(matches!(
+            self.execution_policy,
+            ExecutionPolicy::CpuResident | ExecutionPolicy::CpuResidentRayon
+        ));
         debug_assert!(!self.hybrid_options.enabled);
 
-        let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
-        let resident_workspace =
-            self.resident_workspace
-                .as_mut()
-                .ok_or(HybitError::InvalidArgument(
-                    "CpuResident prepared workspace is unavailable",
-                ))?;
-        let mut execution = CpuKrylovExecution::new(operator, &self.jacobi);
-
         let start = Instant::now();
-        let outcome = pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?;
+        let outcome = match self.execution_policy {
+            ExecutionPolicy::CpuResident => {
+                let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+                let resident_workspace =
+                    self.resident_workspace
+                        .as_mut()
+                        .ok_or(HybitError::InvalidArgument(
+                            "CpuResident prepared workspace is unavailable",
+                        ))?;
+                let mut execution = CpuKrylovExecution::new(operator, &self.jacobi);
+                pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?
+            }
+            ExecutionPolicy::CpuResidentRayon => {
+                debug_assert_eq!(self.backend, MatrixBackend::Csr32);
+                let operator = ParallelCsr32Operator::new(matrix);
+                let resident_workspace =
+                    self.resident_workspace
+                        .as_mut()
+                        .ok_or(HybitError::InvalidArgument(
+                            "CpuResidentRayon prepared workspace is unavailable",
+                        ))?;
+                let mut execution = RayonKrylovExecution::new(&operator, &self.jacobi);
+                pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?
+            }
+            _ => unreachable!("resident Jacobi solve requires a resident CPU execution policy"),
+        };
         let elapsed = start.elapsed().as_secs_f64();
 
         let metrics = ReportMetrics {
@@ -659,7 +681,10 @@ impl HybitPreparedSystem {
         sequence: usize,
         charge_context_setup: bool,
     ) -> Result<SolveReport, HybitError> {
-        if self.execution_policy == ExecutionPolicy::CpuResident {
+        if matches!(
+            self.execution_policy,
+            ExecutionPolicy::CpuResident | ExecutionPolicy::CpuResidentRayon
+        ) {
             return self.solve_resident_jacobi(matrix, b, x, sequence, charge_context_setup);
         }
 
@@ -1375,9 +1400,10 @@ impl HybitSolver {
 
     fn resolve_execution_target(&self) -> Result<ExecutionTarget, HybitError> {
         match self.execution_policy {
-            ExecutionPolicy::Auto | ExecutionPolicy::Cpu | ExecutionPolicy::CpuResident => {
-                Ok(ExecutionTarget::Cpu)
-            }
+            ExecutionPolicy::Auto
+            | ExecutionPolicy::Cpu
+            | ExecutionPolicy::CpuResident
+            | ExecutionPolicy::CpuResidentRayon => Ok(ExecutionTarget::Cpu),
             ExecutionPolicy::Gpu => Err(HybitError::InvalidArgument(
                 "GPU execution is recognized but not implemented in HyBIT 0.8-a3",
             )),
@@ -1429,11 +1455,24 @@ impl HybitSolver {
                 "CpuResident validation currently requires HybridOptions.enabled = false",
             ));
         }
+        if self.execution_policy == ExecutionPolicy::CpuResidentRayon && self.hybrid_options.enabled
+        {
+            return Err(HybitError::InvalidArgument(
+                "CpuResidentRayon validation currently requires HybridOptions.enabled = false",
+            ));
+        }
         let execution_target = self.resolve_execution_target()?;
         let backend = match self.backend_policy {
             BackendPolicy::Auto | BackendPolicy::Csr32 => MatrixBackend::Csr32,
             BackendPolicy::Abtm => MatrixBackend::Abtm,
         };
+        if self.execution_policy == ExecutionPolicy::CpuResidentRayon
+            && backend != MatrixBackend::Csr32
+        {
+            return Err(HybitError::InvalidArgument(
+                "CpuResidentRayon requires the CSR32 backend",
+            ));
+        }
         let (structure_signature, value_signature) = matrix_signatures(matrix);
         Ok(HybitAnalysis {
             profile,
@@ -1490,15 +1529,25 @@ impl HybitSolver {
             None
         };
         let workspace = PcgWorkspace::new(matrix.nrows());
-        let resident_workspace = if self.execution_policy == ExecutionPolicy::CpuResident {
-            let operator = operator_for_backend(matrix, abtm.as_ref(), analysis.backend);
-            let mut execution = CpuKrylovExecution::new(operator, &jacobi);
-            Some(ResidentPcgWorkspace::allocate_with(
-                &mut execution,
-                matrix.nrows(),
-            )?)
-        } else {
-            None
+        let resident_workspace = match self.execution_policy {
+            ExecutionPolicy::CpuResident => {
+                let operator = operator_for_backend(matrix, abtm.as_ref(), analysis.backend);
+                let mut execution = CpuKrylovExecution::new(operator, &jacobi);
+                Some(ResidentPcgWorkspace::allocate_with(
+                    &mut execution,
+                    matrix.nrows(),
+                )?)
+            }
+            ExecutionPolicy::CpuResidentRayon => {
+                debug_assert_eq!(analysis.backend, MatrixBackend::Csr32);
+                let operator = ParallelCsr32Operator::new(matrix);
+                let mut execution = RayonKrylovExecution::new(&operator, &jacobi);
+                Some(ResidentPcgWorkspace::allocate_with(
+                    &mut execution,
+                    matrix.nrows(),
+                )?)
+            }
+            _ => None,
         };
         let prepare_seconds = start.elapsed().as_secs_f64();
         Ok(HybitPreparedSystem {

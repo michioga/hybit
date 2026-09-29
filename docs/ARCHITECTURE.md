@@ -44,6 +44,14 @@ The resident Rayon recommendation initially mirrors the validated Structural Aut
 
 GPU work is intentionally deferred until CubeCL 0.11 reaches a stable release. MPI remains a later distributed-memory layer after single-node CPU parallel execution is consolidated.
 
+### 0.8-b2 resident Rayon CSR execution
+
+`ExecutionPolicy::CpuResidentRayon` is an explicit validation policy that combines `RayonKrylovExecution` with `ParallelCsr32Operator` while retaining the existing serial Jacobi preconditioner. It therefore isolates the two already-validated Rayon layers: CSR row-parallel SpMV and resident dense-vector kernels.
+
+`CpuResident` remains the serial resident comparison path, while `Auto` and `Cpu` remain unchanged. `CpuResidentRayon` requires `HybridOptions.enabled = false` and the CSR32 matrix backend; forced ABTM is rejected rather than silently dropping parallel CSR execution.
+
+The resident workspace is still reused across right-hand sides. This checkpoint does not yet parallelize generic Jacobi application and does not route any default policy into the resident Rayon path.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

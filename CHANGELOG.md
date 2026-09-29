@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-b2 development checkpoint
+
+- Add explicit `ExecutionPolicy::CpuResidentRayon`, combining `RayonKrylovExecution` with `ParallelCsr32Operator` under the existing resident PCG recurrence.
+- Keep the generic Jacobi preconditioner serial in this checkpoint so CSR SpMV and resident dense-vector parallelism can be validated independently before adding another parallel layer.
+- Require fixed-preconditioner mode (`HybridOptions.enabled = false`) and CSR32 storage; explicitly reject forced ABTM for the resident Rayon CSR policy.
+- Preserve `Auto`, `Cpu`, and serial `CpuResident` behavior and add public cross-checks against the serial resident path.
+- Re-export the resident Rayon backend/recommendation constants from the top-level `hybit` facade.
 ## 0.8.0-b1 development checkpoint
 
 - Add `RayonKrylovExecution` as a resident CPU implementation of `KrylovExecutionBackend` while preserving the same `pcg_with_execution` recurrence used by the serial resident backend.
