@@ -1,8 +1,12 @@
 mod execution;
+mod fgmres;
 
 pub use execution::{
     pcg_with_execution, resident_rayon_recommended, CpuKrylovExecution, KrylovExecutionBackend,
     RayonKrylovExecution, ResidentPcgWorkspace, RESIDENT_RAYON_MIN_N, RESIDENT_RAYON_MIN_THREADS,
+};
+pub use fgmres::{
+    fgmres, fgmres_with_workspace, FgmresOptions, FgmresWorkspace, FlexiblePreconditioner,
 };
 
 use hybit_core::{

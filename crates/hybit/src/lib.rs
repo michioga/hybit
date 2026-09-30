@@ -43,8 +43,9 @@ pub use hybit_core::{
     SolverOptions,
 };
 pub use hybit_krylov::{
-    parallel_vector_worker_count, pcg, pcg_with_execution, pcg_with_workspace,
-    pcg_with_workspace_parallel_vectors, resident_rayon_recommended, CpuKrylovExecution,
+    fgmres, fgmres_with_workspace, parallel_vector_worker_count, pcg, pcg_with_execution,
+    pcg_with_workspace, pcg_with_workspace_parallel_vectors, resident_rayon_recommended,
+    CpuKrylovExecution, FgmresOptions, FgmresWorkspace, FlexiblePreconditioner,
     KrylovExecutionBackend, KrylovOutcome, PcgWorkspace, RayonKrylovExecution,
     ResidentPcgWorkspace, PARALLEL_PCG_VECTOR_CHUNK, RESIDENT_RAYON_MIN_N,
     RESIDENT_RAYON_MIN_THREADS,

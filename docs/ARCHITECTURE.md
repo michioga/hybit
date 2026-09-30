@@ -68,6 +68,16 @@ The seven-vector resident workspace is allocated lazily on the first resident st
 
 This checkpoint intentionally requires effective Parallel policies for SpMV, structural preconditioning, and PCG vectors. It is a same-preconditioner recurrence cross-check, not a new automatic policy.
 
+### 0.8-e1 flexible GMRES kernel
+
+`hybit-krylov` now contains a standalone restarted FGMRES implementation for real square operators. It is intentionally not wired into `HybitSolver` yet, so SPD/PCG and Structural Auto behavior remain unchanged.
+
+`FlexiblePreconditioner` receives the global Krylov iteration and a mutable receiver. Existing fixed `Preconditioner` implementations automatically satisfy this interface, while a future adaptive HyBIT preconditioner can change its approximation between Arnoldi steps without invalidating the FGMRES recurrence.
+
+`FgmresWorkspace` stores the Arnoldi basis `V`, independently preconditioned basis `Z`, Hessenberg/Givens state, and full-size scratch vectors for solve-many reuse. The first implementation uses two-pass modified Gram-Schmidt and recomputes the true residual at every restart and before accepting convergence.
+
+This checkpoint deliberately stops below the automatic solver dispatch layer. `MatrixProblemClass::GeneralSquare` remains rejected by `HybitSolver` until a later checkpoint explicitly connects the validated FGMRES kernel and defines the nonsymmetric preconditioner policy.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

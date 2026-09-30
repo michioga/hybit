@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-e1 development checkpoint
+
+- Add a standalone restarted FGMRES kernel for real square operators without changing existing PCG or Structural Auto dispatch.
+- Add `FlexiblePreconditioner`, whose mutable iteration-aware application permits a future HyBIT controller to change preconditioners between Arnoldi steps; existing fixed preconditioners receive a blanket implementation.
+- Add reusable `FgmresWorkspace` storage for Arnoldi `V`, flexible preconditioned `Z`, Hessenberg/Givens state, and solve-many scratch.
+- Use two-pass modified Gram-Schmidt and recompute the true residual at restart boundaries and before accepting convergence.
+- Keep `MatrixProblemClass::GeneralSquare` explicitly unbound to the automatic solver until a later checkpoint validates solver/preconditioner policy integration.
 ## 0.8.0-b4 development checkpoint
 
 - Add `HybitPreparedStructuralSystem::solve_resident_rayon` as an explicit same-preconditioner cross-check for the fully parallel structural CPU path.
