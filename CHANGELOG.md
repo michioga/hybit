@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-e4a development checkpoint
+
+- Add opt-in `GeneralSquareRestartPolicy::Escalating` while preserving the E2 fixed-restart default.
+- Escalating GeneralSquare FGMRES carries the current solution across bounded stages, doubles restart up to a configured maximum, and gives the maximum-restart stage all remaining iterations.
+- Treat `FgmresWorkspace::restart()` as allocated restart capacity so one prepared maximum-capacity workspace can serve every smaller escalation stage without reallocating Arnoldi vectors.
+- Default GeneralSquare behavior remains fixed Jacobi + fixed restart 30; adaptive nonsymmetric preconditioning and residual-triggered restart decisions remain deferred.
+- The staged policy is motivated by E3 synthetic convection-diffusion measurements, but the measured stage lengths are not claimed as universal optima.
 ## 0.8.0-e2 development checkpoint
 
 - Route explicitly declared `MatrixProblemClass::GeneralSquare` prepared solves through restarted FGMRES with fixed diagonal Jacobi and report the algorithm explicitly as `SolverKind::Fgmres`.

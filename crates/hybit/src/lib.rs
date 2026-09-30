@@ -27,16 +27,17 @@
 //! ```
 //!
 //! The automatic path remains experimental. Real SPD systems use PCG; an
-//! explicitly declared `GeneralSquare` system uses the fixed-Jacobi restarted
-//! FGMRES checkpoint. See the repository README for current limitations.
+//! explicitly declared `GeneralSquare` system uses fixed-Jacobi FGMRES with
+//! fixed or opt-in escalating restart policy. See the repository README for
+//! current limitations.
 
 pub use hybit_auto::{
-    AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions, HybitAnalysis,
-    HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver, HybridOptions,
-    LocalFactorSelectionPolicy, StructuralOptions, StructuralPcgVectorPolicy,
-    StructuralPreconditionerPolicy, StructuralSpmvPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
-    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS, STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ,
-    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
+    AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions,
+    GeneralSquareRestartPolicy, HybitAnalysis, HybitPreparedStructuralSystem, HybitPreparedSystem,
+    HybitSolver, HybridOptions, LocalFactorSelectionPolicy, StructuralOptions,
+    StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS,
+    STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
 };
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,

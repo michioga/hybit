@@ -269,18 +269,44 @@ impl StructuralOptions {
     }
 }
 
-/// Options for the first executable general-square solver checkpoint.
+/// Restart policy for prepared GeneralSquare FGMRES.
 ///
-/// E2 uses fixed diagonal Jacobi with restarted FGMRES. Adaptive nonsymmetric
-/// preconditioning is intentionally deferred to a later checkpoint.
+/// `Fixed` preserves the E2 behavior. `Escalating` runs bounded FGMRES stages
+/// while carrying the current solution forward, doubling the restart dimension
+/// up to `GeneralSquareOptions::max_restart`. The final maximum-restart stage
+/// receives all remaining Krylov iterations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeneralSquareRestartPolicy {
+    Fixed,
+    Escalating,
+}
+
+/// Options for the prepared real general-square FGMRES path.
+///
+/// The default remains the E2 fixed-restart policy. Escalation is explicit and
+/// currently changes only the restart dimension; Jacobi remains fixed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GeneralSquareOptions {
+    /// Fixed restart dimension, or the initial restart when escalation is used.
     pub restart: usize,
+    pub restart_policy: GeneralSquareRestartPolicy,
+    /// Maximum restart dimension for `Escalating`.
+    pub max_restart: usize,
+    /// Krylov iteration budget for each non-final escalating stage.
+    ///
+    /// Once `max_restart` is reached, that final stage receives every
+    /// remaining iteration from `SolverOptions::max_iterations`.
+    pub escalation_stage_iterations: usize,
 }
 
 impl Default for GeneralSquareOptions {
     fn default() -> Self {
-        Self { restart: 30 }
+        Self {
+            restart: 30,
+            restart_policy: GeneralSquareRestartPolicy::Fixed,
+            max_restart: 70,
+            escalation_stage_iterations: 300,
+        }
     }
 }
 
@@ -291,7 +317,28 @@ impl GeneralSquareOptions {
                 "GeneralSquare FGMRES restart must be > 0",
             ));
         }
+
+        if self.restart_policy == GeneralSquareRestartPolicy::Escalating {
+            if self.max_restart < self.restart {
+                return Err(HybitError::InvalidArgument(
+                    "GeneralSquare escalating max_restart must be >= restart",
+                ));
+            }
+            if self.escalation_stage_iterations == 0 {
+                return Err(HybitError::InvalidArgument(
+                    "GeneralSquare escalation_stage_iterations must be > 0",
+                ));
+            }
+        }
+
         Ok(())
+    }
+
+    fn workspace_restart_capacity(&self) -> usize {
+        match self.restart_policy {
+            GeneralSquareRestartPolicy::Fixed => self.restart,
+            GeneralSquareRestartPolicy::Escalating => self.max_restart,
+        }
     }
 }
 
@@ -437,7 +484,7 @@ pub struct HybitPreparedSystem {
     algebraic_coarse_aggregate_nodes: usize,
     workspace: PcgWorkspace,
     resident_workspace: Option<ResidentPcgWorkspace<Vec<f64>>>,
-    fgmres_restart: usize,
+    general_square_options: GeneralSquareOptions,
     fgmres_workspace: Option<FgmresWorkspace>,
     solve_sequence: usize,
 }
@@ -472,6 +519,106 @@ fn recommend_algebraic_aggregate_nodes(
     Ok(node_count.div_ceil(max_aggregates).max(1))
 }
 
+fn run_general_square_fgmres(
+    operator: &dyn LinearOperator,
+    preconditioner: &mut JacobiPreconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    solver_options: SolverOptions,
+    general_options: GeneralSquareOptions,
+    workspace: &mut FgmresWorkspace,
+) -> Result<KrylovOutcome, HybitError> {
+    match general_options.restart_policy {
+        GeneralSquareRestartPolicy::Fixed => fgmres_with_workspace(
+            operator,
+            preconditioner,
+            b,
+            x,
+            FgmresOptions {
+                solver: solver_options,
+                restart: general_options.restart,
+            },
+            workspace,
+        ),
+        GeneralSquareRestartPolicy::Escalating => {
+            let mut restart = general_options.restart;
+            let mut total_iterations = 0usize;
+            let mut first_initial_residual = None;
+            let mut final_residual = 0.0;
+
+            loop {
+                let remaining = solver_options
+                    .max_iterations
+                    .saturating_sub(total_iterations);
+                if remaining == 0 {
+                    return Ok(KrylovOutcome {
+                        status: SolveStatus::MaxIterations,
+                        iterations: total_iterations,
+                        initial_residual: first_initial_residual.unwrap_or(final_residual),
+                        final_residual,
+                    });
+                }
+
+                let stage_budget = if restart == general_options.max_restart {
+                    remaining
+                } else {
+                    general_options.escalation_stage_iterations.min(remaining)
+                };
+
+                let mut stage_solver = solver_options;
+                stage_solver.max_iterations = stage_budget;
+
+                let outcome = fgmres_with_workspace(
+                    operator,
+                    preconditioner,
+                    b,
+                    x,
+                    FgmresOptions {
+                        solver: stage_solver,
+                        restart,
+                    },
+                    workspace,
+                )?;
+
+                if first_initial_residual.is_none() {
+                    first_initial_residual = Some(outcome.initial_residual);
+                }
+                total_iterations = total_iterations.saturating_add(outcome.iterations);
+                final_residual = outcome.final_residual;
+
+                match outcome.status {
+                    SolveStatus::Converged | SolveStatus::Breakdown => {
+                        return Ok(KrylovOutcome {
+                            status: outcome.status,
+                            iterations: total_iterations,
+                            initial_residual: first_initial_residual
+                                .unwrap_or(outcome.initial_residual),
+                            final_residual,
+                        });
+                    }
+                    SolveStatus::MaxIterations => {}
+                }
+
+                if total_iterations >= solver_options.max_iterations {
+                    return Ok(KrylovOutcome {
+                        status: SolveStatus::MaxIterations,
+                        iterations: total_iterations,
+                        initial_residual: first_initial_residual.unwrap_or(final_residual),
+                        final_residual,
+                    });
+                }
+
+                let next_restart = restart.saturating_mul(2).min(general_options.max_restart);
+                if next_restart == restart {
+                    return Err(HybitError::InvalidArgument(
+                        "GeneralSquare escalating restart did not advance",
+                    ));
+                }
+                restart = next_restart;
+            }
+        }
+    }
+}
 impl HybitPreparedSystem {
     pub fn backend(&self) -> MatrixBackend {
         self.backend
@@ -666,15 +813,13 @@ impl HybitPreparedSystem {
             ))?;
 
         let start = Instant::now();
-        let outcome = fgmres_with_workspace(
+        let outcome = run_general_square_fgmres(
             operator,
             &mut self.jacobi,
             b,
             x,
-            FgmresOptions {
-                solver: self.options,
-                restart: self.fgmres_restart,
-            },
+            self.options,
+            self.general_square_options,
             workspace,
         )?;
         let elapsed = start.elapsed().as_secs_f64();
@@ -1813,7 +1958,7 @@ impl HybitSolver {
         let fgmres_workspace = if analysis.problem_class == MatrixProblemClass::GeneralSquare {
             Some(FgmresWorkspace::new(
                 matrix.nrows(),
-                self.general_square_options.restart,
+                self.general_square_options.workspace_restart_capacity(),
             )?)
         } else {
             None
@@ -1867,7 +2012,7 @@ impl HybitSolver {
             algebraic_coarse_aggregate_nodes: 0,
             workspace,
             resident_workspace,
-            fgmres_restart: self.general_square_options.restart,
+            general_square_options: self.general_square_options,
             fgmres_workspace,
             solve_sequence: 0,
         })

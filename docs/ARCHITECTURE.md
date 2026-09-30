@@ -88,6 +88,28 @@ GeneralSquare currently supports `ExecutionPolicy::Auto` and `Cpu`. Resident PCG
 
 To avoid retaining an unused full PCG scratch set, a GeneralSquare prepared context creates a zero-length legacy PCG workspace and allocates the real `FgmresWorkspace`. SPD and structural execution are unchanged.
 
+### 0.8-e4a staged GeneralSquare restart escalation
+
+GeneralSquare FGMRES now has an explicit restart-policy layer. `Fixed` preserves the
+E2 behavior. The opt-in `Escalating` policy carries the current solution between
+FGMRES stages, doubles the restart dimension from `restart` up to `max_restart`,
+and assigns `escalation_stage_iterations` to each non-final stage. Once the
+maximum restart is reached, that final stage receives the entire remaining
+`SolverOptions::max_iterations` budget.
+
+The prepared context allocates one `FgmresWorkspace` at the maximum required
+restart capacity. Lower-restart stages reuse that same Arnoldi/V/Z storage; the
+workspace does not reallocate at stage boundaries. Matrix analysis, Jacobi
+preconditioner state, and selected sparse backend are also reused.
+
+This checkpoint is scheduled escalation, not residual-triggered adaptation.
+E3 experiments showed that small restart dimensions minimize orthogonalization
+cost on easier nonsymmetric problems, while a harder nonnormal problem benefited
+from progressively larger restart spaces. The concrete experimental stage
+lengths motivate this mechanism but are not assumed to be universal.
+
+The default remains `GeneralSquareRestartPolicy::Fixed` with restart 30, so E4a
+does not silently change E2 solver behavior.
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

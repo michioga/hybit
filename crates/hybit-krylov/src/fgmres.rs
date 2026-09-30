@@ -140,6 +140,10 @@ impl FgmresWorkspace {
         self.n == 0
     }
 
+    /// Maximum restart dimension this workspace can serve.
+    ///
+    /// A workspace allocated for restart capacity `m` may be reused by solves
+    /// whose requested restart is any value in `1..=m`.
     pub fn restart(&self) -> usize {
         self.restart
     }
@@ -175,9 +179,9 @@ impl FgmresWorkspace {
                 actual: self.n,
             });
         }
-        if self.restart != restart {
+        if self.restart < restart {
             return Err(HybitError::InvalidArgument(
-                "FGMRES workspace restart does not match options",
+                "FGMRES workspace restart capacity is smaller than options",
             ));
         }
         Ok(())
@@ -675,6 +679,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn larger_workspace_capacity_serves_smaller_restart() {
+        let a = nonsymmetric_operator();
+        let exact = [1.0, -2.0, 0.5, 3.0];
+        let b = rhs_for(&a, &exact);
+        let mut m = IdentityPreconditioner(4);
+        let mut workspace = FgmresWorkspace::new(4, 4).unwrap();
+        let bytes = workspace.bytes();
+
+        let options = FgmresOptions {
+            solver: SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 32,
+            },
+            restart: 2,
+        };
+
+        let mut x = vec![0.0; 4];
+        let outcome =
+            fgmres_with_workspace(&a, &mut m, &b, &mut x, options, &mut workspace).unwrap();
+
+        assert_eq!(outcome.status, SolveStatus::Converged);
+        assert_eq!(workspace.restart(), 4);
+        assert_eq!(workspace.bytes(), bytes);
+        for (&actual, &expected) in x.iter().zip(&exact) {
+            assert!((actual - expected).abs() <= 1.0e-10);
+        }
+
+        let oversized = FgmresOptions {
+            solver: options.solver,
+            restart: 5,
+        };
+        let error =
+            fgmres_with_workspace(&a, &mut m, &b, &mut x, oversized, &mut workspace).unwrap_err();
+        assert!(matches!(
+            error,
+            HybitError::InvalidArgument(
+                "FGMRES workspace restart capacity is smaller than options"
+            )
+        ));
+    }
     #[test]
     fn restarted_fgmres_crosses_multiple_cycles() {
         let n = 12;
