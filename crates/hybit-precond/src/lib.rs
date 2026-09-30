@@ -63,6 +63,23 @@ impl JacobiPreconditioner {
         Ok(Self { inv_diag })
     }
 
+    /// Build a diagonal inverse for a general square Krylov method.
+    ///
+    /// Unlike the PCG constructor, negative diagonal entries are permitted.
+    /// FGMRES only requires the selected diagonal scaling to be finite and
+    /// nonsingular; it does not require the preconditioner to be SPD.
+    pub fn from_csr32_general(matrix: &Csr32Matrix) -> Result<Self, HybitError> {
+        let diagonal = matrix.diagonal()?;
+        let mut inv_diag = Vec::with_capacity(diagonal.len());
+        for (row, d) in diagonal.into_iter().enumerate() {
+            if d == 0.0 || !d.is_finite() {
+                return Err(HybitError::ZeroDiagonal { row });
+            }
+            inv_diag.push(1.0 / d);
+        }
+        Ok(Self { inv_diag })
+    }
+
     pub fn inv_diagonal(&self) -> &[f64] {
         &self.inv_diag
     }
@@ -3458,6 +3475,23 @@ impl Preconditioner for HybridPreconditioner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn general_jacobi_accepts_negative_nonzero_diagonal() {
+        let matrix = Csr32Matrix::new(
+            3,
+            3,
+            vec![0, 2, 5, 7],
+            vec![0, 1, 0, 1, 2, 1, 2],
+            vec![-2.0, 1.0, 0.5, 3.0, -1.0, 0.25, -4.0],
+        )
+        .unwrap();
+
+        assert!(JacobiPreconditioner::from_csr32(&matrix).is_err());
+
+        let general = JacobiPreconditioner::from_csr32_general(&matrix).unwrap();
+        assert_eq!(general.inv_diagonal(), &[-0.5, 1.0 / 3.0, -0.25]);
+    }
 
     fn poisson_1d(n: usize) -> Csr32Matrix {
         let mut row_ptr = Vec::with_capacity(n + 1);

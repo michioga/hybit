@@ -118,6 +118,7 @@ fn solver_code(kind: SolverKind) -> c_int {
         SolverKind::Gmres => 3,
         SolverKind::Bicgstab => 4,
         SolverKind::Hybrid => 5,
+        SolverKind::Fgmres => 6,
     }
 }
 fn precond_code(kind: PreconditionerKind) -> c_int {

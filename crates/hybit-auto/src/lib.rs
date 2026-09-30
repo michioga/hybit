@@ -7,10 +7,10 @@ use hybit_core::{
     SolveStatus, SolverKind, SolverOptions,
 };
 use hybit_krylov::{
-    parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
-    pcg_with_execution, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
-    CpuKrylovExecution, KrylovOutcome, PcgSession, PcgWorkspace, RayonKrylovExecution,
-    ResidentPcgWorkspace,
+    fgmres_with_workspace, parallel_vector_worker_count, pcg_continue_with_workspace,
+    pcg_start_with_workspace, pcg_with_execution, pcg_with_workspace,
+    pcg_with_workspace_parallel_vectors, CpuKrylovExecution, FgmresOptions, FgmresWorkspace,
+    KrylovOutcome, PcgSession, PcgWorkspace, RayonKrylovExecution, ResidentPcgWorkspace,
 };
 use hybit_matrix::{
     analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
@@ -269,6 +269,32 @@ impl StructuralOptions {
     }
 }
 
+/// Options for the first executable general-square solver checkpoint.
+///
+/// E2 uses fixed diagonal Jacobi with restarted FGMRES. Adaptive nonsymmetric
+/// preconditioning is intentionally deferred to a later checkpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GeneralSquareOptions {
+    pub restart: usize,
+}
+
+impl Default for GeneralSquareOptions {
+    fn default() -> Self {
+        Self { restart: 30 }
+    }
+}
+
+impl GeneralSquareOptions {
+    pub fn validate(&self) -> Result<(), HybitError> {
+        if self.restart == 0 {
+            return Err(HybitError::InvalidArgument(
+                "GeneralSquare FGMRES restart must be > 0",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl HybridOptions {
     pub fn validate(&self) -> Result<(), HybitError> {
         if self.probe_iterations == 0 {
@@ -342,6 +368,7 @@ pub struct HybitSolver {
     problem_class: MatrixProblemClass,
     hybrid_options: HybridOptions,
     structural_options: StructuralOptions,
+    general_square_options: GeneralSquareOptions,
 }
 
 impl Default for HybitSolver {
@@ -353,6 +380,7 @@ impl Default for HybitSolver {
             problem_class: MatrixProblemClass::Spd,
             hybrid_options: HybridOptions::default(),
             structural_options: StructuralOptions::default(),
+            general_square_options: GeneralSquareOptions::default(),
         }
     }
 }
@@ -409,6 +437,8 @@ pub struct HybitPreparedSystem {
     algebraic_coarse_aggregate_nodes: usize,
     workspace: PcgWorkspace,
     resident_workspace: Option<ResidentPcgWorkspace<Vec<f64>>>,
+    fgmres_restart: usize,
+    fgmres_workspace: Option<FgmresWorkspace>,
     solve_sequence: usize,
 }
 
@@ -470,6 +500,10 @@ impl HybitPreparedSystem {
                 .resident_workspace
                 .as_ref()
                 .map_or(0, ResidentPcgWorkspace::bytes)
+            + self
+                .fgmres_workspace
+                .as_ref()
+                .map_or(0, FgmresWorkspace::bytes)
     }
     pub fn has_cached_hybrid(&self) -> bool {
         self.hybrid.is_some()
@@ -544,6 +578,10 @@ impl HybitPreparedSystem {
         let sequence = self.solve_sequence;
         let charge_context_setup = sequence == 1;
 
+        if self.problem_class == MatrixProblemClass::GeneralSquare {
+            return self.solve_general_square(matrix, b, x, sequence, charge_context_setup);
+        }
+
         // Once a difficult subspace has been learned for this matrix, subsequent
         // RHS vectors reuse the exact local Cholesky factors and skip probe/
         // diagnostics/factorization entirely.
@@ -603,6 +641,70 @@ impl HybitPreparedSystem {
         }
 
         self.solve_uncached(matrix, b, x, sequence, charge_context_setup)
+    }
+
+    fn solve_general_square(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+        sequence: usize,
+        charge_context_setup: bool,
+    ) -> Result<SolveReport, HybitError> {
+        debug_assert_eq!(self.problem_class, MatrixProblemClass::GeneralSquare);
+        debug_assert!(matches!(
+            self.execution_policy,
+            ExecutionPolicy::Auto | ExecutionPolicy::Cpu
+        ));
+
+        let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+        let workspace = self
+            .fgmres_workspace
+            .as_mut()
+            .ok_or(HybitError::InvalidArgument(
+                "GeneralSquare prepared FGMRES workspace is unavailable",
+            ))?;
+
+        let start = Instant::now();
+        let outcome = fgmres_with_workspace(
+            operator,
+            &mut self.jacobi,
+            b,
+            x,
+            FgmresOptions {
+                solver: self.options,
+                restart: self.fgmres_restart,
+            },
+            workspace,
+        )?;
+        let elapsed = start.elapsed().as_secs_f64();
+
+        let metrics = ReportMetrics {
+            analysis_seconds: if charge_context_setup {
+                self.analysis_seconds
+            } else {
+                0.0
+            },
+            prepare_seconds: if charge_context_setup {
+                self.prepare_seconds
+            } else {
+                0.0
+            },
+            restart_seconds: elapsed,
+            preconditioner_reused: sequence > 1,
+            solve_sequence: sequence,
+            krylov_workspace_bytes: self.krylov_workspace_bytes(),
+            ..ReportMetrics::default()
+        };
+
+        Ok(report_from_outcome(
+            outcome,
+            SolverKind::Fgmres,
+            PreconditionerKind::Jacobi,
+            self.backend,
+            b,
+            metrics,
+        ))
     }
 
     fn solve_resident_jacobi(
@@ -1491,6 +1593,9 @@ impl HybitSolver {
     pub fn structural_options(&self) -> StructuralOptions {
         self.structural_options
     }
+    pub fn general_square_options(&self) -> GeneralSquareOptions {
+        self.general_square_options
+    }
 
     pub fn set_options(&mut self, options: SolverOptions) -> Result<(), HybitError> {
         options.validate()?;
@@ -1507,6 +1612,15 @@ impl HybitSolver {
     pub fn set_structural_options(&mut self, options: StructuralOptions) -> Result<(), HybitError> {
         options.validate()?;
         self.structural_options = options;
+        Ok(())
+    }
+
+    pub fn set_general_square_options(
+        &mut self,
+        options: GeneralSquareOptions,
+    ) -> Result<(), HybitError> {
+        options.validate()?;
+        self.general_square_options = options;
         Ok(())
     }
 
@@ -1563,18 +1677,43 @@ impl HybitSolver {
             MatrixProblemClass::SymmetricIndefinite => Err(HybitError::InvalidArgument(
                 "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a3",
             )),
-            MatrixProblemClass::GeneralSquare => Err(HybitError::InvalidArgument(
-                "general square systems are recognized but FGMRES/BiCGStab is not implemented in HyBIT 0.8-a3",
-            )),
+            MatrixProblemClass::GeneralSquare => {
+                if !profile.full_diagonal {
+                    return Err(HybitError::InvalidMatrix(
+                        "GeneralSquare FGMRES Jacobi path requires a complete diagonal",
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 
     pub fn analyze_csr32(&self, matrix: &Csr32Matrix) -> Result<HybitAnalysis, HybitError> {
         self.options.validate()?;
         self.hybrid_options.validate()?;
+        self.general_square_options.validate()?;
         let start = Instant::now();
         let profile = analyze_csr32(matrix)?;
         self.validate_problem_class(&profile)?;
+        if self.problem_class == MatrixProblemClass::GeneralSquare {
+            let diagonal = matrix.diagonal()?;
+            if diagonal
+                .iter()
+                .any(|&value| value == 0.0 || !value.is_finite())
+            {
+                return Err(HybitError::InvalidMatrix(
+                    "GeneralSquare FGMRES Jacobi path requires a finite nonzero diagonal",
+                ));
+            }
+            if !matches!(
+                self.execution_policy,
+                ExecutionPolicy::Auto | ExecutionPolicy::Cpu
+            ) {
+                return Err(HybitError::InvalidArgument(
+                    "GeneralSquare FGMRES currently supports Auto/Cpu execution only",
+                ));
+            }
+        }
         if self.execution_policy == ExecutionPolicy::CpuResident && self.hybrid_options.enabled {
             return Err(HybitError::InvalidArgument(
                 "CpuResident validation currently requires HybridOptions.enabled = false",
@@ -1632,6 +1771,7 @@ impl HybitSolver {
     ) -> Result<HybitPreparedSystem, HybitError> {
         self.options.validate()?;
         self.hybrid_options.validate()?;
+        self.general_square_options.validate()?;
         let current_execution_target = self.resolve_execution_target()?;
         if analysis.problem_class != self.problem_class
             || analysis.execution_target != current_execution_target
@@ -1653,7 +1793,10 @@ impl HybitSolver {
             ));
         }
         let start = Instant::now();
-        let jacobi = JacobiPreconditioner::from_csr32(matrix)?;
+        let jacobi = match analysis.problem_class {
+            MatrixProblemClass::GeneralSquare => JacobiPreconditioner::from_csr32_general(matrix)?,
+            _ => JacobiPreconditioner::from_csr32(matrix)?,
+        };
         // Do not eagerly pay the ABTM conversion cost for an easy CSR32
         // problem. Forced-ABTM backends build it here; the Auto/CSR32 hybrid
         // path builds topology lazily only if escalation is actually needed.
@@ -1662,7 +1805,19 @@ impl HybitSolver {
         } else {
             None
         };
-        let workspace = PcgWorkspace::new(matrix.nrows());
+        let workspace = PcgWorkspace::new(if analysis.problem_class == MatrixProblemClass::Spd {
+            matrix.nrows()
+        } else {
+            0
+        });
+        let fgmres_workspace = if analysis.problem_class == MatrixProblemClass::GeneralSquare {
+            Some(FgmresWorkspace::new(
+                matrix.nrows(),
+                self.general_square_options.restart,
+            )?)
+        } else {
+            None
+        };
         let resident_workspace = match self.execution_policy {
             ExecutionPolicy::CpuResident => {
                 let operator = operator_for_backend(matrix, abtm.as_ref(), analysis.backend);
@@ -1712,6 +1867,8 @@ impl HybitSolver {
             algebraic_coarse_aggregate_nodes: 0,
             workspace,
             resident_workspace,
+            fgmres_restart: self.general_square_options.restart,
+            fgmres_workspace,
             solve_sequence: 0,
         })
     }

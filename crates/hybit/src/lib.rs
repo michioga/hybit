@@ -26,11 +26,12 @@
 //! # Ok::<(), hybit::HybitError>(())
 //! ```
 //!
-//! The automatic path is currently experimental and restricted to real SPD
-//! systems with PCG. See the repository README for current limitations.
+//! The automatic path remains experimental. Real SPD systems use PCG; an
+//! explicitly declared `GeneralSquare` system uses the fixed-Jacobi restarted
+//! FGMRES checkpoint. See the repository README for current limitations.
 
 pub use hybit_auto::{
-    AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, HybitAnalysis,
+    AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions, HybitAnalysis,
     HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver, HybridOptions,
     LocalFactorSelectionPolicy, StructuralOptions, StructuralPcgVectorPolicy,
     StructuralPreconditionerPolicy, StructuralSpmvPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,

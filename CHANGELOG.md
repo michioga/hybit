@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-e2 development checkpoint
+
+- Route explicitly declared `MatrixProblemClass::GeneralSquare` prepared solves through restarted FGMRES with fixed diagonal Jacobi and report the algorithm explicitly as `SolverKind::Fgmres`.
+- Add `GeneralSquareOptions::restart` with a default restart dimension of 30 and reuse `FgmresWorkspace` across right-hand sides.
+- Add a general-square Jacobi constructor that permits negative diagonal entries while requiring finite nonzero pivots; preserve the positive-diagonal PCG constructor unchanged.
+- Restrict the first GeneralSquare execution path to `ExecutionPolicy::Auto`/`Cpu`; resident PCG validation policies remain separate.
+- Keep SPD PCG, adaptive Hybrid, and Structural Auto behavior unchanged.
 ## 0.8.0-e1 development checkpoint
 
 - Add a standalone restarted FGMRES kernel for real square operators without changing existing PCG or Structural Auto dispatch.

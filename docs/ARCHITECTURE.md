@@ -78,6 +78,16 @@ This checkpoint intentionally requires effective Parallel policies for SpMV, str
 
 This checkpoint deliberately stops below the automatic solver dispatch layer. `MatrixProblemClass::GeneralSquare` remains rejected by `HybitSolver` until a later checkpoint explicitly connects the validated FGMRES kernel and defines the nonsymmetric preconditioner policy.
 
+### 0.8-e2 prepared GeneralSquare FGMRES
+
+An explicitly declared `MatrixProblemClass::GeneralSquare` now routes the generic prepared solver through restarted FGMRES with fixed diagonal Jacobi. `GeneralSquareOptions::restart` controls the Arnoldi restart dimension and defaults to 30. Solve reports identify this path explicitly as `SolverKind::Fgmres` rather than collapsing it into the ordinary GMRES family.
+
+The E2 checkpoint accepts negative diagonal entries for the general-square Jacobi scaling, while still requiring a complete finite nonzero diagonal. The established SPD Jacobi constructor keeps its positive-diagonal requirement unchanged.
+
+GeneralSquare currently supports `ExecutionPolicy::Auto` and `Cpu`. Resident PCG validation policies are rejected rather than silently reused for FGMRES. Adaptive Hybrid/Schwarz/coarse strengthening is not active on the GeneralSquare path yet; the prepared FGMRES workspace is reused across right-hand sides.
+
+To avoid retaining an unused full PCG scratch set, a GeneralSquare prepared context creates a zero-length legacy PCG workspace and allocates the real `FgmresWorkspace`. SPD and structural execution are unchanged.
+
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

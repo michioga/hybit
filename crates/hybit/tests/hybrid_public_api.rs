@@ -1,7 +1,18 @@
 use hybit::{
-    Csr32Matrix, ExecutionPolicy, ExecutionTarget, HybitError, HybitSolver, MatrixProblemClass,
-    PreconditionerKind, SolverOptions,
+    Csr32Matrix, ExecutionPolicy, ExecutionTarget, GeneralSquareOptions, HybitError, HybitSolver,
+    MatrixProblemClass, PreconditionerKind, SolverKind, SolverOptions,
 };
+
+fn nonsymmetric_general_matrix() -> Csr32Matrix {
+    Csr32Matrix::new(
+        4,
+        4,
+        vec![0, 2, 5, 8, 10],
+        vec![0, 1, 0, 1, 2, 1, 2, 3, 0, 3],
+        vec![-4.0, 1.0, 2.0, 3.0, 1.0, -1.0, -2.0, 1.0, 1.0, 2.0],
+    )
+    .unwrap()
+}
 
 fn test_matrix() -> Csr32Matrix {
     let easy = 16usize;
@@ -142,7 +153,7 @@ fn gpu_policy_is_explicitly_rejected_until_backend_exists() {
 }
 
 #[test]
-fn future_square_problem_classes_are_recognized_but_not_silently_routed_to_pcg() {
+fn symmetric_indefinite_remains_recognized_but_unrouted() {
     let a = test_matrix();
 
     let mut symmetric_indefinite = HybitSolver::new();
@@ -154,14 +165,74 @@ fn future_square_problem_classes_are_recognized_but_not_silently_routed_to_pcg()
             "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a3"
         )
     ));
+}
 
-    let mut general = HybitSolver::new();
-    general.set_problem_class(MatrixProblemClass::GeneralSquare);
-    let error = general.analyze_csr32(&a).unwrap_err();
+#[test]
+fn general_square_uses_prepared_fgmres_with_jacobi() {
+    let a = nonsymmetric_general_matrix();
+    let exact1 = vec![1.0, -2.0, 0.5, 3.0];
+    let b1 = a.spmv(&exact1).unwrap();
+
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 64,
+        })
+        .unwrap();
+    solver
+        .set_general_square_options(GeneralSquareOptions { restart: 2 })
+        .unwrap();
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    assert_eq!(analysis.problem_class(), MatrixProblemClass::GeneralSquare);
+
+    let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+    assert_eq!(prepared.problem_class(), MatrixProblemClass::GeneralSquare);
+    assert!(prepared.krylov_workspace_bytes() > 0);
+
+    let mut x1 = vec![0.0; 4];
+    let first = prepared.solve(&a, &b1, &mut x1).unwrap();
+    assert!(first.converged());
+    assert_eq!(first.solver, SolverKind::Fgmres);
+    assert_eq!(first.preconditioner, PreconditionerKind::Jacobi);
+    assert!(!first.preconditioner_reused);
+    assert_eq!(first.solve_sequence, 1);
+
+    for (&actual, &expected) in x1.iter().zip(&exact1) {
+        assert!((actual - expected).abs() <= 1.0e-10);
+    }
+
+    let exact2 = vec![-0.5, 1.5, -2.0, 0.25];
+    let b2 = a.spmv(&exact2).unwrap();
+    let mut x2 = vec![0.0; 4];
+    let second = prepared.solve(&a, &b2, &mut x2).unwrap();
+
+    assert!(second.converged());
+    assert_eq!(second.solver, SolverKind::Fgmres);
+    assert!(second.preconditioner_reused);
+    assert_eq!(second.solve_sequence, 2);
+    assert_eq!(second.prepare_seconds, 0.0);
+
+    for (&actual, &expected) in x2.iter().zip(&exact2) {
+        assert!((actual - expected).abs() <= 1.0e-10);
+    }
+}
+
+#[test]
+fn general_square_rejects_resident_pcg_execution_policy() {
+    let a = nonsymmetric_general_matrix();
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver.set_execution_policy(ExecutionPolicy::CpuResident);
+
+    let error = solver.analyze_csr32(&a).unwrap_err();
     assert!(matches!(
         error,
         HybitError::InvalidArgument(
-            "general square systems are recognized but FGMRES/BiCGStab is not implemented in HyBIT 0.8-a3"
+            "GeneralSquare FGMRES currently supports Auto/Cpu execution only"
         )
     ));
 }

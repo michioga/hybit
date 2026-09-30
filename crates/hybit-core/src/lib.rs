@@ -96,6 +96,7 @@ pub enum SolverKind {
     Pcg,
     Minres,
     Gmres,
+    Fgmres,
     Bicgstab,
     Hybrid,
 }
