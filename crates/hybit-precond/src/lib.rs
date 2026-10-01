@@ -110,6 +110,257 @@ impl Preconditioner for JacobiPreconditioner {
     }
 }
 
+/// Row-relative pivot floor used by the GeneralSquare ILU(0) factorization.
+///
+/// E5 pivot studies selected the smallest tested floor that rescued exact
+/// factor-pivot breakdowns while remaining inactive on the validated hard
+/// nonsymmetric family. The floor is applied only when an ILU pivot magnitude
+/// is at or below `ILU0_RELATIVE_PIVOT_FLOOR * row_max`.
+pub const ILU0_RELATIVE_PIVOT_FLOOR: f64 = 1.0e-12;
+
+/// Canonical no-fill incomplete LU preconditioner for real general square CSR.
+///
+/// The constructor privately canonicalizes every CSR row because `Csr32Matrix`
+/// intentionally does not require sorted or unique column indices. Columns are
+/// sorted, duplicates are summed, and exact-zero off-diagonal entries are
+/// dropped before factorization. The original caller matrix is not modified.
+///
+/// Factorization preserves that canonical sparsity pattern. No fill entries or
+/// row permutations are introduced. Small/zero factor pivots are selectively
+/// replaced by a row-relative floor; healthy pivots are left untouched.
+#[derive(Clone, Debug)]
+pub struct Ilu0Preconditioner {
+    n: usize,
+    row_ptr: Vec<u32>,
+    col_idx: Vec<u32>,
+    lu: Vec<f64>,
+    diag_pos: Vec<u32>,
+    adjusted_pivots: usize,
+}
+
+impl Ilu0Preconditioner {
+    pub fn from_csr32_general(matrix: &Csr32Matrix) -> Result<Self, HybitError> {
+        if matrix.nrows() != matrix.ncols() {
+            return Err(HybitError::InvalidMatrix("ILU(0) requires a square matrix"));
+        }
+
+        let n = matrix.nrows();
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::with_capacity(matrix.nnz());
+        let mut lu = Vec::with_capacity(matrix.nnz());
+        let mut entries = Vec::<(u32, f64)>::new();
+        row_ptr.push(0);
+
+        for row in 0..n {
+            entries.clear();
+            let start = matrix.row_ptr()[row] as usize;
+            let end = matrix.row_ptr()[row + 1] as usize;
+            entries.extend(
+                matrix.col_idx()[start..end]
+                    .iter()
+                    .copied()
+                    .zip(matrix.values()[start..end].iter().copied()),
+            );
+            entries.sort_unstable_by_key(|&(col, _)| col);
+
+            let mut found_diagonal = false;
+            let mut p = 0usize;
+            while p < entries.len() {
+                let col = entries[p].0;
+                let mut value = entries[p].1;
+                p += 1;
+                while p < entries.len() && entries[p].0 == col {
+                    value += entries[p].1;
+                    p += 1;
+                }
+
+                if !value.is_finite() {
+                    return Err(HybitError::NumericalBreakdown(
+                        "ILU(0) duplicate accumulation became non-finite",
+                    ));
+                }
+
+                if col as usize == row {
+                    found_diagonal = true;
+                } else if value == 0.0 {
+                    continue;
+                }
+
+                col_idx.push(col);
+                lu.push(value);
+            }
+
+            if !found_diagonal {
+                return Err(HybitError::MissingDiagonal { row });
+            }
+
+            row_ptr.push(u32::try_from(col_idx.len()).map_err(|_| HybitError::SizeOverflow)?);
+        }
+
+        let mut diag_pos = vec![u32::MAX; n];
+        let mut row_scale = vec![0.0f64; n];
+
+        for row in 0..n {
+            let start = row_ptr[row] as usize;
+            let end = row_ptr[row + 1] as usize;
+            let diag_offset = col_idx[start..end]
+                .binary_search(&(row as u32))
+                .map_err(|_| HybitError::MissingDiagonal { row })?;
+            diag_pos[row] =
+                u32::try_from(start + diag_offset).map_err(|_| HybitError::SizeOverflow)?;
+
+            row_scale[row] = lu[start..end]
+                .iter()
+                .fold(0.0f64, |scale, &value| scale.max(value.abs()));
+            if !row_scale[row].is_finite() || row_scale[row] == 0.0 {
+                return Err(HybitError::NumericalBreakdown(
+                    "ILU(0) row scale is zero or non-finite",
+                ));
+            }
+        }
+
+        let mut adjusted_pivots = 0usize;
+
+        for row in 0..n {
+            let start = row_ptr[row] as usize;
+            let end = row_ptr[row + 1] as usize;
+            let diag = diag_pos[row] as usize;
+
+            for p in start..diag {
+                let lower_col = col_idx[p] as usize;
+                let lower_diag = diag_pos[lower_col] as usize;
+                let pivot = lu[lower_diag];
+
+                if !pivot.is_finite() || pivot == 0.0 {
+                    return Err(HybitError::NumericalBreakdown(
+                        "ILU(0) previous pivot became zero or non-finite",
+                    ));
+                }
+
+                let multiplier = lu[p] / pivot;
+                if !multiplier.is_finite() {
+                    return Err(HybitError::NumericalBreakdown(
+                        "ILU(0) multiplier became non-finite",
+                    ));
+                }
+                lu[p] = multiplier;
+
+                let lower_end = row_ptr[lower_col + 1] as usize;
+                for q in (lower_diag + 1)..lower_end {
+                    let target_col = col_idx[q];
+                    if let Ok(offset) = col_idx[(p + 1)..end].binary_search(&target_col) {
+                        let target = p + 1 + offset;
+                        lu[target] -= multiplier * lu[q];
+                        if !lu[target].is_finite() {
+                            return Err(HybitError::NumericalBreakdown(
+                                "ILU(0) numeric update became non-finite",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            let raw_pivot = lu[diag];
+            if !raw_pivot.is_finite() {
+                return Err(HybitError::NumericalBreakdown(
+                    "ILU(0) pivot became non-finite",
+                ));
+            }
+
+            let floor = (ILU0_RELATIVE_PIVOT_FLOOR * row_scale[row]).max(f64::MIN_POSITIVE);
+            if raw_pivot.abs() <= floor {
+                lu[diag] = if raw_pivot.is_sign_negative() {
+                    -floor
+                } else {
+                    floor
+                };
+                adjusted_pivots = adjusted_pivots
+                    .checked_add(1)
+                    .ok_or(HybitError::SizeOverflow)?;
+            }
+        }
+
+        Ok(Self {
+            n,
+            row_ptr,
+            col_idx,
+            lu,
+            diag_pos,
+            adjusted_pivots,
+        })
+    }
+
+    pub fn canonical_nnz(&self) -> usize {
+        self.lu.len()
+    }
+
+    pub fn adjusted_pivots(&self) -> usize {
+        self.adjusted_pivots
+    }
+
+    pub fn factor_bytes(&self) -> usize {
+        self.row_ptr.len() * std::mem::size_of::<u32>()
+            + self.col_idx.len() * std::mem::size_of::<u32>()
+            + self.lu.len() * std::mem::size_of::<f64>()
+            + self.diag_pos.len() * std::mem::size_of::<u32>()
+    }
+}
+
+impl Preconditioner for Ilu0Preconditioner {
+    fn len(&self) -> usize {
+        self.n
+    }
+
+    fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
+        if r.len() != self.n {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: r.len(),
+            });
+        }
+        if z.len() != self.n {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.n,
+                actual: z.len(),
+            });
+        }
+
+        z.copy_from_slice(r);
+
+        for row in 0..self.n {
+            let start = self.row_ptr[row] as usize;
+            let diag = self.diag_pos[row] as usize;
+            let mut sum = z[row];
+            for p in start..diag {
+                sum -= self.lu[p] * z[self.col_idx[p] as usize];
+            }
+            z[row] = sum;
+        }
+
+        for row in (0..self.n).rev() {
+            let diag = self.diag_pos[row] as usize;
+            let end = self.row_ptr[row + 1] as usize;
+            let mut sum = z[row];
+            for p in (diag + 1)..end {
+                sum -= self.lu[p] * z[self.col_idx[p] as usize];
+            }
+            let pivot = self.lu[diag];
+            if !pivot.is_finite() || pivot == 0.0 {
+                return Err(HybitError::NumericalBreakdown(
+                    "ILU(0) triangular solve encountered an invalid pivot",
+                ));
+            }
+            z[row] = sum / pivot;
+            if !z[row].is_finite() {
+                return Err(HybitError::NumericalBreakdown(
+                    "ILU(0) triangular solve became non-finite",
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
 /// Chunk size used by the explicit Rayon Jacobi view.
 pub const PARALLEL_JACOBI_CHUNK: usize = 16_384;
 
@@ -4264,6 +4515,81 @@ pub fn recommend_rigid_body_aggregate_nodes(
     Ok(aggregate_nodes.min(node_count))
 }
 
+#[cfg(test)]
+mod ilu0_tests {
+    use super::*;
+
+    fn base_general_matrix() -> Csr32Matrix {
+        Csr32Matrix::new(
+            2,
+            2,
+            vec![0, 2, 4],
+            vec![0, 1, 0, 1],
+            vec![4.0, 1.0, 2.0, 3.0],
+        )
+        .unwrap()
+    }
+
+    fn duplicate_unsorted_equivalent() -> Csr32Matrix {
+        Csr32Matrix::new(
+            2,
+            2,
+            vec![0, 4, 8],
+            vec![1, 0, 1, 0, 1, 0, 1, 0],
+            vec![0.25, 1.5, 0.75, 2.5, 1.0, 0.75, 2.0, 1.25],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn ilu0_canonicalizes_unsorted_duplicate_rows() {
+        let base = Ilu0Preconditioner::from_csr32_general(&base_general_matrix()).unwrap();
+        let duplicate =
+            Ilu0Preconditioner::from_csr32_general(&duplicate_unsorted_equivalent()).unwrap();
+
+        assert_eq!(base.canonical_nnz(), 4);
+        assert_eq!(duplicate.canonical_nnz(), 4);
+        assert_eq!(base.adjusted_pivots(), 0);
+        assert_eq!(duplicate.adjusted_pivots(), 0);
+
+        let rhs = [1.25, -0.75];
+        let mut z_base = [0.0; 2];
+        let mut z_duplicate = [0.0; 2];
+        base.apply(&rhs, &mut z_base).unwrap();
+        duplicate.apply(&rhs, &mut z_duplicate).unwrap();
+
+        for (&a, &b) in z_base.iter().zip(&z_duplicate) {
+            assert!((a - b).abs() <= 1.0e-14);
+        }
+    }
+
+    #[test]
+    fn ilu0_selective_floor_rescues_factor_zero_pivot() {
+        let matrix = Csr32Matrix::new(
+            3,
+            3,
+            vec![0, 2, 5, 7],
+            vec![0, 1, 0, 1, 2, 1, 2],
+            vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        )
+        .unwrap();
+
+        let ilu = Ilu0Preconditioner::from_csr32_general(&matrix).unwrap();
+        assert_eq!(ilu.adjusted_pivots(), 1);
+
+        let rhs = [0.5, -1.0, 2.0];
+        let mut z = [0.0; 3];
+        ilu.apply(&rhs, &mut z).unwrap();
+        assert!(z.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn ilu0_healthy_matrix_needs_no_pivot_adjustment() {
+        let ilu = Ilu0Preconditioner::from_csr32_general(&base_general_matrix()).unwrap();
+        assert_eq!(ilu.adjusted_pivots(), 0);
+        assert!(ilu.factor_bytes() > 0);
+    }
+}
 #[cfg(test)]
 mod structural_auto_tests {
     use super::*;

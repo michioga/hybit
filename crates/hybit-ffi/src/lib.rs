@@ -129,6 +129,7 @@ fn precond_code(kind: PreconditionerKind) -> c_int {
         PreconditionerKind::LocalDirect => 3,
         PreconditionerKind::Hybrid => 4,
         PreconditionerKind::RigidBodyTwoLevel => 5,
+        PreconditionerKind::Ilu0 => 6,
     }
 }
 fn backend_code(kind: MatrixBackend) -> c_int {

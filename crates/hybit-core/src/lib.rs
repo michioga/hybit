@@ -109,6 +109,7 @@ pub enum PreconditionerKind {
     LocalDirect,
     Hybrid,
     RigidBodyTwoLevel,
+    Ilu0,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

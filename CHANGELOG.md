@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0-e5 development checkpoint
+
+- Add opt-in `GeneralSquarePreconditionerPolicy::Ilu0`; Jacobi remains the default and restart policy remains an independent choice.
+- Add canonical CSR ILU(0) preparation that sorts row columns, sums duplicate entries, drops exact-zero off-diagonals, and stores diagonal positions as `u32`.
+- Stabilize only zero/small factor pivots with a fixed row-relative floor of `1e-12`; healthy pivots are not modified. Expose the number of adjusted pivots and persistent factor bytes on the prepared GeneralSquare context.
+- E5 screening on the synthetic hard A/B/C families found ILU(0) substantially stronger than Jacobi, Ruiz-scaled Jacobi, and contiguous dense-LU block Jacobi. With ILU(0), restart 3 was the fastest tested FGMRES restart and used the least Arnoldi memory across all three families.
+- Preserve the E2-E4 default GeneralSquare behavior. E5 does not silently promote ILU(0), does not automatically rewrite restart to 3, and does not add ILUT/drop-tolerance fill.
+- Append `PreconditionerKind::Ilu0` to reporting; the C ABI preconditioner code is 6 and existing codes 0 through 5 remain unchanged.
 ## 0.8.0-e4b development checkpoint
 
 - Add opt-in `GeneralSquareRestartPolicy::BudgetAware`; the default remains fixed restart 30.

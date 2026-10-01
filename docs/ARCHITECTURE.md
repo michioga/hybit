@@ -88,6 +88,36 @@ GeneralSquare currently supports `ExecutionPolicy::Auto` and `Cpu`. Resident PCG
 
 To avoid retaining an unused full PCG scratch set, a GeneralSquare prepared context creates a zero-length legacy PCG workspace and allocates the real `FgmresWorkspace`. SPD and structural execution are unchanged.
 
+### 0.8-e5 prepared GeneralSquare ILU(0)
+
+GeneralSquare now has an explicit solver-level fixed-preconditioner policy
+independent from `GeneralSquareOptions` and its FGMRES restart policy. `Jacobi`
+remains the default. `Ilu0` is an opt-in prepared preconditioner selected with
+`set_general_square_preconditioner_policy` and reused across right-hand sides
+while the exact matrix structure/value signatures remain unchanged.
+
+`Csr32Matrix` does not require sorted or unique columns, so ILU(0) owns a
+private canonical CSR representation. Preparation sorts each row, sums
+duplicates, removes exact-zero off-diagonal entries, verifies a diagonal entry,
+and then performs a no-fill numeric LU factorization on that canonical pattern.
+The caller's matrix and selected SpMV backend are unchanged. Diagonal factor
+positions use `u32`, matching CSR32's nnz representation.
+
+No row pivoting or fill is introduced. A factor pivot whose magnitude is at or
+below `1e-12 * row_max` is selectively replaced by a same-sign row-relative
+floor (positive for exact zero). E5 pivot studies found this smallest tested
+floor sufficient to rescue exact factor-pivot breakdowns, including row scales
+spanning `1e-8` through `1e8`, while applying zero adjustments to the validated
+healthy hard-B family. The prepared context exposes adjusted-pivot count so
+callers can detect whether stabilization occurred.
+
+E5 screening also showed that once ILU(0) is active, large Arnoldi restart
+dimensions can become counterproductive: restart 3 was the fastest and
+lowest-memory tested setting across the synthetic hard A/B/C families.
+Nevertheless HyBIT does not couple these controls implicitly. Selecting ILU(0)
+does not change `GeneralSquareOptions::restart`; applications must opt into a
+smaller restart explicitly. Jacobi + fixed restart 30 remains the default
+GeneralSquare behavior.
 ### 0.8-e4b budget-aware GeneralSquare restart control
 
 The opt-in `BudgetAware` GeneralSquare policy adapts FGMRES restart at exact

@@ -18,8 +18,8 @@ use hybit_matrix::{
     ParallelCsr32Operator,
 };
 use hybit_precond::{
-    recommend_rigid_body_aggregate_nodes, HybridPreconditioner, JacobiPreconditioner,
-    ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
+    recommend_rigid_body_aggregate_nodes, HybridPreconditioner, Ilu0Preconditioner,
+    JacobiPreconditioner, ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
     RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelBlockJacobiPreconditioner,
 };
 pub use hybit_precond::{
@@ -270,6 +270,16 @@ impl StructuralOptions {
     }
 }
 
+/// Fixed preconditioner selected for prepared GeneralSquare FGMRES.
+///
+/// `Jacobi` preserves the E2-E4 behavior and remains the default. `Ilu0` is an
+/// explicit E5 opt-in using canonical no-fill incomplete LU with selective
+/// row-relative pivot stabilization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeneralSquarePreconditionerPolicy {
+    Jacobi,
+    Ilu0,
+}
 /// Restart policy for prepared GeneralSquare FGMRES.
 ///
 /// `Fixed` preserves the E2 behavior. `Escalating` runs bounded FGMRES stages
@@ -436,6 +446,7 @@ pub struct HybitSolver {
     hybrid_options: HybridOptions,
     structural_options: StructuralOptions,
     general_square_options: GeneralSquareOptions,
+    general_square_preconditioner_policy: GeneralSquarePreconditionerPolicy,
 }
 
 impl Default for HybitSolver {
@@ -448,6 +459,7 @@ impl Default for HybitSolver {
             hybrid_options: HybridOptions::default(),
             structural_options: StructuralOptions::default(),
             general_square_options: GeneralSquareOptions::default(),
+            general_square_preconditioner_policy: GeneralSquarePreconditionerPolicy::Jacobi,
         }
     }
 }
@@ -486,6 +498,42 @@ impl HybitAnalysis {
 }
 
 #[derive(Debug)]
+enum PreparedGeneralSquarePreconditioner {
+    Jacobi(JacobiPreconditioner),
+    Ilu0(Ilu0Preconditioner),
+}
+
+impl PreparedGeneralSquarePreconditioner {
+    fn kind(&self) -> PreconditionerKind {
+        match self {
+            Self::Jacobi(_) => PreconditionerKind::Jacobi,
+            Self::Ilu0(_) => PreconditionerKind::Ilu0,
+        }
+    }
+
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Jacobi(jacobi) => std::mem::size_of_val(jacobi.inv_diagonal()),
+            Self::Ilu0(ilu) => ilu.factor_bytes(),
+        }
+    }
+
+    fn ilu_adjusted_pivots(&self) -> usize {
+        match self {
+            Self::Jacobi(_) => 0,
+            Self::Ilu0(ilu) => ilu.adjusted_pivots(),
+        }
+    }
+
+    fn as_preconditioner_mut(&mut self) -> &mut dyn Preconditioner {
+        match self {
+            Self::Jacobi(jacobi) => jacobi,
+            Self::Ilu0(ilu) => ilu,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct HybitPreparedSystem {
     options: SolverOptions,
     hybrid_options: HybridOptions,
@@ -497,7 +545,8 @@ pub struct HybitPreparedSystem {
     value_signature: u64,
     analysis_seconds: f64,
     prepare_seconds: f64,
-    jacobi: JacobiPreconditioner,
+    jacobi: Option<JacobiPreconditioner>,
+    general_square_preconditioner: Option<PreparedGeneralSquarePreconditioner>,
     abtm: Option<AbtmMatrix>,
     hybrid: Option<HybridPreconditioner>,
     algebraic_coarse: Option<TwoLevelBlockJacobiPreconditioner>,
@@ -636,15 +685,18 @@ impl BudgetAwareFgmresRestartController {
         next_restart
     }
 }
-fn run_general_square_fgmres(
+fn run_general_square_fgmres<M>(
     operator: &dyn LinearOperator,
-    preconditioner: &mut JacobiPreconditioner,
+    preconditioner: &mut M,
     b: &[f64],
     x: &mut [f64],
     solver_options: SolverOptions,
     general_options: GeneralSquareOptions,
     workspace: &mut FgmresWorkspace,
-) -> Result<KrylovOutcome, HybitError> {
+) -> Result<KrylovOutcome, HybitError>
+where
+    M: Preconditioner + ?Sized,
+{
     match general_options.restart_policy {
         GeneralSquareRestartPolicy::Fixed => fgmres_with_workspace(
             operator,
@@ -789,6 +841,16 @@ impl HybitPreparedSystem {
                 .fgmres_workspace
                 .as_ref()
                 .map_or(0, FgmresWorkspace::bytes)
+    }
+    pub fn general_square_preconditioner_bytes(&self) -> usize {
+        self.general_square_preconditioner
+            .as_ref()
+            .map_or(0, PreparedGeneralSquarePreconditioner::bytes)
+    }
+    pub fn general_square_ilu_adjusted_pivots(&self) -> usize {
+        self.general_square_preconditioner
+            .as_ref()
+            .map_or(0, PreparedGeneralSquarePreconditioner::ilu_adjusted_pivots)
     }
     pub fn has_cached_hybrid(&self) -> bool {
         self.hybrid.is_some()
@@ -950,10 +1012,18 @@ impl HybitPreparedSystem {
                 "GeneralSquare prepared FGMRES workspace is unavailable",
             ))?;
 
+        let preconditioner =
+            self.general_square_preconditioner
+                .as_mut()
+                .ok_or(HybitError::InvalidArgument(
+                    "GeneralSquare prepared preconditioner is unavailable",
+                ))?;
+        let preconditioner_kind = preconditioner.kind();
+
         let start = Instant::now();
         let outcome = run_general_square_fgmres(
             operator,
-            &mut self.jacobi,
+            preconditioner.as_preconditioner_mut(),
             b,
             x,
             self.options,
@@ -983,7 +1053,7 @@ impl HybitPreparedSystem {
         Ok(report_from_outcome(
             outcome,
             SolverKind::Fgmres,
-            PreconditionerKind::Jacobi,
+            preconditioner_kind,
             self.backend,
             b,
             metrics,
@@ -1016,7 +1086,10 @@ impl HybitPreparedSystem {
                         .ok_or(HybitError::InvalidArgument(
                             "CpuResident prepared workspace is unavailable",
                         ))?;
-                let mut execution = CpuKrylovExecution::new(operator, &self.jacobi);
+                let preconditioner = self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "prepared SPD Jacobi preconditioner is unavailable",
+                ))?;
+                let mut execution = CpuKrylovExecution::new(operator, preconditioner);
                 pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?
             }
             ExecutionPolicy::CpuResidentRayon => {
@@ -1028,13 +1101,19 @@ impl HybitPreparedSystem {
                         .ok_or(HybitError::InvalidArgument(
                             "CpuResidentRayon prepared workspace is unavailable",
                         ))?;
-                let mut execution = RayonKrylovExecution::new(&operator, &self.jacobi);
+                let preconditioner = self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "prepared SPD Jacobi preconditioner is unavailable",
+                ))?;
+                let mut execution = RayonKrylovExecution::new(&operator, preconditioner);
                 pcg_with_execution(&mut execution, b, x, self.options, resident_workspace)?
             }
             ExecutionPolicy::CpuResidentRayonJacobi => {
                 debug_assert_eq!(self.backend, MatrixBackend::Csr32);
                 let operator = ParallelCsr32Operator::new(matrix);
-                let preconditioner = ParallelJacobiPreconditioner::new(&self.jacobi);
+                let jacobi = self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "prepared SPD Jacobi preconditioner is unavailable",
+                ))?;
+                let preconditioner = ParallelJacobiPreconditioner::new(jacobi);
                 let resident_workspace =
                     self.resident_workspace
                         .as_mut()
@@ -1123,7 +1202,9 @@ impl HybitPreparedSystem {
         } else {
             pcg_start_with_workspace(
                 operator,
-                &self.jacobi,
+                self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "prepared SPD Jacobi preconditioner is unavailable",
+                ))?,
                 b,
                 x,
                 self.options,
@@ -1143,7 +1224,9 @@ impl HybitPreparedSystem {
         } else {
             pcg_continue_with_workspace(
                 operator,
-                &self.jacobi,
+                self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "prepared SPD Jacobi preconditioner is unavailable",
+                ))?,
                 b,
                 x,
                 probe_budget,
@@ -1248,7 +1331,9 @@ impl HybitPreparedSystem {
             } else {
                 pcg_continue_with_workspace(
                     operator,
-                    &self.jacobi,
+                    self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                        "prepared SPD Jacobi preconditioner is unavailable",
+                    ))?,
                     b,
                     x,
                     remaining,
@@ -1317,7 +1402,12 @@ impl HybitPreparedSystem {
                 &active_regions,
                 candidate_regions,
                 &current_residual,
-                self.jacobi.inv_diagonal(),
+                self.jacobi
+                    .as_ref()
+                    .ok_or(HybitError::InvalidArgument(
+                        "prepared SPD Jacobi preconditioner is unavailable",
+                    ))?
+                    .inv_diagonal(),
                 self.hybrid_options.local_factor_selection,
                 self.hybrid_options.max_local_factor_bytes,
             )?;
@@ -1457,7 +1547,9 @@ impl HybitPreparedSystem {
             } else {
                 pcg_continue_with_workspace(
                     operator,
-                    &self.jacobi,
+                    self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                        "prepared SPD Jacobi preconditioner is unavailable",
+                    ))?,
                     b,
                     x,
                     remaining,
@@ -1879,6 +1971,9 @@ impl HybitSolver {
     pub fn general_square_options(&self) -> GeneralSquareOptions {
         self.general_square_options
     }
+    pub fn general_square_preconditioner_policy(&self) -> GeneralSquarePreconditionerPolicy {
+        self.general_square_preconditioner_policy
+    }
 
     pub fn set_options(&mut self, options: SolverOptions) -> Result<(), HybitError> {
         options.validate()?;
@@ -1905,6 +2000,13 @@ impl HybitSolver {
         options.validate()?;
         self.general_square_options = options;
         Ok(())
+    }
+
+    pub fn set_general_square_preconditioner_policy(
+        &mut self,
+        policy: GeneralSquarePreconditionerPolicy,
+    ) {
+        self.general_square_preconditioner_policy = policy;
     }
 
     pub fn set_backend_policy(&mut self, policy: BackendPolicy) {
@@ -1963,7 +2065,7 @@ impl HybitSolver {
             MatrixProblemClass::GeneralSquare => {
                 if !profile.full_diagonal {
                     return Err(HybitError::InvalidMatrix(
-                        "GeneralSquare FGMRES Jacobi path requires a complete diagonal",
+                        "GeneralSquare FGMRES path requires a complete diagonal",
                     ));
                 }
                 Ok(())
@@ -1979,14 +2081,18 @@ impl HybitSolver {
         let profile = analyze_csr32(matrix)?;
         self.validate_problem_class(&profile)?;
         if self.problem_class == MatrixProblemClass::GeneralSquare {
-            let diagonal = matrix.diagonal()?;
-            if diagonal
-                .iter()
-                .any(|&value| value == 0.0 || !value.is_finite())
+            if self.general_square_preconditioner_policy
+                == GeneralSquarePreconditionerPolicy::Jacobi
             {
-                return Err(HybitError::InvalidMatrix(
-                    "GeneralSquare FGMRES Jacobi path requires a finite nonzero diagonal",
-                ));
+                let diagonal = matrix.diagonal()?;
+                if diagonal
+                    .iter()
+                    .any(|&value| value == 0.0 || !value.is_finite())
+                {
+                    return Err(HybitError::InvalidMatrix(
+                        "GeneralSquare FGMRES Jacobi path requires a finite nonzero diagonal",
+                    ));
+                }
             }
             if !matches!(
                 self.execution_policy,
@@ -2076,9 +2182,23 @@ impl HybitSolver {
             ));
         }
         let start = Instant::now();
-        let jacobi = match analysis.problem_class {
-            MatrixProblemClass::GeneralSquare => JacobiPreconditioner::from_csr32_general(matrix)?,
-            _ => JacobiPreconditioner::from_csr32(matrix)?,
+        let (jacobi, general_square_preconditioner) = match analysis.problem_class {
+            MatrixProblemClass::GeneralSquare => {
+                let preconditioner = match self.general_square_preconditioner_policy {
+                    GeneralSquarePreconditionerPolicy::Jacobi => {
+                        PreparedGeneralSquarePreconditioner::Jacobi(
+                            JacobiPreconditioner::from_csr32_general(matrix)?,
+                        )
+                    }
+                    GeneralSquarePreconditionerPolicy::Ilu0 => {
+                        PreparedGeneralSquarePreconditioner::Ilu0(
+                            Ilu0Preconditioner::from_csr32_general(matrix)?,
+                        )
+                    }
+                };
+                (None, Some(preconditioner))
+            }
+            _ => (Some(JacobiPreconditioner::from_csr32(matrix)?), None),
         };
         // Do not eagerly pay the ABTM conversion cost for an easy CSR32
         // problem. Forced-ABTM backends build it here; the Auto/CSR32 hybrid
@@ -2104,7 +2224,10 @@ impl HybitSolver {
         let resident_workspace = match self.execution_policy {
             ExecutionPolicy::CpuResident => {
                 let operator = operator_for_backend(matrix, abtm.as_ref(), analysis.backend);
-                let mut execution = CpuKrylovExecution::new(operator, &jacobi);
+                let preconditioner = jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "resident PCG prepared Jacobi preconditioner is unavailable",
+                ))?;
+                let mut execution = CpuKrylovExecution::new(operator, preconditioner);
                 Some(ResidentPcgWorkspace::allocate_with(
                     &mut execution,
                     matrix.nrows(),
@@ -2113,7 +2236,10 @@ impl HybitSolver {
             ExecutionPolicy::CpuResidentRayon => {
                 debug_assert_eq!(analysis.backend, MatrixBackend::Csr32);
                 let operator = ParallelCsr32Operator::new(matrix);
-                let mut execution = RayonKrylovExecution::new(&operator, &jacobi);
+                let preconditioner = jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "resident Rayon prepared Jacobi preconditioner is unavailable",
+                ))?;
+                let mut execution = RayonKrylovExecution::new(&operator, preconditioner);
                 Some(ResidentPcgWorkspace::allocate_with(
                     &mut execution,
                     matrix.nrows(),
@@ -2122,7 +2248,10 @@ impl HybitSolver {
             ExecutionPolicy::CpuResidentRayonJacobi => {
                 debug_assert_eq!(analysis.backend, MatrixBackend::Csr32);
                 let operator = ParallelCsr32Operator::new(matrix);
-                let preconditioner = ParallelJacobiPreconditioner::new(&jacobi);
+                let jacobi = jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "resident Rayon prepared Jacobi preconditioner is unavailable",
+                ))?;
+                let preconditioner = ParallelJacobiPreconditioner::new(jacobi);
                 let mut execution = RayonKrylovExecution::new(&operator, &preconditioner);
                 Some(ResidentPcgWorkspace::allocate_with(
                     &mut execution,
@@ -2144,6 +2273,7 @@ impl HybitSolver {
             analysis_seconds: analysis.analysis_seconds,
             prepare_seconds,
             jacobi,
+            general_square_preconditioner,
             abtm,
             hybrid: None,
             algebraic_coarse: None,

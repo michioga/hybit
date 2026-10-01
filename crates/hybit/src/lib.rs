@@ -27,17 +27,19 @@
 //! ```
 //!
 //! The automatic path remains experimental. Real SPD systems use PCG; an
-//! explicitly declared `GeneralSquare` system uses fixed-Jacobi FGMRES with
-//! fixed, scheduled escalating, or opt-in budget-aware restart policy. See the
-//! repository README for current limitations.
+//! explicitly declared `GeneralSquare` system uses FGMRES with Jacobi by
+//! default or opt-in canonical ILU(0), independently combined with fixed,
+//! scheduled escalating, or budget-aware restart policy. See the repository
+//! README for current limitations.
 
 pub use hybit_auto::{
     AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions,
-    GeneralSquareRestartPolicy, HybitAnalysis, HybitPreparedStructuralSystem, HybitPreparedSystem,
-    HybitSolver, HybridOptions, LocalFactorSelectionPolicy, StructuralOptions,
-    StructuralPcgVectorPolicy, StructuralPreconditionerPolicy, StructuralSpmvPolicy,
-    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS,
-    STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
+    GeneralSquarePreconditionerPolicy, GeneralSquareRestartPolicy, HybitAnalysis,
+    HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver, HybridOptions,
+    LocalFactorSelectionPolicy, StructuralOptions, StructuralPcgVectorPolicy,
+    StructuralPreconditionerPolicy, StructuralSpmvPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
+    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS, STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ,
+    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
 };
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
@@ -60,13 +62,13 @@ pub use hybit_matrix::{
 };
 pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,
-    BlockJacobiPreconditioner, HybridPreconditioner, IdentityPreconditioner, JacobiPreconditioner,
-    LocalCholeskyRegion, ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
-    RigidBodyAggregation, RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner,
-    TwoLevelAggregation, TwoLevelBasis, TwoLevelBlockJacobiPreconditioner,
-    TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy, TwoLevelTransferOptions,
-    TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
-    EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION, PARALLEL_JACOBI_CHUNK,
+    BlockJacobiPreconditioner, HybridPreconditioner, IdentityPreconditioner, Ilu0Preconditioner,
+    JacobiPreconditioner, LocalCholeskyRegion, ParallelJacobiPreconditioner,
+    ParallelRigidBodyTwoLevelPreconditioner, RigidBodyAggregation, RigidBodyApplyProfile,
+    RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelAggregation, TwoLevelBasis,
+    TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy,
+    TwoLevelTransferOptions, TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
+    EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION, ILU0_RELATIVE_PIVOT_FLOOR, PARALLEL_JACOBI_CHUNK,
 };
 
 pub fn solve(matrix: &Csr32Matrix, b: &[f64]) -> Result<(Vec<f64>, SolveReport), HybitError> {
