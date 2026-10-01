@@ -28,8 +28,8 @@
 //!
 //! The automatic path remains experimental. Real SPD systems use PCG; an
 //! explicitly declared `GeneralSquare` system uses fixed-Jacobi FGMRES with
-//! fixed or opt-in escalating restart policy. See the repository README for
-//! current limitations.
+//! fixed, scheduled escalating, or opt-in budget-aware restart policy. See the
+//! repository README for current limitations.
 
 pub use hybit_auto::{
     AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions,
@@ -45,9 +45,10 @@ pub use hybit_core::{
     SolverOptions,
 };
 pub use hybit_krylov::{
-    fgmres, fgmres_with_workspace, parallel_vector_worker_count, pcg, pcg_with_execution,
-    pcg_with_workspace, pcg_with_workspace_parallel_vectors, resident_rayon_recommended,
-    CpuKrylovExecution, FgmresOptions, FgmresWorkspace, FlexiblePreconditioner,
+    fgmres, fgmres_with_workspace, fgmres_with_workspace_and_restart_controller,
+    parallel_vector_worker_count, pcg, pcg_with_execution, pcg_with_workspace,
+    pcg_with_workspace_parallel_vectors, resident_rayon_recommended, CpuKrylovExecution,
+    FgmresOptions, FgmresRestartProgress, FgmresWorkspace, FlexiblePreconditioner,
     KrylovExecutionBackend, KrylovOutcome, PcgWorkspace, RayonKrylovExecution,
     ResidentPcgWorkspace, PARALLEL_PCG_VECTOR_CHUNK, RESIDENT_RAYON_MIN_N,
     RESIDENT_RAYON_MIN_THREADS,

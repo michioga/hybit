@@ -6,7 +6,8 @@ pub use execution::{
     RayonKrylovExecution, ResidentPcgWorkspace, RESIDENT_RAYON_MIN_N, RESIDENT_RAYON_MIN_THREADS,
 };
 pub use fgmres::{
-    fgmres, fgmres_with_workspace, FgmresOptions, FgmresWorkspace, FlexiblePreconditioner,
+    fgmres, fgmres_with_workspace, fgmres_with_workspace_and_restart_controller, FgmresOptions,
+    FgmresRestartProgress, FgmresWorkspace, FlexiblePreconditioner,
 };
 
 use hybit_core::{

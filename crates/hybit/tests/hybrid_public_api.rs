@@ -282,6 +282,78 @@ fn general_square_escalating_restart_reuses_max_capacity_workspace() {
 }
 
 #[test]
+fn general_square_budget_aware_restart_reuses_max_capacity_workspace() {
+    let a = nonsymmetric_general_matrix();
+    let exact = vec![1.0, -2.0, 0.5, 3.0];
+    let b = a.spmv(&exact).unwrap();
+
+    let mut fixed = HybitSolver::new();
+    fixed.set_problem_class(MatrixProblemClass::GeneralSquare);
+    fixed
+        .set_general_square_options(GeneralSquareOptions {
+            restart: 1,
+            ..GeneralSquareOptions::default()
+        })
+        .unwrap();
+    let fixed_analysis = fixed.analyze_csr32(&a).unwrap();
+    let fixed_prepared = fixed.prepare_csr32(&a, &fixed_analysis).unwrap();
+    let fixed_bytes = fixed_prepared.krylov_workspace_bytes();
+
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 64,
+        })
+        .unwrap();
+    solver
+        .set_general_square_options(GeneralSquareOptions {
+            restart: 1,
+            restart_policy: GeneralSquareRestartPolicy::BudgetAware,
+            max_restart: 4,
+            escalation_stage_iterations: 0,
+        })
+        .unwrap();
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+
+    assert!(
+        prepared.krylov_workspace_bytes() > fixed_bytes,
+        "budget-aware prepared state must allocate the max restart capacity"
+    );
+
+    let mut x = vec![0.0; 4];
+    let report = prepared.solve(&a, &b, &mut x).unwrap();
+
+    assert!(report.converged());
+    assert_eq!(report.solver, SolverKind::Fgmres);
+    assert_eq!(report.preconditioner, PreconditionerKind::Jacobi);
+
+    for (&actual, &expected) in x.iter().zip(&exact) {
+        assert!((actual - expected).abs() <= 1.0e-10);
+    }
+}
+
+#[test]
+fn general_square_budget_aware_options_validate_bounds() {
+    let options = GeneralSquareOptions {
+        restart: 10,
+        restart_policy: GeneralSquareRestartPolicy::BudgetAware,
+        max_restart: 5,
+        escalation_stage_iterations: 0,
+    };
+
+    assert!(matches!(
+        options.validate(),
+        Err(HybitError::InvalidArgument(
+            "GeneralSquare budget-aware max_restart must be >= restart"
+        ))
+    ));
+}
+#[test]
 fn general_square_escalating_options_validate_bounds() {
     let mut options = GeneralSquareOptions {
         restart: 10,

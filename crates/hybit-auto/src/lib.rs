@@ -7,10 +7,11 @@ use hybit_core::{
     SolveStatus, SolverKind, SolverOptions,
 };
 use hybit_krylov::{
-    fgmres_with_workspace, parallel_vector_worker_count, pcg_continue_with_workspace,
-    pcg_start_with_workspace, pcg_with_execution, pcg_with_workspace,
-    pcg_with_workspace_parallel_vectors, CpuKrylovExecution, FgmresOptions, FgmresWorkspace,
-    KrylovOutcome, PcgSession, PcgWorkspace, RayonKrylovExecution, ResidentPcgWorkspace,
+    fgmres_with_workspace, fgmres_with_workspace_and_restart_controller,
+    parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
+    pcg_with_execution, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
+    CpuKrylovExecution, FgmresOptions, FgmresRestartProgress, FgmresWorkspace, KrylovOutcome,
+    PcgSession, PcgWorkspace, RayonKrylovExecution, ResidentPcgWorkspace,
 };
 use hybit_matrix::{
     analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
@@ -279,6 +280,13 @@ impl StructuralOptions {
 pub enum GeneralSquareRestartPolicy {
     Fixed,
     Escalating,
+    /// Budget-aware restart growth driven by exact restart-boundary residuals.
+    ///
+    /// The controller preserves a small restart while its recent logarithmic
+    /// residual-decay rate is improving and the projected iteration demand fits
+    /// the remaining budget. Restart grows only under sustained budget pressure
+    /// with a non-improving trend, or under stronger emergency pressure.
+    BudgetAware,
 }
 
 /// Options for the prepared real general-square FGMRES path.
@@ -290,7 +298,7 @@ pub struct GeneralSquareOptions {
     /// Fixed restart dimension, or the initial restart when escalation is used.
     pub restart: usize,
     pub restart_policy: GeneralSquareRestartPolicy,
-    /// Maximum restart dimension for `Escalating`.
+    /// Maximum restart dimension for `Escalating` or `BudgetAware`.
     pub max_restart: usize,
     /// Krylov iteration budget for each non-final escalating stage.
     ///
@@ -318,16 +326,26 @@ impl GeneralSquareOptions {
             ));
         }
 
-        if self.restart_policy == GeneralSquareRestartPolicy::Escalating {
-            if self.max_restart < self.restart {
-                return Err(HybitError::InvalidArgument(
-                    "GeneralSquare escalating max_restart must be >= restart",
-                ));
+        match self.restart_policy {
+            GeneralSquareRestartPolicy::Fixed => {}
+            GeneralSquareRestartPolicy::Escalating => {
+                if self.max_restart < self.restart {
+                    return Err(HybitError::InvalidArgument(
+                        "GeneralSquare escalating max_restart must be >= restart",
+                    ));
+                }
+                if self.escalation_stage_iterations == 0 {
+                    return Err(HybitError::InvalidArgument(
+                        "GeneralSquare escalation_stage_iterations must be > 0",
+                    ));
+                }
             }
-            if self.escalation_stage_iterations == 0 {
-                return Err(HybitError::InvalidArgument(
-                    "GeneralSquare escalation_stage_iterations must be > 0",
-                ));
+            GeneralSquareRestartPolicy::BudgetAware => {
+                if self.max_restart < self.restart {
+                    return Err(HybitError::InvalidArgument(
+                        "GeneralSquare budget-aware max_restart must be >= restart",
+                    ));
+                }
             }
         }
 
@@ -337,7 +355,9 @@ impl GeneralSquareOptions {
     fn workspace_restart_capacity(&self) -> usize {
         match self.restart_policy {
             GeneralSquareRestartPolicy::Fixed => self.restart,
-            GeneralSquareRestartPolicy::Escalating => self.max_restart,
+            GeneralSquareRestartPolicy::Escalating | GeneralSquareRestartPolicy::BudgetAware => {
+                self.max_restart
+            }
         }
     }
 }
@@ -519,6 +539,103 @@ fn recommend_algebraic_aggregate_nodes(
     Ok(node_count.div_ceil(max_aggregates).max(1))
 }
 
+const GENERAL_SQUARE_BUDGET_WINDOW_CYCLES: usize = 4;
+const GENERAL_SQUARE_BUDGET_PRESSURE: f64 = 1.10;
+const GENERAL_SQUARE_BUDGET_EMERGENCY_PRESSURE: f64 = 1.40;
+const GENERAL_SQUARE_BUDGET_DECISION_HITS: usize = 2;
+
+struct BudgetAwareFgmresRestartController {
+    target: f64,
+    max_restart: usize,
+    window_start_residual: Option<f64>,
+    window_iterations: usize,
+    window_cycles: usize,
+    previous_rate: Option<f64>,
+    pressure_hits: usize,
+}
+
+impl BudgetAwareFgmresRestartController {
+    fn new(target: f64, max_restart: usize) -> Self {
+        Self {
+            target,
+            max_restart,
+            window_start_residual: None,
+            window_iterations: 0,
+            window_cycles: 0,
+            previous_rate: None,
+            pressure_hits: 0,
+        }
+    }
+
+    fn next_restart(&mut self, progress: FgmresRestartProgress) -> usize {
+        if progress.restart >= self.max_restart {
+            return progress.restart;
+        }
+
+        let window_start = self
+            .window_start_residual
+            .get_or_insert(progress.cycle_initial_residual);
+        self.window_iterations = self
+            .window_iterations
+            .saturating_add(progress.cycle_iterations);
+        self.window_cycles = self.window_cycles.saturating_add(1);
+
+        if self.window_cycles < GENERAL_SQUARE_BUDGET_WINDOW_CYCLES {
+            return progress.restart;
+        }
+
+        let ratio = progress.final_residual / (*window_start).max(f64::MIN_POSITIVE);
+        let rate = if ratio.is_finite() && ratio > 0.0 && ratio < 1.0 && self.window_iterations > 0
+        {
+            -ratio.ln() / self.window_iterations as f64
+        } else {
+            0.0
+        };
+
+        let needed = if progress.final_residual <= self.target {
+            0.0
+        } else if rate.is_finite() && rate > 0.0 {
+            (progress.final_residual / self.target).ln() / rate
+        } else {
+            f64::INFINITY
+        };
+
+        let pressure = if progress.remaining_iterations == 0 {
+            f64::INFINITY
+        } else {
+            needed / progress.remaining_iterations as f64
+        };
+
+        let rate_ratio = self
+            .previous_rate
+            .filter(|previous| *previous > 0.0)
+            .map(|previous| rate / previous);
+        let trend_allows_escalation = rate_ratio.is_some_and(|ratio| ratio <= 1.0);
+        let emergency = pressure >= GENERAL_SQUARE_BUDGET_EMERGENCY_PRESSURE;
+        let ordinary = pressure >= GENERAL_SQUARE_BUDGET_PRESSURE && trend_allows_escalation;
+
+        if ordinary || emergency {
+            self.pressure_hits = self.pressure_hits.saturating_add(1);
+        } else {
+            self.pressure_hits = 0;
+        }
+
+        let mut next_restart = progress.restart;
+        if self.pressure_hits >= GENERAL_SQUARE_BUDGET_DECISION_HITS {
+            next_restart = progress.restart.saturating_mul(2).min(self.max_restart);
+            self.pressure_hits = 0;
+            self.previous_rate = None;
+        } else {
+            self.previous_rate = Some(rate);
+        }
+
+        self.window_start_residual = Some(progress.final_residual);
+        self.window_iterations = 0;
+        self.window_cycles = 0;
+
+        next_restart
+    }
+}
 fn run_general_square_fgmres(
     operator: &dyn LinearOperator,
     preconditioner: &mut JacobiPreconditioner,
@@ -616,6 +733,27 @@ fn run_general_square_fgmres(
                 }
                 restart = next_restart;
             }
+        }
+        GeneralSquareRestartPolicy::BudgetAware => {
+            let b_norm = l2_norm(b);
+            let target = solver_options
+                .absolute_tolerance
+                .max(solver_options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+            let mut controller =
+                BudgetAwareFgmresRestartController::new(target, general_options.max_restart);
+
+            fgmres_with_workspace_and_restart_controller(
+                operator,
+                preconditioner,
+                b,
+                x,
+                FgmresOptions {
+                    solver: solver_options,
+                    restart: general_options.restart,
+                },
+                workspace,
+                |progress| Ok(controller.next_restart(progress)),
+            )
         }
     }
 }

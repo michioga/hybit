@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0-e4b development checkpoint
+
+- Add opt-in `GeneralSquareRestartPolicy::BudgetAware`; the default remains fixed restart 30.
+- Add a restart-boundary FGMRES controller API that can change the next Arnoldi dimension without re-entering the solver, preserving global flexible-preconditioner iteration numbering and avoiding an extra initial residual SpMV per observed cycle.
+- The first budget-aware controller uses exact restart-boundary residuals, a four-cycle logarithmic decay window, sustained projected-budget pressure, and a non-improving convergence-rate trend before growing restart. Stronger emergency budget pressure may grow restart despite an improving trend.
+- Keep the E4a scheduled escalation policy available as a deterministic alternative.
+- E4b synthetic out-of-sample studies showed that a pressure-only threshold was not robust across matrix families; the trend gate is therefore part of the checkpoint rather than an optional timing heuristic.
+- Restart adaptation alone is not expected to rescue every nonsymmetric problem; cases that remain far from tolerance at maximum restart are candidates for later nonsymmetric preconditioner escalation.
 ## 0.8.0-e4a development checkpoint
 
 - Add opt-in `GeneralSquareRestartPolicy::Escalating` while preserving the E2 fixed-restart default.

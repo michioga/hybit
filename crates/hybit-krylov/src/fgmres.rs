@@ -74,6 +74,23 @@ impl FgmresOptions {
     }
 }
 
+/// Exact restart-boundary telemetry exposed to an FGMRES restart controller.
+///
+/// Residuals are exact norms from `b - A x`, not Hessenberg estimates. The
+/// controller runs only after a completed restart cycle that has not already
+/// converged or broken down. Returning the current restart preserves ordinary
+/// restarted FGMRES; returning another positive value changes the next cycle's
+/// Arnoldi dimension without resetting the global Krylov iteration count.
+#[derive(Clone, Copy, Debug)]
+pub struct FgmresRestartProgress {
+    pub restart: usize,
+    pub cycle_iterations: usize,
+    pub total_iterations: usize,
+    pub initial_residual: f64,
+    pub cycle_initial_residual: f64,
+    pub final_residual: f64,
+    pub remaining_iterations: usize,
+}
 /// Reusable restarted-FGMRES storage.
 ///
 /// For restart `m`, the workspace owns `m + 1` Arnoldi basis vectors `V`,
@@ -293,6 +310,34 @@ pub fn fgmres_with_workspace<M>(
 where
     M: FlexiblePreconditioner + ?Sized,
 {
+    let fixed_restart = options.restart;
+    fgmres_with_workspace_and_restart_controller(a, m, b, x, options, workspace, move |_| {
+        Ok(fixed_restart)
+    })
+}
+
+/// Restarted right-preconditioned FGMRES with a restart-boundary controller.
+///
+/// The controller may change the Arnoldi dimension for the next cycle while the
+/// solve remains inside one FGMRES invocation. This preserves the global
+/// flexible-preconditioner iteration number and avoids an extra initial
+/// residual SpMV that would be incurred by re-entering FGMRES at every cycle.
+///
+/// The returned restart must be positive and no larger than the capacity of
+/// `workspace`.
+pub fn fgmres_with_workspace_and_restart_controller<M, F>(
+    a: &dyn LinearOperator,
+    m: &mut M,
+    b: &[f64],
+    x: &mut [f64],
+    options: FgmresOptions,
+    workspace: &mut FgmresWorkspace,
+    mut controller: F,
+) -> Result<KrylovOutcome, HybitError>
+where
+    M: FlexiblePreconditioner + ?Sized,
+    F: FnMut(FgmresRestartProgress) -> Result<usize, HybitError>,
+{
     options.validate()?;
 
     if a.rows() != a.cols() {
@@ -321,6 +366,7 @@ where
         });
     }
     workspace.validate(n, options.restart)?;
+    let mut current_restart = options.restart;
 
     let b_norm = finite_norm(b, "FGMRES RHS norm became non-finite")?;
     let target = options
@@ -345,6 +391,8 @@ where
         workspace.reset_cycle();
 
         let beta = finite_norm(&workspace.r, "FGMRES restart residual became non-finite")?;
+        let cycle_initial_residual = beta;
+        let cycle_start_iterations = total_iterations;
         if beta <= target {
             return Ok(KrylovOutcome {
                 status: SolveStatus::Converged,
@@ -360,7 +408,7 @@ where
         workspace.g[0] = beta;
 
         let remaining = options.solver.max_iterations - total_iterations;
-        let cycle_limit = options.restart.min(remaining).min(n.max(1));
+        let cycle_limit = current_restart.min(remaining).min(n.max(1));
         let mut cycle_updated = false;
 
         for j in 0..cycle_limit {
@@ -484,6 +532,26 @@ where
                     final_residual,
                 });
             }
+        }
+
+        if total_iterations < options.solver.max_iterations {
+            let next_restart = controller(FgmresRestartProgress {
+                restart: current_restart,
+                cycle_iterations: total_iterations - cycle_start_iterations,
+                total_iterations,
+                initial_residual,
+                cycle_initial_residual,
+                final_residual,
+                remaining_iterations: options.solver.max_iterations - total_iterations,
+            })?;
+
+            if next_restart == 0 {
+                return Err(HybitError::InvalidArgument(
+                    "FGMRES restart controller returned zero",
+                ));
+            }
+            workspace.validate(n, next_restart)?;
+            current_restart = next_restart;
         }
     }
 
@@ -782,6 +850,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn restart_controller_changes_cycle_dimension_without_resetting_global_iteration() {
+        let a = nonsymmetric_operator();
+        let exact = [1.0, -2.0, 0.5, 3.0];
+        let b = rhs_for(&a, &exact);
+        let mut x = vec![0.0; 4];
+        let mut m = AlternatingScalePreconditioner {
+            n: 4,
+            calls: Vec::new(),
+        };
+        let mut workspace = FgmresWorkspace::new(4, 4).unwrap();
+        let options = FgmresOptions {
+            solver: SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 64,
+            },
+            restart: 1,
+        };
+        let mut boundaries = Vec::new();
+
+        let outcome = fgmres_with_workspace_and_restart_controller(
+            &a,
+            &mut m,
+            &b,
+            &mut x,
+            options,
+            &mut workspace,
+            |progress| {
+                boundaries.push(progress);
+                Ok((progress.restart * 2).min(4))
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome.status, SolveStatus::Converged);
+        assert!(!boundaries.is_empty());
+        assert_eq!(boundaries[0].restart, 1);
+        assert_eq!(boundaries[0].cycle_iterations, 1);
+        assert_eq!(m.calls, (0..outcome.iterations).collect::<Vec<usize>>());
+        assert_eq!(workspace.restart(), 4);
+
+        for (&actual, &expected) in x.iter().zip(&exact) {
+            assert!((actual - expected).abs() <= 1.0e-10);
+        }
+    }
     #[test]
     fn zero_restart_is_rejected() {
         match FgmresWorkspace::new(4, 0) {

@@ -88,6 +88,34 @@ GeneralSquare currently supports `ExecutionPolicy::Auto` and `Cpu`. Resident PCG
 
 To avoid retaining an unused full PCG scratch set, a GeneralSquare prepared context creates a zero-length legacy PCG workspace and allocates the real `FgmresWorkspace`. SPD and structural execution are unchanged.
 
+### 0.8-e4b budget-aware GeneralSquare restart control
+
+The opt-in `BudgetAware` GeneralSquare policy adapts FGMRES restart at exact
+restart boundaries while remaining inside one Krylov invocation. The Krylov
+layer exposes restart-boundary progress and accepts the next restart dimension
+from a controller. This avoids re-entering FGMRES every cycle, preserves the
+global flexible-preconditioner iteration index, and reuses the one prepared
+maximum-capacity `FgmresWorkspace`.
+
+The initial controller is deliberately small and deterministic. It observes
+four restart cycles at a time, estimates the per-iteration logarithmic residual
+decay rate, and projects the iterations still required to reach the configured
+tolerance. Ordinary restart growth requires both sustained projected-budget
+pressure and a non-improving decay-rate trend. A stronger emergency pressure
+can override the trend gate. Two consecutive decision windows are required
+before growth. Restart doubles up to `max_restart`.
+
+The fixed numeric controller constants are an internal 0.8 checkpoint, not a
+new tuning surface: ordinary pressure 1.10, emergency pressure 1.40, four
+cycles per window, and two qualifying windows. E4b studies found that exposing
+or selecting a pressure threshold alone was not robust across phase-shifted and
+anisotropic nonsymmetric test families. The trend gate prevented premature
+growth on cases whose small-restart convergence rate was still improving.
+
+The default remains `Fixed`; `Escalating` remains the deterministic E4a
+alternative. Problems that remain far from tolerance even after restart growth
+are not treated as restart-controller failures and are expected to feed later
+nonsymmetric preconditioner escalation work.
 ### 0.8-e4a staged GeneralSquare restart escalation
 
 GeneralSquare FGMRES now has an explicit restart-policy layer. `Fixed` preserves the
