@@ -11,7 +11,7 @@ The most valuable reports include a small matrix or generator, right-hand side, 
 1. Fork or clone the repository.
 2. Create a focused branch.
 3. Run `cargo test --workspace --release`.
-4. If the change affects the C ABI on Windows, run `./release-gate.ps1` from PowerShell.
+4. If the change affects the C ABI on Windows, run `./tools/release/0.7/release-gate.ps1` from PowerShell until a dedicated 0.8 ABI/release gate is frozen.
 5. Keep numerical changes separate from formatting/documentation-only changes where practical.
 6. Explain numerical assumptions and add a regression test for bug fixes or algorithmic changes.
 

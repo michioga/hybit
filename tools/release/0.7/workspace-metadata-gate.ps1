@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 Set-Location $root
 
 function Fail([string]$Message) { throw "workspace metadata gate: $Message" }

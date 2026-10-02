@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Stop"
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+Set-Location $RepoRoot
 
 function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     Write-Host "-- $Description"
@@ -8,7 +10,7 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     }
 }
 
-Write-Host "== HyBIT 0.7.0 external-language examples =="
+Write-Host "== HyBIT external-language examples =="
 
 if (-not (Test-Path "target/release/hybit.dll")) {
     Invoke-Checked "build Rust cdylib" { cargo build --release -p hybit-ffi }

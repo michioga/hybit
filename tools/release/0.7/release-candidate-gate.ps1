@@ -8,7 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 Set-Location $root
 
 function Fail([string]$Message) { throw "release candidate gate: $Message" }
@@ -45,8 +45,8 @@ Write-Host "branch              : $branch"
 Write-Host "commit              : $commit"
 Write-Host "working tree        : clean"
 
-Invoke-ScriptChecked "source integrity" ".\source-integrity-gate.ps1"
-Invoke-ScriptChecked "workspace metadata" ".\workspace-metadata-gate.ps1"
+Invoke-ScriptChecked "source integrity" (Join-Path $PSScriptRoot "..\..\gates\source-integrity-gate.ps1")
+Invoke-ScriptChecked "workspace metadata" (Join-Path $PSScriptRoot "workspace-metadata-gate.ps1")
 Invoke-Checked "cargo fmt --check" { cargo fmt --all -- --check }
 Invoke-Checked "cargo clippy -D warnings" { cargo clippy --workspace --all-targets --all-features -- -D warnings }
 Invoke-Checked "workspace release tests" { cargo test --workspace --release }
@@ -66,8 +66,8 @@ if (-not $SkipMsrv) {
     Write-Host "== Rust 1.73.0 MSRV gate SKIPPED by request =="
 }
 
-Invoke-ScriptChecked "runtime / ABI / language binding gate" ".\release-gate.ps1"
-Invoke-ScriptChecked "crates.io package gate" ".\crates-package-gate.ps1"
+Invoke-ScriptChecked "runtime / ABI / language binding gate" (Join-Path $PSScriptRoot "release-gate.ps1")
+Invoke-ScriptChecked "crates.io package gate" (Join-Path $PSScriptRoot "crates-package-gate.ps1")
 
 if (-not $SkipRealFem) {
     if ([string]::IsNullOrWhiteSpace($Matrix) -or [string]::IsNullOrWhiteSpace($Coordinates) -or [string]::IsNullOrWhiteSpace($Rhs)) {
@@ -75,7 +75,7 @@ if (-not $SkipRealFem) {
     }
     Write-Host ""
     Write-Host "== real FEM structural regression =="
-    & .\real-fem-release-gate.ps1 -Matrix $Matrix -Coordinates $Coordinates -Rhs $Rhs -RayonThreads $RayonThreads
+    & (Join-Path $PSScriptRoot "real-fem-release-gate.ps1") -Matrix $Matrix -Coordinates $Coordinates -Rhs $Rhs -RayonThreads $RayonThreads
     if ($LASTEXITCODE -ne 0) { Fail "real FEM structural regression failed with exit code $LASTEXITCODE" }
 } else {
     Write-Host ""

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0-h2 tooling-layout checkpoint
+
+- Move current-workspace build helpers to `tools/build/` and make them repository-root aware.
+- Move the version-neutral source-integrity gate to `tools/gates/` and remove the stale 0.7-only banner from that generic check.
+- Retain the version-specific 0.7 release qualification scripts under `tools/release/0.7/` without generalizing their frozen version/MSRV/branch/numerical policy into an unvalidated 0.8 release gate.
+- Add a retained-release tooling README explaining the immutable `v0.7.0` layout versus the post-release 0.8 development layout.
+- Extend the workspace build smoke to cover the GeneralSquare FGMRES/ILU(0) example.
+- Update current build/release command references and enable CI pushes on `develop/0.8.0` while retaining the historical 0.7 branch trigger.
 ## 0.8.0-h1 repository-layout checkpoint
 
 - Move all tracked `bench-fem*.ps1` wrappers from the repository root to `benchmarks/scripts/`.

@@ -170,8 +170,8 @@ cargo run --release -p hybit --example fem_bench -- --matrix D:\path\to\K.mtx
 GitHubリポジトリにはC ABI、C++ wrapper、Fortran `ISO_C_BINDING` moduleを含みます。
 
 ```powershell
-.\build.ps1
-.\build-examples.ps1
+.\tools\build\build.ps1
+.\tools\build\build-examples.ps1
 
 .\build\hybit_c.exe
 .\build\hybit_cpp.exe
@@ -193,7 +193,7 @@ API documentation: https://docs.rs/hybit
 0.7.0は、`v0.7.0` に固定した公開ソースcommitに対して `release-candidate-gate.ps1` を実行し、clean treeで合格した状態から公開しました。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認しています。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
 
 ```powershell
-.\release-candidate-gate.ps1 `
+.\tools\release\0.7\release-candidate-gate.ps1 `
   -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
   -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
   -Rhs D:\Work\mf_rhs\L-angle-b.txt `

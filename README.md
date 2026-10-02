@@ -173,8 +173,8 @@ If `--rhs` is omitted, the benchmark sets `x_exact = 1` and constructs `b = A*x_
 The repository contains a C ABI and thin language bindings under `include/` and `fortran/`. On Windows the Rust core builds `hybit.dll`; MinGW consumers use a generated GNU import library.
 
 ```powershell
-.\build.ps1
-.\build-examples.ps1
+.\tools\build\build.ps1
+.\tools\build\build-examples.ps1
 
 .\build\hybit_c.exe
 .\build\hybit_cpp.exe
@@ -232,6 +232,9 @@ fortran/          Fortran ISO_C_BINDING module
 docs/             architecture and numerical notes
 examples/         C/C++/Fortran build examples
 benchmarks/       benchmark scripts, Matrix Market notes/data, ignored local results
+tools/build/      current-workspace build and external-language build helpers
+tools/gates/      version-neutral repository validation gates
+tools/release/    retained version-specific release qualification tooling
 ```
 
 ## Build and test from source
@@ -241,13 +244,13 @@ For ordinary development checks:
 ```powershell
 git clone https://github.com/michioga/hybit.git
 cd hybit
-.\build.ps1
+.\tools\build\build.ps1
 ```
 
 HyBIT 0.7.0 was qualified with `release-candidate-gate.ps1` on the exact source commit later tagged as `v0.7.0`. The gate covers source integrity, metadata, formatting, Clippy, Rust 1.73 MSRV, ABI/language bindings, package validation, real-FEM residual/iteration checks, and prepared reuse. The L-angle files are supplied externally rather than stored in the repository:
 
 ```powershell
-.\release-candidate-gate.ps1 `
+.\tools\release\0.7\release-candidate-gate.ps1 `
   -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
   -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
   -Rhs D:\Work\mf_rhs\L-angle-b.txt `

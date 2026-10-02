@@ -29,7 +29,7 @@ The published Rust crates are:
 
 The r32 numerical production line was frozen before release. Later watchdog, local-energy-gate, and filtered spectral-enrichment experiments were excluded from 0.7.0.
 
-The exact release commit passed the complete `release-candidate-gate.ps1` on `develop/0.7.0`, was fast-forwarded to `main`, and passed the complete gate again on `main` before publication.
+The exact release commit passed the complete `release-candidate-gate.ps1` on `develop/0.7.0`, was fast-forwarded to `main`, and passed the complete gate again on `main` before publication. In the immutable `v0.7.0` tree that script is at repository root; the post-release 0.8 development tree retains the 0.7 qualification scripts under `tools/release/0.7/`.
 
 The qualifying gate covered:
 

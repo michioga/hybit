@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Stop"
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+Set-Location $RepoRoot
 
 function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     Write-Host "-- $Description"
@@ -8,13 +10,14 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     }
 }
 
-Write-Host "== HyBIT 0.7.0 build =="
+Write-Host "== HyBIT workspace build =="
 Invoke-Checked "cargo test --release" { cargo test --release }
 Invoke-Checked "build C ABI DLL" { cargo build --release -p hybit-ffi }
 Invoke-Checked "run basic example" { cargo run --release -p hybit --example basic }
 Invoke-Checked "run hybrid example" { cargo run --release -p hybit --example hybrid }
 Invoke-Checked "run multiregion example" { cargo run --release -p hybit --example multiregion }
 Invoke-Checked "run prepared solve-many example" { cargo run --release -p hybit --example prepared }
+Invoke-Checked "run GeneralSquare FGMRES/ILU0 example" { cargo run --release -p hybit --example general_square }
 Invoke-Checked "run Matrix Market benchmark smoke" { cargo run --release -p hybit --example fem_bench -- --matrix benchmarks/data/poisson5.mtx }
 Invoke-Checked "run block-Jacobi Matrix Market smoke" { cargo run --release -p hybit --example fem_block_bench -- --matrix benchmarks/data/poisson5.mtx --block-size 2 }
 Invoke-Checked "run two-level Matrix Market smoke" { cargo run --release -p hybit --example fem_twolevel_bench -- --matrix benchmarks/data/poisson5.mtx --dofs-per-node 1 --aggregate-nodes 2 }
@@ -32,4 +35,4 @@ Invoke-Checked "run parallel/fused PCG vector smoke" { cargo run --release -p hy
 Write-Host ""
 Write-Host "Built C ABI DLL under target/release and headers under include/."
 Write-Host "To build C/C++/Fortran examples (MSVC Rust + MinGW is supported):"
-Write-Host "  .\build-examples.ps1"
+Write-Host "  .\tools\build\build-examples.ps1"

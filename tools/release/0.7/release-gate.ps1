@@ -1,4 +1,7 @@
 $ErrorActionPreference = "Stop"
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+$BuildRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\build'))
+Set-Location $RepoRoot
 
 function Invoke-Checked([string]$Description, [scriptblock]$Command) {
     Write-Host "-- $Description"
@@ -22,8 +25,8 @@ function Show-PeImports([string]$Path) {
 }
 
 Write-Host "=== HYBIT 0.7.0 RELEASE GATE ==="
-& .\build.ps1
-& .\build-examples.ps1
+& (Join-Path $BuildRoot "build.ps1")
+& (Join-Path $BuildRoot "build-examples.ps1")
 
 Show-PeImports ".\build\hybit_c.exe"
 Show-PeImports ".\build\hybit_cpp.exe"
