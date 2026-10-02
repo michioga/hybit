@@ -106,6 +106,7 @@ docs/PREPARED_API.md
 docs/PUBLISHING.md
 docs/README.md
 docs/ROADMAP.md
+docs/SOLVER_SELECTION.md
 docs/STRUCTURAL_AUTO_API.md
 docs/USER_GUIDE.md
 docs/hybit-architecture.dot

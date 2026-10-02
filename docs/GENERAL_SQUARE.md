@@ -16,6 +16,9 @@ Current choices:
 GeneralSquare currently supports `ExecutionPolicy::Auto` and
 `ExecutionPolicy::Cpu`.
 
+For the cross-method rationale—PCG versus FGMRES, preconditioner compatibility,
+restart complexity, and the future MINRES route—see
+[SOLVER_SELECTION.md](SOLVER_SELECTION.md).
 ## Why FGMRES
 
 FGMRES stores the Arnoldi basis and the preconditioned basis separately. At

@@ -1,6 +1,11 @@
-# HyBIT 0.5 Hybrid Preconditioner — Mathematical Notes
+# SPD Hybrid preconditioner — mathematical notes
 
-HyBIT 0.5 remains restricted to real SPD systems and PCG.
+This document covers the Hybrid preconditioner used by HyBIT's
+`MatrixProblemClass::Spd` / PCG route. It does not describe the GeneralSquare
+FGMRES path.
+
+For the matrix-class and Krylov-method selection rules, see
+[SOLVER_SELECTION.md](SOLVER_SELECTION.md).
 
 Let the global SPD matrix be `A`. The controller starts with the configured base SPD preconditioner: algebraic two-level coarse when explicitly enabled, otherwise Jacobi. The initial `probe_iterations` segment is only a controller boundary; if the preconditioner is unchanged, HyBIT resumes the same PCG recurrence. When that stage shows poor progress, the policy identifies hard-core DOF sets and grows each set independently through the ABTM graph by a configurable number of halo layers. For local region `H_k`, HyBIT forms the principal matrix
 
@@ -28,7 +33,7 @@ This construction is intended to remain compatible with standard PCG assumptions
 
 ## Bounded memory
 
-Dense local Cholesky factors scale quadratically in local region order. HyBIT therefore caps each expanded local factor and caps the number of local regions. In 0.5 the defaults are 128 DOFs per factor and 8 factors.
+Dense local Cholesky factors scale quadratically in local region order. HyBIT therefore caps each expanded local factor and caps the number of local regions. The current Hybrid defaults are 128 DOFs per local region and at most 8 local regions.
 
 The report exposes both total local factor DOFs (overlap counted per factor) and unique covered DOFs, plus an estimate of bytes actually owned by local factors, indices, overlap weights and multiplicity metadata.
 

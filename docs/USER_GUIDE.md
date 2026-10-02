@@ -16,6 +16,10 @@ declares the contract with `MatrixProblemClass`.
 | `GeneralSquare` | restarted FGMRES, with Jacobi or opt-in ILU(0) | nonsymmetric square systems |
 | `SymmetricIndefinite` | recognized but not routed yet | future MINRES path |
 
+For the mathematical reason behind these routes, including PCG positivity,
+FGMRES flexible right preconditioning, restart memory/work tradeoffs, and the
+future MINRES contract, see
+[Solver selection and Krylov theory](SOLVER_SELECTION.md).
 `Spd` is the default. Do not label a matrix SPD merely to reach PCG: the
 algorithm and SPD preconditioners rely on symmetry and positive definiteness.
 

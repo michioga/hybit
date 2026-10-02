@@ -10,15 +10,20 @@ For library users:
 
 1. [User guide](USER_GUIDE.md) — choose a problem class, configure a solver,
    prepare reusable state, solve, and validate the result.
-2. [Prepared execution](PREPARED_API.md) — understand
+2. [Solver selection and Krylov theory](SOLVER_SELECTION.md) — understand why
+   SPD uses PCG, GeneralSquare uses FGMRES, how preconditioning changes the
+   mathematical contract, and what MINRES/LSQR-class future routes require.
+3. [Prepared execution](PREPARED_API.md) — understand
    `analyze -> prepare -> solve-many`, reuse boundaries, and memory ownership.
-3. [General-square systems](GENERAL_SQUARE.md) — FGMRES, restart policies,
+4. [General-square systems](GENERAL_SQUARE.md) — FGMRES, restart policies,
    Jacobi versus ILU(0), pivot stabilization, and current limitations.
-4. [Structural Auto API](STRUCTURAL_AUTO_API.md) — 3-D structural SPD systems
+5. [Structural Auto API](STRUCTURAL_AUTO_API.md) — 3-D structural SPD systems
    with rigid-body coarse correction.
 
 For numerical background:
 
+- [Solver selection and Krylov theory](SOLVER_SELECTION.md) — matrix-class
+  contracts, PCG/FGMRES mechanics, restart cost, compatibility, and breakdown.
 - [Hybrid SPD mathematics](HYBRID_MATH.md) — selective local direct correction,
   overlap weighting, and resumable PCG logic.
 - [Architecture](ARCHITECTURE.md) — crate boundaries, execution architecture,
@@ -38,7 +43,7 @@ For project status:
 | Layer | Primary question | Main documents |
 | --- | --- | --- |
 | User | How do I solve my system correctly? | `USER_GUIDE.md`, `PREPARED_API.md`, `GENERAL_SQUARE.md`, `STRUCTURAL_AUTO_API.md` |
-| Numerical | What mathematical method is being applied? | `GENERAL_SQUARE.md`, `HYBRID_MATH.md` |
+| Numerical | What mathematical method is being applied, and why? | `SOLVER_SELECTION.md`, `GENERAL_SQUARE.md`, `HYBRID_MATH.md` |
 | Architecture | How is reusable/execution state organized? | `ARCHITECTURE.md` |
 | Development | What is published, validated, experimental, or planned? | `DEVELOPMENT_STATUS.md`, `ROADMAP.md`, `CHANGELOG.md` |
 

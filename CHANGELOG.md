@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0-d2 solver-selection documentation checkpoint
+
+- Add a numerical solver-selection guide connecting the declared matrix class to the current PCG and FGMRES routes and the future MINRES/LSQR-class routes.
+- Document why PCG requires SPD operator/preconditioner structure, why a changed Hybrid preconditioner restarts PCG, and which positivity failures surface as breakdown.
+- Document flexible right-preconditioned FGMRES through separate `V`/`Z` bases, true-residual verification, and the exact numeric-payload formula for the current restart workspace.
+- Make restart cost explicit: `O(n m)` basis storage and roughly `O(n m^2)` two-pass Arnoldi orthogonalization work per full restart cycle.
+- Add a current routing/preconditioner compatibility map and distinguish convergence, iteration-budget exhaustion, and numerical breakdown.
+- Clarify that the Hybrid mathematics document covers only the SPD/PCG route rather than describing all current HyBIT problem classes.
 ## 0.8.0-h2 tooling-layout checkpoint
 
 - Move current-workspace build helpers to `tools/build/` and make them repository-root aware.
