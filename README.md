@@ -231,7 +231,7 @@ include/          C and C++ headers / Windows .def file
 fortran/          Fortran ISO_C_BINDING module
 docs/             architecture and numerical notes
 examples/         C/C++/Fortran build examples
-benchmarks/       Matrix Market benchmark notes and smoke input
+benchmarks/       benchmark scripts, Matrix Market notes/data, ignored local results
 ```
 
 ## Build and test from source

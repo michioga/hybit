@@ -5,6 +5,23 @@ The current solver path expects the constrained linear system to be real SPD.
 For symmetric matrices, prefer the Matrix Market `symmetric` header and store one
 triangle only; the loader expands it to full CSR32 storage.
 
+## Repository benchmark layout
+
+PowerShell benchmark wrappers live under `benchmarks/scripts/` and are intended
+to be invoked from the repository root. They also resolve the repository root
+from `$PSScriptRoot`, so invoking them from another working directory is
+supported while caller-relative matrix/RHS paths remain meaningful.
+
+Generated comparison CSV files default to `benchmarks/results/`. That directory
+is intentionally ignored by Git; benchmark measurements are local artifacts
+unless a specific result is deliberately promoted into documented regression
+evidence.
+
+Example:
+
+```powershell
+.\benchmarks\scripts\bench-fem.ps1 benchmarks\data\poisson5.mtx
+```
 Run the bundled smoke matrix:
 
 ```powershell
@@ -39,7 +56,7 @@ physical RHS have been exported, compare several dense coarse-space budgets whil
 holding Graph aggregation and the Krylov tolerance fixed:
 
 ```powershell
-.\bench-fem-structural-coarse-sweep.ps1 `
+.\benchmarks\scripts\bench-fem-structural-coarse-sweep.ps1 `
   D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
   -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
   -Rhs D:\Work\mf_rhs\L-angle-b.txt `
@@ -67,7 +84,7 @@ residual-energy-per-byte, and Jacobi-energy-per-byte selectors under the same
 persistent local-factor memory budget.
 
 ```powershell
-.\bench-fem-hybrid-selection.ps1 `
+.\benchmarks\scripts\bench-fem-hybrid-selection.ps1 `
   -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
   -Rhs D:\Work\mf_rhs\L-angle-b.txt `
   -FactorBudgetMiB 64 `

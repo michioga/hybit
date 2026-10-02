@@ -154,7 +154,7 @@ HyBIT 0.7.0は`f64`、square SPD、PCGが中心です。local directはbounded d
 0.6で導入し0.7でも維持しているベンチマーク経路では、拘束条件適用後のSPD剛性行列をMatrix Market (`.mtx`) から読み込み、同じ初期値・許容誤差・最大反復数でplain Jacobi-PCGとHyBIT Autoを比較できます。
 
 ```powershell
-.\bench-fem.ps1 D:\path\to\K.mtx
+.\benchmarks\scripts\bench-fem.ps1 D:\path\to\K.mtx
 ```
 
 または直接、

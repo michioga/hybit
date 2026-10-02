@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-h1 repository-layout checkpoint
+
+- Move all tracked `bench-fem*.ps1` wrappers from the repository root to `benchmarks/scripts/`.
+- Make moved wrappers resolve the repository root from `$PSScriptRoot` while preserving caller-relative matrix/RHS/output paths.
+- Route generated benchmark CSV files to ignored `benchmarks/results/` instead of polluting the repository root.
+- Update benchmark/user documentation and manifest/hash metadata for the new paths.
+- Keep build and release-gate tooling at the repository root for a separate H2 cleanup so benchmark organization does not disturb release infrastructure.
 ## 0.8.0-d1 documentation checkpoint
 
 - Add a documentation index separating user, numerical, architecture, and development material.

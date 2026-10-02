@@ -54,7 +54,7 @@ CSR DOF ordering exactly: node `i` maps to rows `3*i`, `3*i+1`, `3*i+2`.
 Example:
 
 ```powershell
-.\bench-fem-structural-prepared.ps1 K.mtx `
+.\benchmarks\scripts\bench-fem-structural-prepared.ps1 K.mtx `
   -Coordinates K.coords `
   -Rhs b.txt `
   -TargetCoarseDimension 1536 `
@@ -71,7 +71,7 @@ order into fixed-width chunks. This is intended as an A/B experiment before chan
 the default Structural Auto policy.
 
 ```powershell
-.\bench-fem-structural-auto.ps1 K.mtx `
+.\benchmarks\scripts\bench-fem-structural-auto.ps1 K.mtx `
   -Coordinates K.coords `
   -Rhs b.txt `
   -TargetCoarseDimension 1536 `
