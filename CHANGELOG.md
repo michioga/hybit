@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0-d1 documentation checkpoint
+
+- Add a documentation index separating user, numerical, architecture, and development material.
+- Add a development-branch user guide for problem-class selection, prepared execution, policy choice, result validation, and the current Rust-versus-FFI surface.
+- Add a GeneralSquare guide covering FGMRES flow, restart tradeoffs, canonical ILU(0), selective pivot stabilization, E5 evidence, and limitations.
+- Refresh prepared-execution, development-status, and roadmap documents while preserving 0.7 as the immutable published baseline.
+- Add a runnable `general_square` Rust example and correct stale source-level API documentation.
+- Document CSR32 input invariants, important defaults, configuration snapshot semantics, residual normalization, and prepared-preconditioner reuse reporting.
 ## 0.8.0-e5 development checkpoint
 
 - Add opt-in `GeneralSquarePreconditionerPolicy::Ilu0`; Jacobi remains the default and restart policy remains an independent choice.

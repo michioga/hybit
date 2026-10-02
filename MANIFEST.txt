@@ -90,6 +90,7 @@ crates/hybit/examples/fem_structural_prepared.rs
 crates/hybit/examples/fem_structural_profile.rs
 crates/hybit/examples/fem_structural_spmv.rs
 crates/hybit/examples/fem_twolevel_bench.rs
+crates/hybit/examples/general_square.rs
 crates/hybit/examples/hybrid.rs
 crates/hybit/examples/multiregion.rs
 crates/hybit/examples/prepared.rs
@@ -99,11 +100,14 @@ crates/hybit/tests/structural_public_api.rs
 docs/ARCHITECTURE.md
 docs/DEVELOPMENT_STATUS.md
 docs/FEM_BENCHMARK.md
+docs/GENERAL_SQUARE.md
 docs/HYBRID_MATH.md
 docs/PREPARED_API.md
 docs/PUBLISHING.md
+docs/README.md
 docs/ROADMAP.md
 docs/STRUCTURAL_AUTO_API.md
+docs/USER_GUIDE.md
 docs/hybit-architecture.dot
 docs/hybit-architecture.png
 docs/hybit-architecture.svg

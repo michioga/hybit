@@ -13,6 +13,11 @@ HyBIT starts from a low-cost iterative path, observes convergence, identifies nu
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
+> **Development branch:** `develop/0.8.0` adds the resident execution
+> architecture and a prepared `GeneralSquare` FGMRES path with Jacobi or
+> opt-in ILU(0). These APIs are not part of the published 0.7.0 release.
+> Start with [docs/README.md](docs/README.md) and
+> [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for development-branch usage.
 ## Highlights
 
 - Rust-first implementation with a stable C ABI for C, C++, and Fortran consumers.

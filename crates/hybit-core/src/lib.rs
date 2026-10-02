@@ -62,10 +62,10 @@ pub trait Preconditioner {
 /// Mathematical class declared for a square linear system.
 ///
 /// This is a solver contract, not an automatic proof of matrix properties.
-/// HyBIT 0.8 starts from the validated `Spd` path. Symmetric-indefinite and
-/// general-square classes reserve the architecture needed by future MINRES
-/// and flexible GMRES/BiCGStab paths. Rectangular systems are intentionally
-/// outside this first 0.8 execution-layer checkpoint.
+/// `Spd` uses the validated PCG/Hybrid family. `GeneralSquare` is routed
+/// through prepared FGMRES on the 0.8 development branch. `SymmetricIndefinite`
+/// reserves the future MINRES route. Rectangular systems remain outside the
+/// high-level square-system solver.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatrixProblemClass {
     Spd,
@@ -187,14 +187,19 @@ pub struct SolveReport {
     pub preconditioner: PreconditionerKind,
     pub backend: MatrixBackend,
     pub iterations: usize,
+    /// Absolute Euclidean residual norm at the beginning of this Krylov solve.
     pub initial_residual: f64,
+    /// Absolute Euclidean residual norm at the end of this Krylov solve.
     pub final_residual: f64,
+    /// `final_residual / ||b||_2` for nonzero RHS; absolute residual for zero RHS.
     pub relative_residual: f64,
+    /// Total setup time charged to this report.
     pub setup_seconds: f64,
+    /// Total Krylov solve time charged to this report.
     pub solve_seconds: f64,
-    /// Structural matrix analysis cost charged to this solve.
+    /// Matrix analysis cost charged to this solve.
     pub analysis_seconds: f64,
-    /// Reusable baseline preparation cost (Jacobi, ABTM topology and Krylov workspace).
+    /// Reusable matrix-dependent preparation cost charged to this solve.
     pub prepare_seconds: f64,
     /// Initial Jacobi-PCG probe time.
     pub probe_seconds: f64,
@@ -248,11 +253,15 @@ pub struct SolveReport {
     pub local_factor_budget_limited: bool,
     /// Number of topology halo layers requested for each hard region.
     pub overlap_layers: usize,
-    /// True when an already-built local direct preconditioner was reused.
+    /// True when preconditioner state from an earlier RHS solve in the same
+    /// prepared context was reused instead of rebuilt.
+    ///
+    /// On the GeneralSquare path this becomes true from solve sequence 2.
+    /// SPD Hybrid paths may also set it when learned local/coarse state is reused.
     pub preconditioner_reused: bool,
     /// 1-based solve number within a prepared context.
     pub solve_sequence: usize,
-    /// Bytes reserved for reusable PCG work vectors.
+    /// Bytes reserved for reusable Krylov workspace (PCG vectors or FGMRES basis/scratch).
     pub krylov_workspace_bytes: usize,
 }
 

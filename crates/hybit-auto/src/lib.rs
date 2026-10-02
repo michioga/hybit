@@ -301,8 +301,9 @@ pub enum GeneralSquareRestartPolicy {
 
 /// Options for the prepared real general-square FGMRES path.
 ///
-/// The default remains the E2 fixed-restart policy. Escalation is explicit and
-/// currently changes only the restart dimension; Jacobi remains fixed.
+/// The default remains the E2 fixed-restart policy. Restart control is
+/// independent from the solver-level GeneralSquare preconditioner policy;
+/// Jacobi remains the default preconditioner and ILU(0) is explicit opt-in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GeneralSquareOptions {
     /// Fixed restart dimension, or the initial restart when escalation is used.

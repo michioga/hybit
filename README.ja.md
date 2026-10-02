@@ -8,6 +8,11 @@
 
 > **現在の位置づけ:** HyBIT 0.7.0 はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
 
+> **開発ブランチ:** `develop/0.8.0` ではresident execution architectureと、
+> `GeneralSquare`向けprepared FGMRES、Jacobi/opt-in ILU(0)を開発中です。
+> これらは公開済み0.7.0には含まれません。0.8開発版を利用する場合は
+> [docs/README.md](docs/README.md) と
+> [docs/USER_GUIDE.md](docs/USER_GUIDE.md) から参照してください。
 ## 主な機能
 
 - Rustを中核とし、C ABI経由でC/C++/Fortranから利用可能

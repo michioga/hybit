@@ -1,53 +1,88 @@
 # HyBIT roadmap
 
-This roadmap describes direction, not guaranteed release dates.
+This roadmap describes direction, not guaranteed dates.
 
-## Current baseline
+## Published baseline
 
-HyBIT 0.7.0 is published. The immutable release source is tagged `v0.7.0` at commit `1fdcd6a1b8127c84306c38c3fdbad42563538ad8`.
-
-The 0.7 production line is therefore closed except for fixes that would be delivered as a new version. Post-release documentation changes and future numerical research must not move or rewrite the `v0.7.0` tag.
+HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
+`1fdcd6a1b8127c84306c38c3fdbad42563538ad8`.
 
 ## Completed in 0.7
 
-- Generic algebraic two-level coarse correction for SPD/PCG solves.
-- Graph aggregation in addition to contiguous aggregation.
-- Jacobi-smoothed transfer basis and Galerkin `P^T A P` construction.
-- Parallel coarse restriction/prolongation.
-- Wide/compact transfer-index storage and F64/F32/Auto transfer-value storage.
-- FactorSolve/ExplicitInverse/Auto coarse application.
-- Coarse-first explicit-coarse controller sequencing.
-- Resumable PCG continuation when the preconditioner is unchanged.
-- Prepared coarse-only reuse.
-- Retention of the validated 0.6 structural Graph rigid-body, parallel SpMV/preconditioner, and parallel/fused PCG path.
-- Rust 1.73 MSRV, source-integrity, package, ABI, C/C++/Fortran runtime, crates.io dry-run, and physical L-angle release gates.
-- Publication of all six Rust crates as 0.7.0 plus the `v0.7.0` GitHub release.
+- generic algebraic two-level SPD/PCG correction;
+- graph/contiguous aggregation and smoothed transfer;
+- parallel coarse transfer and storage policies;
+- coarse-first resumable PCG;
+- prepared coarse reuse;
+- validated structural Graph rigid-body parallel CPU path;
+- release integrity/MSRV/package/ABI/real-FEM gates.
 
-## Post-0.7 / 0.8 numerical research
+## Completed on develop/0.8.0 through E5
 
-- Improve long-tail convergence on difficult SPD matrices using genuine local spectral/GenEO-style coarse enrichment rather than the discarded r36 filtered proxy.
-- Develop progress/watchdog logic that diagnoses late stagnation without automatically applying harmful local-direct restarts.
-- Improve coarse-space selection using a fixed SuiteSparse representative/stress corpus.
-- Add MINRES for symmetric indefinite systems.
-- Add GMRES and/or BiCGStab for nonsymmetric systems.
-- Generalize adaptive escalation beyond SPD/PCG.
+### Execution architecture
 
-## Parallel and large-scale execution
+- problem/execution/backend/solver/preconditioner policy architecture;
+- resident Krylov abstraction;
+- serial/Rayon resident PCG validation;
+- parallel CSR/Jacobi execution;
+- structural resident cross-check.
 
-- Parallel independent local factorizations where setup cost warrants it.
-- Improve CPU sparse-kernel scheduling and NUMA/cache behavior.
-- GPU backends with persistent device residency.
-- Distributed-memory domain decomposition and communication-aware topology handling.
-- Separate symbolic/topological reuse from numerical refactorization when values change on fixed sparsity.
-- Investigate out-of-core prepared state when problem scale requires it.
+### GeneralSquare
 
-## Compatibility and release discipline
+- restarted FGMRES with separate `V` and `Z`;
+- reusable FGMRES workspace;
+- prepared GeneralSquare routing;
+- fixed, escalating, and budget-aware restart;
+- canonical prepared ILU(0);
+- selective row-relative pivot stabilization;
+- prepared ILU reuse and memory telemetry.
 
-- Preserve the C ABI where practical; update C, C++, and Fortran consumers together when it changes.
-- Keep release tags immutable.
-- Keep experimental benchmark artifacts out of release source sets unless they are intentionally documented and manifested.
-- Continue using source-integrity, MSRV, package, ABI/language-binding, and real-FEM regression gates for future releases.
+## Immediate next work
 
-## Non-goals inherited from 0.7.0
+### GeneralSquare robustness
 
-HyBIT 0.7.0 does not claim universal sparse-solver coverage or universal performance improvement. Its automatic path remains real SPD/PCG. Future work may broaden that scope, but any extension should preserve reproducible residual validation and conservative release gating.
+1. Measure ILU(0) sensitivity to natural/RCM/other meaningful orderings.
+2. Validate representative real nonsymmetric FEM/PDE matrices.
+3. Repeat at larger dimensions and multiple RHS.
+4. Profile serial triangular application separately.
+5. Define fallback behavior for unsuitable ILU.
+6. Decide whether automatic Jacobi -> ILU(0) promotion is justified.
+
+Do not add ILUT/drop-tolerance fill until ILU(0)'s operating envelope is clear.
+
+### Documentation/API completeness
+
+- maintain separate user, numerical, architecture, and development docs;
+- keep examples runnable under gates;
+- add GeneralSquare selection to C/C++/Fortran only after the Rust policy is
+  stable enough;
+- document report fields by solver path.
+
+## Subsequent numerical work
+
+- MINRES for `SymmetricIndefinite`;
+- genuine local spectral/GenEO-style SPD enrichment;
+- symbolic/topological reuse separated from numeric refactorization;
+- rectangular LSQR/LSMR later;
+- complex arithmetic later.
+
+## Parallel and large-scale work
+
+- parallel setup where worthwhile;
+- improve CPU sparse scheduling and NUMA/cache behavior;
+- GPU-resident execution after the selected CubeCL interface is stable;
+- GPU-suitable preconditioners rather than blindly porting serial ILU solves;
+- distributed-memory domain decomposition;
+- out-of-core state only when problem scale justifies it.
+
+## Release discipline
+
+Keep release tags immutable, preserve the C ABI where practical, update language
+bindings together, and retain source-integrity, formatting, Clippy, MSRV,
+package, ABI/language, and numerical regression gates.
+
+## Non-goal
+
+HyBIT does not claim universal sparse-solver coverage or universal performance
+improvement. Automatic policy changes require evidence across representative
+matrices.

@@ -1,65 +1,118 @@
-# HyBIT 0.5 prepared execution
+# HyBIT prepared execution
 
-## Purpose
+This document describes `analyze -> prepare -> solve-many`. HyBIT 0.7.0
+provides the SPD and structural prepared paths; `develop/0.8.0` additionally
+provides prepared GeneralSquare FGMRES with Jacobi or opt-in ILU(0).
 
-FEM and HPC applications often solve multiple right-hand sides against the same assembled matrix. HyBIT 0.5 separates reusable setup from RHS-dependent solving.
+## Analyze
 
-## Phases
+`HybitSolver::analyze_csr32` validates the declared problem class, profiles the
+matrix, resolves backend/execution policy, and records exact structure/value
+signatures. Analyze does not require an RHS.
 
-### Analyze
+## Configuration snapshot
 
-`HybitSolver::analyze_csr32` validates the matrix, creates the matrix profile, chooses the backend policy, and records structure/value signatures.
+Configure the solver before `analyze`/`prepare`. Analysis binds the declared
+problem/execution contract to the matrix signatures. Preparation then copies
+the relevant solver and preconditioner options into the returned prepared
+context.
 
-### Prepare
+An already-created prepared context is self-contained: later changes to the
+`HybitSolver` object do not alter that prepared context. Build a new prepared
+context when intentionally changing the matrix-dependent solver policy.
+## Prepare
 
-`HybitSolver::prepare_csr32` constructs matrix-dependent reusable state:
+Preparation creates matrix-dependent reusable state.
 
-- Jacobi inverse diagonal;
-- ABTM storage when ABTM is explicitly selected as the SpMV backend; hybrid topology is otherwise built lazily only on escalation;
-- five reusable PCG work vectors.
+### Generic SPD
 
-The prepare phase does not require a RHS.
+The prepared state may include Jacobi, optional ABTM, reusable PCG workspace,
+explicit algebraic coarse state, and later learned Hybrid local factors.
 
-### Solve-many
+### GeneralSquare
 
-The first prepared solve performs the normal adaptive controller stage. If algebraic coarse is explicitly enabled, that coarse preconditioner is built before Krylov iteration zero and is used for the stage; otherwise the stage uses Jacobi. If poor progress is detected, HyBIT may build the selected local Cholesky/Schwarz correction and restart PCG only because the preconditioner has changed. If no strengthening occurs, the same PCG session continues across the controller boundary.
+The prepared state owns exactly one selected preconditioner: Jacobi or ILU(0).
+It also owns reusable FGMRES workspace. Escalating/budget-aware policies
+allocate workspace for the maximum permitted restart.
 
-Subsequent RHS solves reuse:
+`general_square_preconditioner_bytes()` reports persistent preconditioner state.
+For ILU(0), `general_square_ilu_adjusted_pivots()` reports factor-pivot
+stabilization count.
 
-- the PCG workspace;
-- ABTM topology;
-- Jacobi data;
-- algebraic coarse state when enabled;
-- learned local region mappings;
-- local Cholesky factors and overlap weights.
+### Structural SPD
 
-A cached local Hybrid preconditioner skips probe, hard-region diagnostics, and factorization. A coarse-only prepared context reuses the already-built coarse state; its short controller boundary does not restart PCG when no local correction is added.
+`prepare_structural_csr32` additionally owns geometry-dependent aggregation,
+rigid-body coarse state/factorization, and reusable PCG workspace.
 
-## Matrix immutability in 0.5
+## Solve-many
 
-Local factors are numerical factors, not symbolic-only metadata. HyBIT therefore hashes both CSR structure and `f64` coefficient bit patterns. A prepared context rejects a different matrix.
+```text
+analyze(matrix, policy)
+        |
+        v
+prepare(matrix, analysis)
+        |
+        +--> solve(rhs_1)
+        +--> solve(rhs_2)
+        +--> ...
+```
 
-Future work can support:
+SPD Hybrid can learn local regions/factors on an early difficult RHS and reuse
+them later.
 
-1. same topology + changed values -> numeric refactor only;
-2. same topology + changed active regions -> selective plan rebuild;
-3. topology change -> full analyze/prepare.
+GeneralSquare builds Jacobi or ILU(0) during prepare and reuses it across all
+RHS vectors. Its report marks `preconditioner_reused = false` on solve sequence
+1 and `true` from solve sequence 2 onward, meaning that the same prepared
+preconditioner is being reused across RHS solves rather than rebuilt.
+
+## Report accounting
+
+The first solve in a prepared context charges the stored analysis/prepare time
+to its `SolveReport`; later solves report zero for those two setup components.
+
+`relative_residual` is `||b-Ax||_2 / ||b||_2` for nonzero RHS. This makes
+solve-many comparisons meaningful even when RHS magnitudes differ.
+## Exact matrix reuse rule
+
+Prepared contexts validate both CSR structure and exact `f64` coefficient bit
+patterns. Changed values require a new prepare even if sparsity is unchanged.
+
+Future work may separate:
+
+1. same topology + same values -> full reuse;
+2. same topology + changed values -> symbolic reuse + numeric refactor;
+3. changed topology -> full analyze/prepare.
+
+Only the first case is supported by the high-level prepared context today.
 
 ## Allocation behavior
 
-The prepared PCG path owns its five `n`-length vectors once. Each local Schwarz region also owns two local scratch vectors allocated at factor construction. `Preconditioner::apply()` performs no `Vec` allocation.
+Repeated Krylov execution reuses preallocated vectors.
 
-Diagnostics during the first adaptive escalation may still allocate temporary masks/region vectors; those are outside the repeated Krylov inner loop.
+- PCG owns reusable full-size workspace.
+- FGMRES owns `V`, `Z`, Hessenberg/Givens, and residual/update scratch.
+- Local Schwarz owns local scratch.
+- Structural preparation owns coarse/geometry state.
 
+First-time diagnostics/factor construction may allocate outside the repeated
+Krylov inner loop.
 
-## Structural prepared execution (retained in 0.7)
+## Example
 
-Three-dimensional structural systems may provide reduced/ordered node coordinates
-through the geometry-aware API. `HybitSolver::prepare_structural_csr32` builds a
-3x3 block-Jacobi fine level plus six rigid-body modes per aggregate, with the
-aggregate size selected from `StructuralOptions::target_coarse_dimension`.
+```rust
+let analysis = solver.analyze_csr32(&a)?;
+let mut prepared = solver.prepare_csr32(&a, &analysis)?;
 
-The returned `HybitPreparedStructuralSystem` owns the coarse Cholesky factor,
-normalized geometry data, optional ABTM operator storage, and reusable PCG
-workspace. Repeated `solve()` calls reuse all of this matrix/geometry-dependent
-state across RHS vectors. The generic prepared path is intentionally unchanged.
+let mut x1 = vec![0.0; a.nrows()];
+let report1 = prepared.solve(&a, &b1, &mut x1)?;
+
+let mut x2 = vec![0.0; a.nrows()];
+let report2 = prepared.solve(&a, &b2, &mut x2)?;
+
+assert_eq!(report1.solve_sequence, 1);
+assert_eq!(report2.solve_sequence, 2);
+assert!(report2.preconditioner_reused);
+```
+
+When benchmarking reuse, avoid warm-starting from the previous solution unless
+warm-start behavior is itself the subject of the benchmark.
