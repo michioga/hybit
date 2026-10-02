@@ -1,0 +1,19 @@
+[book]
+title = "HyBIT Documentation"
+description = "User, numerical, architecture, and development documentation for HyBIT"
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "target/mdbook"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/michioga/hybit"
+edit-url-template = "https://github.com/michioga/hybit/edit/develop/0.8.0/docs/{path}"
+site-url = "/hybit/"
+
+[output.html.playground]
+runnable = false

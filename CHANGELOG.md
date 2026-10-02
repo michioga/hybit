@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0-d3 mdBook documentation site
+
+- Add `book.toml` and `docs/SUMMARY.md` so the existing Markdown documentation is the single source for an mdBook site.
+- Pin mdBook 0.5.4 and verify official release-asset SHA-256 values in both local Windows tooling and GitHub Actions.
+- Add a build-only mdBook CI job and an official GitHub Pages artifact/deployment workflow.
+- Publish 0.8 development documentation from `develop/0.8.0`; switch the deployment branch to `main` when 0.8 release documentation is frozen.
+- Keep generated HTML under ignored `target/mdbook/` rather than committing rendered site output.
 ## 0.8.0-d2 solver-selection documentation checkpoint
 
 - Add a numerical solver-selection guide connecting the declared matrix class to the current PCG and FGMRES routes and the future MINRES/LSQR-class routes.

@@ -180,6 +180,17 @@ GitHubリポジトリにはC ABI、C++ wrapper、Fortran `ISO_C_BINDING` module�
 
 WindowsではRust/MSVCで`hybit.dll`を作成し、MinGW利用時はGNU import libraryを生成します。
 
+## ドキュメント
+
+開発版ドキュメントはmdBookで構築し、
+<https://michioga.github.io/hybit/> で公開します。0.8開発中は
+`docs/` のMarkdownを `develop/0.8.0` からGitHub Pagesへデプロイします。
+
+Windowsでローカルに構築する場合:
+
+```powershell
+.\tools\docs\build-mdbook.ps1
+```
 ## 公開先
 
 GitHub: https://github.com/michioga/hybit

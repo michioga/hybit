@@ -3,6 +3,12 @@
 HyBIT 0.7.0 is the current published release. Documents describing
 `develop/0.8.0` are development documentation and are not claims about the
 immutable `v0.7.0` release.
+Rendered development documentation: <https://michioga.github.io/hybit/>
+
+The site is built with mdBook from the Markdown files in this directory.
+During the 0.8 development cycle, GitHub Pages deploys from
+`develop/0.8.0`; the deployment branch should move to `main` when the 0.8
+release documentation is frozen.
 
 ## Start here
 
@@ -35,7 +41,7 @@ For project status:
   current development branch.
 - [Roadmap](ROADMAP.md) — completed and planned work.
 - [FEM benchmark](FEM_BENCHMARK.md) and
-  [benchmark README](../benchmarks/README.md) — reproducible validation.
+  [benchmark README](https://github.com/michioga/hybit/blob/develop/0.8.0/benchmarks/README.md) — reproducible validation.
 - [Publishing](PUBLISHING.md) — release discipline and immutable release tags.
 
 ## Documentation layers

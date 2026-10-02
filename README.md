@@ -237,6 +237,17 @@ tools/gates/      version-neutral repository validation gates
 tools/release/    retained version-specific release qualification tooling
 ```
 
+## Documentation
+
+The development documentation is built with mdBook and published at
+<https://michioga.github.io/hybit/>. The 0.8 development site is generated
+from the Markdown sources under `docs/`.
+
+Build it locally on Windows with:
+
+```powershell
+.\tools\docs\build-mdbook.ps1
+```
 ## Build and test from source
 
 For ordinary development checks:
