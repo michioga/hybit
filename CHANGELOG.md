@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0-f1 GeneralSquare ILU(0) ordering checkpoint
+
+- Add `general_square_ordering`, a benchmark-only GeneralSquare harness that compares Natural and deterministic RCM symmetric permutations under identical restarted FGMRES settings.
+- Build RCM from the undirected sparsity graph of `A + A^T`, apply `A' = P A P^T` and `b' = P b`, then unpermute the solution and verify the true residual against the original matrix and RHS.
+- Use Jacobi as an ordering-invariance control so changes in ILU(0) convergence can be separated from permutation or verification errors.
+- On `cfd1`, RCM reduced structural bandwidth from 6229 to 3011 and reduced ILU(0)-FGMRES convergence from 3363 to 1932 iterations at `1e-8`; Jacobi behavior was unchanged.
+- On real nonsymmetric `sherman5`, both Natural and RCM ILU(0) converged in 30 iterations, so the 4.6 ms ordering cost was pure overhead on this already-easy case.
+- On real nonsymmetric `raefsky3`, RCM reduced bandwidth from 1263 to 735 and ILU(0)-FGMRES from 51 to 16 iterations; solve wall time fell from 141.6 ms to 51.0 ms before charging the 41.2 ms ordering cost.
+- All measured Natural/RCM ILU(0) cases used zero adjusted pivots, so the observed convergence differences were not caused by pivot-floor rescue.
+- `Goodwin_010` exposed a missing diagonal and remains an explicit unsuitable-input/fallback example rather than being modified for the ordering experiment.
+- Do not promote RCM to an unconditional default: bandwidth reduction alone did not predict ILU(0) benefit across the measured corpus.
+
 ## 0.8.0-d3 mdBook documentation site
 
 - Add `book.toml` and `docs/SUMMARY.md` so the existing Markdown documentation is the single source for an mdBook site.

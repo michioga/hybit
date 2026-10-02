@@ -41,6 +41,7 @@ benchmarks/scripts/bench-fem-structural-profile.ps1
 benchmarks/scripts/bench-fem-structural-spmv.ps1
 benchmarks/scripts/bench-fem-twolevel.ps1
 benchmarks/scripts/bench-fem.ps1
+benchmarks/scripts/bench-general-square-ordering.ps1
 book.toml
 Cargo.lock
 Cargo.toml
@@ -81,6 +82,7 @@ crates/hybit/examples/fem_structural_profile.rs
 crates/hybit/examples/fem_structural_spmv.rs
 crates/hybit/examples/fem_twolevel_bench.rs
 crates/hybit/examples/general_square.rs
+crates/hybit/examples/general_square_ordering.rs
 crates/hybit/examples/hybrid.rs
 crates/hybit/examples/multiregion.rs
 crates/hybit/examples/prepared.rs

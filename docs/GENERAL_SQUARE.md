@@ -1,6 +1,6 @@
 # GeneralSquare FGMRES and ILU(0)
 
-> Development documentation for `develop/0.8.0`, current through E5.
+> Development documentation for `develop/0.8.0`, current through F1.
 
 ## Purpose
 
@@ -168,14 +168,61 @@ while reusing the preconditioner.
 These are development regression measurements, not universal performance
 claims.
 
+## F1 ordering evidence
+
+F1 added a benchmark-only Natural-versus-RCM cross-check without changing the
+production GeneralSquare policy. RCM is formed from the undirected sparsity
+graph of `A + A^T`; the benchmark applies the same permutation to rows,
+columns, and RHS, then maps the computed solution back to the original ordering
+and recomputes the true residual against the original `A` and `b`.
+
+Jacobi is run under both orderings as a control. Because a simultaneous
+row/column permutation should not materially change diagonal scaling as a
+mathematical preconditioner, matching Jacobi behavior is used to validate the
+permutation/verification path before interpreting ILU(0) differences.
+
+Measured fixed-restart-30 results at relative tolerance `1e-8`:
+
+| Matrix | Matrix class | Bandwidth Natural -> RCM | ILU(0) Natural | ILU(0) RCM | Observation |
+| --- | --- | ---: | ---: | ---: | --- |
+| `cfd1` | symmetric | 6229 -> 3011 | 3363 iterations | 1932 iterations | strong RCM benefit |
+| `sherman5` | nonsymmetric | 1106 -> 126 | 30 iterations | 30 iterations | no convergence benefit; ordering is overhead |
+| `raefsky3` | nonsymmetric | 1263 -> 735 | 51 iterations | 16 iterations | strong RCM benefit |
+
+For `cfd1`, ILU(0) solve wall time fell from about 18.0 s to 10.5 s; the
+measured RCM graph/order/permutation cost was about 64 ms. For `raefsky3`,
+solve wall time fell from about 141.6 ms to 51.0 ms, while ordering cost about
+41.2 ms. `sherman5` demonstrates the opposite regime: Natural ILU(0) already
+converged in one restart cycle, so RCM added cost without reducing iterations.
+
+All three Natural/RCM ILU(0) comparisons reported zero adjusted pivots. The
+observed convergence differences therefore cannot be attributed to the
+row-relative pivot floor.
+
+The corpus also shows that bandwidth reduction is not a sufficient automatic
+selection signal: `sherman5` had the largest relative bandwidth reduction but
+no ILU(0) iteration reduction. A future automatic policy should therefore
+consider solve/progress behavior rather than promoting RCM solely from a graph
+metric.
+
+`Goodwin_010` was rejected by the current high-level GeneralSquare contract
+because at least one structural diagonal entry is missing. F1 deliberately did
+not insert artificial diagonal values; this matrix is retained as evidence for
+the later unsuitable-ILU/fallback design.
+
+These measurements use generated `b = A * 1` to provide a known solution and
+an independent forward-error cross-check. They are development evidence for
+the measured matrices, RHS construction, hardware, and revision rather than a
+universal ordering rule.
+
 ## Limitations
 
 - ILU(0) is ordering-sensitive.
 - Current `L`/`U` triangular application is serial.
 - There is no ILUT, drop tolerance, level-of-fill, threshold pivoting, or
   internal reordering.
-- E5 is based mainly on synthetic nonsymmetric PDE-like families; real
-  nonsymmetric FEM/PDE validation is still required.
+- F1 adds two real nonsymmetric ordering cross-checks, but a broader
+  nonsymmetric FEM/PDE corpus and larger dimensions are still required.
 - GeneralSquare is not yet routed through resident Rayon or GPU execution.
 - GeneralSquare selection is not yet exposed through the C ABI configuration
   surface.

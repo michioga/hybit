@@ -17,7 +17,7 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - validated structural Graph rigid-body parallel CPU path;
 - release integrity/MSRV/package/ABI/real-FEM gates.
 
-## Completed on develop/0.8.0 through E5
+## Completed on develop/0.8.0 through F1
 
 ### Execution architecture
 
@@ -35,17 +35,19 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - fixed, escalating, and budget-aware restart;
 - canonical prepared ILU(0);
 - selective row-relative pivot stabilization;
-- prepared ILU reuse and memory telemetry.
+- prepared ILU reuse and memory telemetry;
+- F1 Natural-versus-RCM ordering harness with original-system residual verification;
+- real nonsymmetric ordering evidence showing both a strong RCM benefit (`raefsky3`) and a no-benefit case (`sherman5`), ruling out unconditional RCM promotion.
 
 ## Immediate next work
 
 ### GeneralSquare robustness
 
-1. Measure ILU(0) sensitivity to natural/RCM/other meaningful orderings.
-2. Validate representative real nonsymmetric FEM/PDE matrices.
-3. Repeat at larger dimensions and multiple RHS.
-4. Profile serial triangular application separately.
-5. Define fallback behavior for unsuitable ILU.
+1. Expand the representative real nonsymmetric FEM/PDE corpus beyond the F1 `sherman5` / `raefsky3` cross-check.
+2. Repeat at larger dimensions and multiple RHS.
+3. Profile serial triangular application separately.
+4. Define fallback behavior for unsuitable ILU, including structurally missing diagonals such as `Goodwin_010`.
+5. Evaluate residual/progress signals for selective Natural -> reordered ILU escalation; bandwidth reduction alone is not sufficient.
 6. Decide whether automatic Jacobi -> ILU(0) promotion is justified.
 
 Do not add ILUT/drop-tolerance fill until ILU(0)'s operating envelope is clear.

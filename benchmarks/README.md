@@ -49,6 +49,31 @@ recomputed `||Ax-b||/||b||`, plus setup, solve, hard-region and local-factor
 metrics. Compare wall-clock results only on sufficiently large problems and use
 multiple process runs for performance claims.
 
+## GeneralSquare Natural/RCM ordering benchmark
+
+`general_square_ordering` is an F1 development harness for measuring ILU(0)
+ordering sensitivity without changing the production solver policy. The wrapper
+runs Natural and deterministic RCM orderings with both Jacobi and ILU(0). RCM
+uses the undirected sparsity graph of `A + A^T` and applies the simultaneous
+row/column permutation `P A P^T`.
+
+Example:
+
+```powershell
+.\benchmarks\scripts\bench-general-square-ordering.ps1 `
+  -Matrix D:\Work\raefsky3.mtx `
+  -MaxIterations 5000
+```
+
+The benchmark reports structural bandwidth, ordering cost, analysis/prepare
+time, FGMRES iterations, solve wall time, ILU adjusted-pivot count, persistent
+preconditioner/workspace bytes, and an independently recomputed residual after
+mapping the RCM solution back to the original ordering.
+
+The current high-level GeneralSquare path requires a structurally complete
+diagonal. Matrices with missing diagonal entries are rejected rather than
+silently modified for this benchmark.
+
 ## Structural Graph coarse-dimension sweep
 
 After a structural Matrix Market matrix, free-node coordinate sidecar, and optional
