@@ -1,12 +1,23 @@
 # Changelog
 
+## 0.8.0-f4 GeneralSquare ILU(0) triangular-apply checkpoint
+
+- Add benchmark-only `general_square_ilu_apply_profile` / `bench-general-square-ilu-apply.ps1` to isolate serial ILU(0) triangular application from serial CSR SpMV under Natural and RCM orderings.
+- Add `general_square_ilu_levels` / `bench-general-square-ilu-levels.ps1` to measure canonical ILU(0) forward/backward level depth, level width, dependency count, work imbalance, and dependency-distance statistics.
+- `sherman5`: RCM reduced median ILU apply from 0.021418 ms to 0.015114 ms (`0.705668x`) while serial SpMV remained near parity; the ordering improves the triangular kernel but F1 showed no iteration reduction, so the ordering cost is still not generally recoverable.
+- `raefsky3`: Natural/RCM ILU apply stayed effectively equal (0.950286 vs 0.951054 ms) while F3 convergence improved strongly under RCM, confirming that its ordering benefit is numerical/preconditioner-quality driven rather than a faster triangular kernel.
+- `venkat25`: RCM improved serial SpMV from 0.542808 ms to 0.515574 ms but worsened serial ILU apply from 1.062186 ms to 1.213100 ms (`1.142079x`), explaining why the modest iteration reduction does not translate into a similarly large wall-time gain.
+- Dependency profiling shows that RCM can change level structure and locality in opposite directions: on `venkat25` it reduces forward/backward depth from 4176 to 1700 and raises structural average parallelism from about 14.95 to 36.72, while dependency-distance median grows from 117 to about 711/712 and p95 from 1948 to 2348.
+- An experimental per-level Rayon application and a width-threshold hybrid were validated for numerical equality but rejected: every measured configuration that actually invoked Rayon was slower than the canonical serial row-order ILU apply. The prototype implementation is not retained.
+- Keep production ILU(0) triangular application serial. If parallel triangular execution is revisited, use a coarser persistent-worker/task/superlevel design rather than one Rayon launch/barrier per level.
+- No production solver default, public policy, or automatic ordering change in F4.
 ## 0.8.0-f3 GeneralSquare prepared multi-RHS ordering checkpoint
 
 - Add `general_square_multi_rhs` plus `bench-general-square-multi-rhs.ps1` to measure Natural-versus-RCM prepared ILU(0) across deterministic distinct right-hand sides.
 - Prepare Natural ILU(0), RCM ordering, permuted matrix, RCM ILU(0), and both FGMRES workspaces once, then reuse the prepared contexts across solve sequences while verifying `solve_sequence` and `preconditioner_reused`.
 - Time the reordered path both as solver-only work and end-to-end work, including per-RHS RHS permutation and solution unpermutation. Independent original-system residual checks run after both timed solves to reduce measurement interference.
-- Five repeated 5-RHS runs on `raefsky3` gave a median end-to-end RCM/Natural ratio of `0.527337` (about 47.3% lower elapsed time), with ratios ranging from `0.526056` to `0.528967`. RCM broke even on RHS 1 in every repeat.
-- Five repeated 5-RHS runs on `venkat25` gave a median end-to-end RCM/Natural ratio of `0.984314` (about 1.57% lower elapsed time), with ratios ranging from `0.972316` to `0.991788`. The small timing advantage was present in all five repeats but is too small to justify a general automatic-reordering rule.
+- Five repeated 5-RHS runs on `raefsky3` gave a median end-to-end RCM/Natural ratio of `0.527290` (about 47.3% lower elapsed time), with ratios ranging from `0.526349` to `0.528967`. RCM broke even on RHS 1 in every repeat.
+- Five repeated 5-RHS runs on `venkat25` gave a median end-to-end RCM/Natural ratio of `0.984313` (about 1.57% lower elapsed time), with ratios ranging from `0.972316` to `0.991788`. The small timing advantage was present in all five repeats but is too small to justify a general automatic-reordering rule.
 - The repeated-RHS evidence strengthens the ordering conclusion: `raefsky3` has a robust cross-RHS RCM benefit, while `venkat25` shows strongly RHS-dependent convergence gains and near-parity wall time on later RHS vectors.
 - Per-RHS permutation/unpermutation overhead was negligible relative to solve cost in the measured cases: median cumulative transform time over five RHS was about 0.257 ms for `raefsky3` and 0.747 ms for `venkat25`.
 - No production solver default or automatic policy changes in F3.
@@ -599,3 +610,68 @@ First public release candidate for GitHub and crates.io.
 - Add `bench-fem-hybrid-coarse-sweep.ps1` for local-only + algebraic-coarse target sweeps.
 - Default sweep targets are 384, 512, 768, 1024, and 1536 coarse dimensions.
 - The sweep prints a compact Pareto table and exports status, iterations, verified residual, actual coarse dimension, coarse memory/setup cost, solver time, total wall time, and per-stage residual ratios to CSV.
+
+## 0.8.0-F5 GeneralSquare unsuitable-ILU fallback
+
+- Add explicit `GeneralSquarePreconditionerPolicy::Ilu0Fallback` while
+  preserving strict `Jacobi` and strict `Ilu0` behavior.
+- Permit GeneralSquare analysis of structurally missing-diagonal systems only
+  under the explicit fallback policy; canonical ILU(0) still requires its
+  original structural contract.
+- Fall back to a prepared Identity preconditioner only for
+  `HybitError::MissingDiagonal`; do not hide other ILU preparation errors.
+- Expose the effective prepared GeneralSquare preconditioner and whether the
+  ILU structural fallback was used; Identity fallback solves report
+  `PreconditionerKind::None`.
+- Validate strict rejection plus successful fallback preparation on the five
+  real missing-diagonal matrices from F2.
+- Retain a bounded-solve harness showing that Identity is a safe but not
+  universally strong numerical fallback.
+- Reject synthetic diagonal insertion, arbitrary structural matching,
+  row-relative bottleneck matching, and simple max-norm equilibration as
+  universal ILU(0) repairs after real-matrix experiments still produced weak
+  convergence or numerical breakdown.
+- Remove the rejected F5c-F5f experiment programs after recording their
+  conclusions; retain only the production fallback and its direct validation
+  harnesses.
+- Keep all automatic/default GeneralSquare selection behavior unchanged.
+
+## 0.8.0-F6 GeneralSquare ordering-selection evidence
+
+- Add exact restart-boundary Natural-ILU progress profiling and reject
+  Natural-only residual decay as a sufficient RCM-selection signal.
+- Add equal-length Natural/RCM ILU(0) paired short probes and independently
+  verified complete solves.
+- Add repeated amortized policy replay that charges both ILU setup paths,
+  ordering cost, both probes, and the selected solve-many workload.
+- Show strong paired-probe separation on `sherman5`, `raefsky3`, `venkat25`,
+  `cfd1`, and `thermal1`, while retaining additional capped cases as negative
+  classification evidence rather than performance wins.
+- Record that `cfd1` can reverse Natural/RCM preference across RHS vectors even
+  when the five-RHS aggregate favors RCM.
+- Record that rejecting RCM still has measurable alternate-state overhead on
+  `venkat25`.
+- Keep the production Natural/RCM ordering policy unchanged. The F6 selector is
+  development evidence for a possible future explicit solve-many policy, not
+  an automatic default.
+
+## 0.8.0-F7 GeneralSquare preconditioner-selection decision
+
+- Add prepared Jacobi-versus-canonical-ILU(0) complete-solve comparison with
+  deterministic RHS families, independently verified residuals, setup cost,
+  preconditioner storage, cumulative solve cost, and break-even reporting.
+- Add static matrix/cost telemetry and one-apply approximate-inverse quality
+  probes for GeneralSquare preconditioner research.
+- Add equal-horizon 4/8/16-iteration Jacobi-FGMRES versus ILU(0)-FGMRES paired
+  probes from the same initial state.
+- Replay complete comparisons at restart-boundary budgets 30/60/120/240 to
+  expose post-restart convergence reversals and cost/convergence disagreement.
+- Confirm large ILU(0) wins on `sherman5`, `raefsky3`, and `venkat25`, including
+  cases where ILU(0) converges while Jacobi reaches the iteration cap.
+- Confirm material ILU(0) regressions on `nd3k`, `cant`, `s3dkq4m2`, `boneS01`,
+  and `x104`.
+- Record that row density, one-apply defect, short paired residuals, and fixed
+  restart-boundary telemetry each have counterexamples as universal promotion
+  selectors.
+- Keep Jacobi as the GeneralSquare default and canonical ILU(0) explicit.
+  No automatic Jacobi -> ILU(0) production promotion is added in F7.

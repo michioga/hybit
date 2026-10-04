@@ -18,9 +18,10 @@ use hybit_matrix::{
     ParallelCsr32Operator,
 };
 use hybit_precond::{
-    recommend_rigid_body_aggregate_nodes, HybridPreconditioner, Ilu0Preconditioner,
-    JacobiPreconditioner, ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
-    RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelBlockJacobiPreconditioner,
+    recommend_rigid_body_aggregate_nodes, HybridPreconditioner, IdentityPreconditioner,
+    Ilu0Preconditioner, JacobiPreconditioner, ParallelJacobiPreconditioner,
+    ParallelRigidBodyTwoLevelPreconditioner, RigidBodyTwoLevelBlockJacobiPreconditioner,
+    TwoLevelBlockJacobiPreconditioner,
 };
 pub use hybit_precond::{
     RigidBodyAggregation, TwoLevelAggregation, TwoLevelBasis, TwoLevelCoarseApplyPolicy,
@@ -279,6 +280,13 @@ impl StructuralOptions {
 pub enum GeneralSquarePreconditionerPolicy {
     Jacobi,
     Ilu0,
+    /// Explicit robust ILU(0) mode: use canonical ILU(0) when structurally
+    /// applicable, otherwise fall back to the identity preconditioner when
+    /// the matrix is missing one or more diagonal entries.
+    ///
+    /// This does not make ILU(0) automatic and does not hide other numerical
+    /// factorization failures. The existing `Ilu0` variant remains strict.
+    Ilu0Fallback,
 }
 /// Restart policy for prepared GeneralSquare FGMRES.
 ///
@@ -500,6 +508,7 @@ impl HybitAnalysis {
 
 #[derive(Debug)]
 enum PreparedGeneralSquarePreconditioner {
+    Identity(IdentityPreconditioner),
     Jacobi(JacobiPreconditioner),
     Ilu0(Ilu0Preconditioner),
 }
@@ -507,6 +516,7 @@ enum PreparedGeneralSquarePreconditioner {
 impl PreparedGeneralSquarePreconditioner {
     fn kind(&self) -> PreconditionerKind {
         match self {
+            Self::Identity(_) => PreconditionerKind::None,
             Self::Jacobi(_) => PreconditionerKind::Jacobi,
             Self::Ilu0(_) => PreconditionerKind::Ilu0,
         }
@@ -514,6 +524,7 @@ impl PreparedGeneralSquarePreconditioner {
 
     fn bytes(&self) -> usize {
         match self {
+            Self::Identity(_) => 0,
             Self::Jacobi(jacobi) => std::mem::size_of_val(jacobi.inv_diagonal()),
             Self::Ilu0(ilu) => ilu.factor_bytes(),
         }
@@ -521,13 +532,14 @@ impl PreparedGeneralSquarePreconditioner {
 
     fn ilu_adjusted_pivots(&self) -> usize {
         match self {
-            Self::Jacobi(_) => 0,
+            Self::Identity(_) | Self::Jacobi(_) => 0,
             Self::Ilu0(ilu) => ilu.adjusted_pivots(),
         }
     }
 
     fn as_preconditioner_mut(&mut self) -> &mut dyn Preconditioner {
         match self {
+            Self::Identity(identity) => identity,
             Self::Jacobi(jacobi) => jacobi,
             Self::Ilu0(ilu) => ilu,
         }
@@ -842,6 +854,17 @@ impl HybitPreparedSystem {
                 .fgmres_workspace
                 .as_ref()
                 .map_or(0, FgmresWorkspace::bytes)
+    }
+    pub fn general_square_preconditioner_kind(&self) -> Option<PreconditionerKind> {
+        self.general_square_preconditioner
+            .as_ref()
+            .map(PreparedGeneralSquarePreconditioner::kind)
+    }
+    pub fn general_square_ilu_fallback_used(&self) -> bool {
+        matches!(
+            self.general_square_preconditioner.as_ref(),
+            Some(PreparedGeneralSquarePreconditioner::Identity(_))
+        )
     }
     pub fn general_square_preconditioner_bytes(&self) -> usize {
         self.general_square_preconditioner
@@ -2063,14 +2086,7 @@ impl HybitSolver {
             MatrixProblemClass::SymmetricIndefinite => Err(HybitError::InvalidArgument(
                 "symmetric-indefinite systems are recognized but MINRES is not implemented in HyBIT 0.8-a3",
             )),
-            MatrixProblemClass::GeneralSquare => {
-                if !profile.full_diagonal {
-                    return Err(HybitError::InvalidMatrix(
-                        "GeneralSquare FGMRES path requires a complete diagonal",
-                    ));
-                }
-                Ok(())
-            }
+            MatrixProblemClass::GeneralSquare => Ok(()),
         }
     }
 
@@ -2082,18 +2098,31 @@ impl HybitSolver {
         let profile = analyze_csr32(matrix)?;
         self.validate_problem_class(&profile)?;
         if self.problem_class == MatrixProblemClass::GeneralSquare {
-            if self.general_square_preconditioner_policy
-                == GeneralSquarePreconditionerPolicy::Jacobi
-            {
-                let diagonal = matrix.diagonal()?;
-                if diagonal
-                    .iter()
-                    .any(|&value| value == 0.0 || !value.is_finite())
-                {
-                    return Err(HybitError::InvalidMatrix(
-                        "GeneralSquare FGMRES Jacobi path requires a finite nonzero diagonal",
-                    ));
+            match self.general_square_preconditioner_policy {
+                GeneralSquarePreconditionerPolicy::Jacobi => {
+                    if !profile.full_diagonal {
+                        return Err(HybitError::InvalidMatrix(
+                            "GeneralSquare FGMRES path requires a complete diagonal",
+                        ));
+                    }
+                    let diagonal = matrix.diagonal()?;
+                    if diagonal
+                        .iter()
+                        .any(|&value| value == 0.0 || !value.is_finite())
+                    {
+                        return Err(HybitError::InvalidMatrix(
+                            "GeneralSquare FGMRES Jacobi path requires a finite nonzero diagonal",
+                        ));
+                    }
                 }
+                GeneralSquarePreconditionerPolicy::Ilu0 => {
+                    if !profile.full_diagonal {
+                        return Err(HybitError::InvalidMatrix(
+                            "GeneralSquare FGMRES path requires a complete diagonal",
+                        ));
+                    }
+                }
+                GeneralSquarePreconditionerPolicy::Ilu0Fallback => {}
             }
             if !matches!(
                 self.execution_policy,
@@ -2195,6 +2224,17 @@ impl HybitSolver {
                         PreparedGeneralSquarePreconditioner::Ilu0(
                             Ilu0Preconditioner::from_csr32_general(matrix)?,
                         )
+                    }
+                    GeneralSquarePreconditionerPolicy::Ilu0Fallback => {
+                        match Ilu0Preconditioner::from_csr32_general(matrix) {
+                            Ok(ilu) => PreparedGeneralSquarePreconditioner::Ilu0(ilu),
+                            Err(HybitError::MissingDiagonal { .. }) => {
+                                PreparedGeneralSquarePreconditioner::Identity(
+                                    IdentityPreconditioner::new(matrix.nrows()),
+                                )
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
                 };
                 (None, Some(preconditioner))

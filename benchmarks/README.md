@@ -127,6 +127,37 @@ Machine-readable records distinguish:
 
 Use repeated process runs before interpreting small timing differences. F3 used
 five repeats for the documented `raefsky3` and `venkat25` evidence.
+## GeneralSquare ILU(0) triangular-apply profiling
+
+`bench-general-square-ilu-apply.ps1` measures canonical serial ILU(0)
+triangular application separately from serial CSR SpMV for Natural and RCM
+orderings. `bench-general-square-ilu-levels.ps1` profiles the same canonical
+pattern's forward/backward dependency levels, widths, work imbalance, and
+dependency distances.
+
+```powershell
+.\benchmarks\scripts\bench-general-square-ilu-apply.ps1 `
+  -Matrix @(
+    "D:\Work\sherman5.mtx",
+    "D:\Work\raefsky3.mtx",
+    "D:\Work\venkat25.mtx"
+  ) `
+  -Samples 9 `
+  -Batch 50 `
+  -Warmup 5
+
+.\benchmarks\scripts\bench-general-square-ilu-levels.ps1 `
+  -Matrix @(
+    "D:\Work\sherman5.mtx",
+    "D:\Work\raefsky3.mtx",
+    "D:\Work\venkat25.mtx"
+  )
+```
+
+These are diagnostic benchmarks. F4 also tested per-level and width-threshold
+Rayon triangular schedules; those prototypes were slower whenever Rayon work
+was actually dispatched, so only the serial/dependency profiling harnesses are
+retained.
 ## Structural Graph coarse-dimension sweep
 
 After a structural Matrix Market matrix, free-node coordinate sidecar, and optional
@@ -201,3 +232,84 @@ damping and forms the true Galerkin operator `P^T A P`. Compare iteration count,
 coarse setup/memory, solver milliseconds per iteration, solver time, and total
 wall time before changing the generic default.
 
+## GeneralSquare missing-diagonal fallback validation
+
+F5 retains two benchmark wrappers for the production `Ilu0Fallback` policy.
+
+`bench-general-square-ilu-fallback.ps1` is a prepare-only preflight. It compares
+strict `Ilu0` with explicit `Ilu0Fallback` and reports the effective prepared
+preconditioner and whether structural fallback was used.
+
+`bench-general-square-ilu-fallback-solve.ps1` performs a bounded FGMRES solve
+using a deterministic manufactured right-hand side, reports independently
+verified residual and forward error, and is intended to distinguish a safe
+fallback from a numerically strong one.
+
+Example:
+
+```powershell
+.\benchmarks\scripts\bench-general-square-ilu-fallback-solve.ps1 `
+  -Matrix @(
+    "D:\Work\Goodwin_010.mtx",
+    "D:\Work\Goodwin_023.mtx",
+    "D:\Work\Goodwin_030.mtx",
+    "D:\Work\goodwin.mtx",
+    "D:\Work\rma10.mtx"
+  ) `
+  -Restart 30 `
+  -MaxIterations 300 `
+  -Tolerance 1e-8
+```
+
+The stronger F5c-F5f missing-diagonal experiments were intentionally not
+retained after they failed to provide a robust universal improvement over the
+Identity safety fallback.
+
+## GeneralSquare ordering-selection probes
+
+F6 retains three benchmark-only harnesses. They do not change the production
+GeneralSquare ordering policy.
+
+`bench-general-square-ordering-progress.ps1` records exact Natural-ILU FGMRES
+restart-boundary residuals. F6a showed that Natural-only progress is not enough
+to decide whether RCM will help.
+
+`bench-general-square-ordering-paired-probe.ps1` prepares Natural and RCM ILU(0)
+states, runs equal-length 4-, 8-, and 16-iteration probes from `x=0`, and then
+runs the complete solves. Its main signal is the RCM/Natural residual ratio
+after the same probe length.
+
+`bench-general-square-ordering-policy-replay.ps1` repeats the paired experiment
+and charges both setup paths and both short probes before reusing the selected
+ordering across a configurable RHS horizon.
+
+The current development evidence favors a cheap structural prefilter
+(`RCM bandwidth < Natural bandwidth`) followed by a four-iteration paired
+residual comparison as a solve-many research signal. This is not a production
+automatic-selection rule: alternate-state setup cost and right-hand-side
+sensitivity remain material.
+
+## GeneralSquare preconditioner-selection studies
+
+F7 retains three benchmark-only preconditioner-selection harnesses. They do not
+change the production GeneralSquare default.
+
+`bench-general-square-preconditioner-compare.ps1` performs complete prepared
+Jacobi-versus-ILU(0) solves, charges setup and solve time, reuses prepared
+preconditioners across deterministic RHS vectors, and reports cumulative
+break-even.
+
+`bench-general-square-preconditioner-probe.ps1` measures static matrix/cost
+signals plus deterministic one-apply approximate-inverse defects. It is useful
+for diagnosing catastrophic ILU factors but is not a validated promotion rule.
+
+`bench-general-square-preconditioner-paired-probe.ps1` compares actual
+Jacobi-FGMRES and ILU(0)-FGMRES exact residuals after equal 4-, 8-, and
+16-iteration horizons from `x=0`.
+
+F7 also replayed the complete comparison at restart-boundary budgets 30, 60,
+120, and 240. Those results show that early residual advantage, early wall
+advantage, and eventual time-to-tolerance can disagree.
+
+The F7 conclusion is intentionally conservative: retain explicit policies and
+do not infer a production automatic threshold from this corpus.

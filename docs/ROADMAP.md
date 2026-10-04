@@ -17,7 +17,7 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - validated structural Graph rigid-body parallel CPU path;
 - release integrity/MSRV/package/ABI/real-FEM gates.
 
-## Completed on develop/0.8.0 through F3
+## Completed on develop/0.8.0 through F7
 
 ### Execution architecture
 
@@ -42,19 +42,24 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - larger real nonsymmetric `venkat25` evidence showing a moderate RCM ILU(0) benefit while Jacobi remains ordering-invariant;
 - explicit corpus evidence that structurally missing diagonals are a common current-applicability boundary;
 - F3 prepared Natural/RCM ILU(0) multi-RHS harness with solver-only and end-to-end permutation accounting;
-- repeated 5-RHS evidence showing robust cross-RHS RCM benefit on `raefsky3` but only small/timing-sensitive aggregate benefit on `venkat25`.
+- repeated 5-RHS evidence showing robust cross-RHS RCM benefit on `raefsky3` but only small/timing-sensitive aggregate benefit on `venkat25`;
+- F4 serial triangular-apply/dependency profiling, with per-level and width-threshold Rayon prototypes rejected because synchronization/scheduling overhead outweighed available level parallelism.
 
 ## Immediate next work
 
 ### GeneralSquare robustness
 
-1. Profile serial triangular application separately.
-2. Define fallback behavior for unsuitable ILU, including the frequent structurally missing diagonals exposed by the F2 corpus.
-3. Evaluate residual/progress signals for selective Natural -> reordered ILU escalation; bandwidth and one-RHS ordering evidence are not sufficient.
-4. Decide whether automatic Jacobi -> ILU(0) promotion is justified.
+GeneralSquare robustness work is closed through F7 for this 0.8 checkpoint.
 
-Do not add ILUT/drop-tolerance fill until ILU(0)'s operating envelope is clear.
-
+1. Keep Jacobi as the default GeneralSquare preconditioner.
+2. Keep canonical ILU(0) explicit/opt-in.
+3. Keep `Ilu0Fallback` explicit for the missing-diagonal safety path.
+4. Keep Natural/RCM ordering explicit; F6/F7 evidence does not justify a
+   universal automatic selector.
+5. Revisit automatic selection only with broader held-out validation or
+   application-provided solve horizon / cost budget.
+6. Treat drop-tolerance/fill, pivoting, and multilevel ILU as separate future
+   preconditioners rather than silently changing canonical ILU(0).
 ### ABTM topology and metadata-first execution
 
 After the current GeneralSquare robustness sequence, reintroduce ABTM as a

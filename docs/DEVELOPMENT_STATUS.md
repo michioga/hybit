@@ -17,7 +17,7 @@ The `v0.7.0` tag is immutable. 0.8 development does not change the published
 
 ## Current develop/0.8.0 checkpoint
 
-Current validated development sequence is complete through F3. The F2 base
+Current validated development sequence is complete through F7. The F2 base
 commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse
 measurement and documentation on top of that checkpoint.
 
@@ -30,7 +30,7 @@ cross-check.
 
 GPU is an architectural target, not a production target here.
 
-### GeneralSquare E1-F3
+### GeneralSquare E1-F7
 
 1. E1 — restarted FGMRES with reusable `V`/`Z` workspace.
 2. E2 — prepared `GeneralSquare` routing.
@@ -40,6 +40,11 @@ GPU is an architectural target, not a production target here.
 6. F1 — Natural/RCM ILU(0) ordering sensitivity.
 7. F2 — real nonsymmetric corpus preflight and larger-case evidence.
 8. F3 — repeated prepared multi-RHS ordering/reuse and end-to-end amortization.
+9. F4 — ILU(0) application/topology profiling; per-level Rayon triangular apply rejected.
+10. F5 — explicit unsuitable-ILU fallback with retained Identity safety path and real missing-diagonal validation.
+11. F6 — Natural/RCM ordering-selection signals, paired short probes, and amortized policy replay; no automatic production promotion.
+12. F7 — Jacobi -> ILU(0) promotion study; strong ILU wins and strong regressions observed, with no validated automatic production selector.
+9. F4 — serial ILU(0) apply/dependency profiling; per-level Rayon scheduling rejected as too fine grained.
 
 Jacobi + fixed restart 30 remains default.
 
@@ -51,7 +56,7 @@ The public hard-B cross-check reproduced 276 iterations, true relative residual
 `9.455610e-9`, 4.238 MiB ILU state, 4.500 MiB FGMRES(3) workspace, 8.738 MiB
 total persistent state, and zero adjusted pivots.
 
-F1-F3 ordering work now shows three distinct real-nonsymmetric regimes:
+F1-F4 ordering/kernel work now shows three distinct real-nonsymmetric regimes:
 `sherman5` with no measured RCM convergence benefit, `raefsky3` with robust
 cross-RHS RCM benefit, and `venkat25` with RHS-dependent convergence changes
 and only a small repeated 5-RHS end-to-end timing difference. Bandwidth and a
@@ -82,15 +87,20 @@ verified relative residual `9.378557e-9`.
 
 ## Next validation focus
 
-Before automatic ILU selection:
+GeneralSquare robustness is now closed through F7 for the current 0.8
+development checkpoint.
 
-- serial triangular-solve profiling;
-- safe fallback behavior when ILU is unsuitable;
-- residual/progress evidence for selective Natural -> reordered ILU escalation;
-- evidence sufficient to decide whether automatic Jacobi -> ILU(0) promotion
-  is justified.
+Production semantics remain explicit:
 
-The completed F1-F3 work already covers Natural/RCM comparisons,
-representative real nonsymmetric matrices, larger dimensions, and repeated RHS.
+- Jacobi is the GeneralSquare default;
+- canonical ILU(0) remains opt-in;
+- `Ilu0Fallback` remains the explicit missing-diagonal safety policy;
+- Natural/RCM ordering remains explicit rather than automatically selected.
 
-See [ROADMAP.md](ROADMAP.md) and [GENERAL_SQUARE.md](GENERAL_SQUARE.md).
+The next major development track is ABTM topology work, beginning with G1
+topology algebra and metadata-first sparse operation primitives. GeneralSquare
+automatic-selection research can be revisited later with a broader held-out
+corpus or application-provided solve-horizon/cost information.
+
+Do not add ILUT, fill, pivoting, or hidden automatic preconditioner changes as
+part of the F7 conclusion.

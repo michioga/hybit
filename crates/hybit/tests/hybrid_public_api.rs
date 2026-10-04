@@ -750,3 +750,93 @@ fn cpu_resident_prepared_workspace_reuses_vectors_across_rhs() {
     assert_eq!(second.analysis_seconds, 0.0);
     assert_eq!(second.prepare_seconds, 0.0);
 }
+
+fn missing_diagonal_general_matrix() -> Csr32Matrix {
+    // [[0, 1],
+    //  [1, 2]]
+    // The (0,0) structural diagonal entry is absent, but the matrix is
+    // nonsingular (determinant -1), so unpreconditioned FGMRES is a valid
+    // fallback validation case.
+    Csr32Matrix::new(2, 2, vec![0, 1, 3], vec![1, 0, 1], vec![1.0, 1.0, 2.0]).unwrap()
+}
+
+#[test]
+fn general_square_strict_ilu0_still_rejects_missing_diagonal() {
+    let a = missing_diagonal_general_matrix();
+
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver.set_general_square_preconditioner_policy(GeneralSquarePreconditionerPolicy::Ilu0);
+
+    let error = solver.analyze_csr32(&a).unwrap_err();
+    assert!(matches!(
+        error,
+        HybitError::InvalidMatrix("GeneralSquare FGMRES path requires a complete diagonal")
+    ));
+}
+
+#[test]
+fn general_square_ilu0_fallback_uses_identity_for_missing_diagonal() {
+    let a = missing_diagonal_general_matrix();
+    let exact = vec![1.0, 2.0];
+    let b = a.spmv(&exact).unwrap();
+
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver
+        .set_general_square_preconditioner_policy(GeneralSquarePreconditionerPolicy::Ilu0Fallback);
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 16,
+        })
+        .unwrap();
+    solver
+        .set_general_square_options(GeneralSquareOptions {
+            restart: 2,
+            ..GeneralSquareOptions::default()
+        })
+        .unwrap();
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+
+    assert_eq!(
+        prepared.general_square_preconditioner_kind(),
+        Some(PreconditionerKind::None)
+    );
+    assert!(prepared.general_square_ilu_fallback_used());
+    assert_eq!(prepared.general_square_preconditioner_bytes(), 0);
+    assert_eq!(prepared.general_square_ilu_adjusted_pivots(), 0);
+
+    let mut x = vec![0.0; 2];
+    let report = prepared.solve(&a, &b, &mut x).unwrap();
+    assert!(report.converged());
+    assert_eq!(report.solver, SolverKind::Fgmres);
+    assert_eq!(report.preconditioner, PreconditionerKind::None);
+
+    for (&actual, &expected) in x.iter().zip(&exact) {
+        assert!((actual - expected).abs() <= 1.0e-10);
+    }
+}
+
+#[test]
+fn general_square_ilu0_fallback_keeps_ilu0_when_supported() {
+    let a = nonsymmetric_general_matrix();
+
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver
+        .set_general_square_preconditioner_policy(GeneralSquarePreconditionerPolicy::Ilu0Fallback);
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+
+    assert_eq!(
+        prepared.general_square_preconditioner_kind(),
+        Some(PreconditionerKind::Ilu0)
+    );
+    assert!(!prepared.general_square_ilu_fallback_used());
+    assert!(prepared.general_square_preconditioner_bytes() > 0);
+}
