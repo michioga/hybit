@@ -1,6 +1,6 @@
 # GeneralSquare FGMRES and ILU(0)
 
-> Development documentation for `develop/0.8.0`, current through F2.
+> Development documentation for `develop/0.8.0`, current through F3.
 
 ## Purpose
 
@@ -257,6 +257,46 @@ different ordering regimes: no convergence benefit on `sherman5`, strong
 benefit on `raefsky3`, and moderate benefit on the larger `venkat25`.
 Bandwidth reduction is therefore telemetry, not an automatic selection rule.
 
+## F3 prepared multi-RHS ordering evidence
+
+F3 measures whether the F1/F2 ordering behavior survives prepared solve-many
+reuse with different right-hand sides. Natural and RCM ILU(0) states are each
+prepared once and reused for five deterministic RHS vectors (`ones`,
+`alternating`, then deterministic hashed vectors). Every solve starts from a
+zero initial guess. The RCM path includes per-RHS `P b` construction and
+solution unpermutation in the end-to-end accounting.
+
+The benchmark verifies the final residual in the original system after both
+timed solve paths complete. From solve sequence 2 onward it also requires the
+prepared context to report preconditioner reuse.
+
+Five repeated 5-RHS runs produced:
+
+| Matrix | 5-RHS Natural end-to-end median | 5-RHS RCM end-to-end median | Median RCM/Natural | Ratio range | Break-even |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `raefsky3` | 744.271 ms | 393.005 ms | `0.527337` | `0.526056` - `0.528967` | RHS 1 in 5/5 repeats |
+| `venkat25` | 3421.034 ms | 3363.304 ms | `0.984314` | `0.972316` - `0.991788` | RHS 1 in 5/5 repeats |
+
+For `raefsky3`, the same ILU(0) ordering advantage seen with `b=A*1` remains
+strong across all five RHS families. The deterministic iteration totals are
+225 Natural versus 69 RCM over the five RHS vectors. The median cumulative
+permutation/unpermutation cost is only about 0.257 ms, so end-to-end behavior
+is dominated by the Krylov/triangular-apply savings.
+
+`venkat25` behaves differently. Its deterministic five-RHS iteration total is
+737 Natural versus 692 RCM, but most of that difference comes from the first
+two RHS vectors. Later hashed RHS vectors differ by only a few iterations and
+individual RCM wall times can match or exceed Natural. Across five repeated
+process runs the median end-to-end advantage is only about 1.57%, despite RCM
+being lower in all five paired totals. This is treated as near-parity,
+timing-sensitive evidence rather than a robust performance win.
+
+The result weakens two potential automatic-selection signals. Structural
+bandwidth alone was already insufficient after F1/F2; F3 additionally shows
+that a strong result on one RHS does not necessarily predict the ordering
+benefit for later RHS vectors on the same matrix. A future ordering policy
+should therefore use progress/solve evidence conservatively rather than
+promoting RCM from bandwidth or one isolated RHS result.
 ## Limitations
 
 - ILU(0) is ordering-sensitive.

@@ -97,6 +97,36 @@ Full example:
 
 Generated CSV files default to ignored `benchmarks/results/`.
 
+## GeneralSquare prepared multi-RHS benchmark
+
+`bench-general-square-multi-rhs.ps1` measures prepared Natural and RCM ILU(0)
+reuse across distinct deterministic right-hand sides.
+
+```powershell
+.\benchmarks\scripts\bench-general-square-multi-rhs.ps1 `
+  -Matrix @(
+    "D:\Work\raefsky3.mtx",
+    "D:\Work\venkat25.mtx"
+  ) `
+  -RhsCount 5 `
+  -MaxIterations 5000 `
+  -Restart 30
+```
+
+The example prepares each ordering once, reuses the prepared ILU(0) and FGMRES
+workspace, checks `solve_sequence` / `preconditioner_reused`, and independently
+verifies the residual in the original ordering.
+
+Machine-readable records distinguish:
+
+- `REUSE_RESULT` for each RHS and ordering;
+- `AMORTIZED_SOLVE_ONLY` for setup plus timed solver work;
+- `AMORTIZED_END_TO_END` for setup, solver work, RHS permutation, and solution
+  unpermutation;
+- `BREAK_EVEN_SOLVE_ONLY` and `BREAK_EVEN_END_TO_END`.
+
+Use repeated process runs before interpreting small timing differences. F3 used
+five repeats for the documented `raefsky3` and `venkat25` evidence.
 ## Structural Graph coarse-dimension sweep
 
 After a structural Matrix Market matrix, free-node coordinate sidecar, and optional

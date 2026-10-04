@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0-f3 GeneralSquare prepared multi-RHS ordering checkpoint
+
+- Add `general_square_multi_rhs` plus `bench-general-square-multi-rhs.ps1` to measure Natural-versus-RCM prepared ILU(0) across deterministic distinct right-hand sides.
+- Prepare Natural ILU(0), RCM ordering, permuted matrix, RCM ILU(0), and both FGMRES workspaces once, then reuse the prepared contexts across solve sequences while verifying `solve_sequence` and `preconditioner_reused`.
+- Time the reordered path both as solver-only work and end-to-end work, including per-RHS RHS permutation and solution unpermutation. Independent original-system residual checks run after both timed solves to reduce measurement interference.
+- Five repeated 5-RHS runs on `raefsky3` gave a median end-to-end RCM/Natural ratio of `0.527337` (about 47.3% lower elapsed time), with ratios ranging from `0.526056` to `0.528967`. RCM broke even on RHS 1 in every repeat.
+- Five repeated 5-RHS runs on `venkat25` gave a median end-to-end RCM/Natural ratio of `0.984314` (about 1.57% lower elapsed time), with ratios ranging from `0.972316` to `0.991788`. The small timing advantage was present in all five repeats but is too small to justify a general automatic-reordering rule.
+- The repeated-RHS evidence strengthens the ordering conclusion: `raefsky3` has a robust cross-RHS RCM benefit, while `venkat25` shows strongly RHS-dependent convergence gains and near-parity wall time on later RHS vectors.
+- Per-RHS permutation/unpermutation overhead was negligible relative to solve cost in the measured cases: median cumulative transform time over five RHS was about 0.257 ms for `raefsky3` and 0.747 ms for `venkat25`.
+- No production solver default or automatic policy changes in F3.
 ## 0.8.0-f2 GeneralSquare real nonsymmetric corpus checkpoint
 
 - Extend the F1 ordering harness with `--preflight-only`, machine-readable `PREFLIGHT` / `ORDERING` records, and a multi-matrix CSV corpus wrapper.

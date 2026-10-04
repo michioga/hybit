@@ -1,6 +1,6 @@
 # HyBIT development status
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
 
 ## Published release
 
@@ -17,9 +17,9 @@ The `v0.7.0` tag is immutable. 0.8 development does not change the published
 
 ## Current develop/0.8.0 checkpoint
 
-E5 commit:
-
-`18f2b564069637d8fe66a17f6d1bddc7e6d262b3`
+Current validated development sequence is complete through F3. The F2 base
+commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse
+measurement and documentation on top of that checkpoint.
 
 ### Execution architecture
 
@@ -30,13 +30,16 @@ cross-check.
 
 GPU is an architectural target, not a production target here.
 
-### GeneralSquare E1-E5
+### GeneralSquare E1-F3
 
 1. E1 — restarted FGMRES with reusable `V`/`Z` workspace.
 2. E2 — prepared `GeneralSquare` routing.
 3. E4a — staged restart escalation.
 4. E4b — budget-aware restart controller.
 5. E5 — prepared canonical ILU(0).
+6. F1 — Natural/RCM ILU(0) ordering sensitivity.
+7. F2 — real nonsymmetric corpus preflight and larger-case evidence.
+8. F3 — repeated prepared multi-RHS ordering/reuse and end-to-end amortization.
 
 Jacobi + fixed restart 30 remains default.
 
@@ -47,6 +50,12 @@ floor, and is reused across solve-many.
 The public hard-B cross-check reproduced 276 iterations, true relative residual
 `9.455610e-9`, 4.238 MiB ILU state, 4.500 MiB FGMRES(3) workspace, 8.738 MiB
 total persistent state, and zero adjusted pivots.
+
+F1-F3 ordering work now shows three distinct real-nonsymmetric regimes:
+`sherman5` with no measured RCM convergence benefit, `raefsky3` with robust
+cross-RHS RCM benefit, and `venkat25` with RHS-dependent convergence changes
+and only a small repeated 5-RHS end-to-end timing difference. Bandwidth and a
+single RHS are therefore insufficient automatic-reordering signals.
 
 These are regression measurements, not universal performance claims.
 
@@ -75,10 +84,13 @@ verified relative residual `9.378557e-9`.
 
 Before automatic ILU selection:
 
-- natural versus RCM/other meaningful orderings;
-- representative real nonsymmetric FEM/PDE matrices;
-- larger sizes and repeated RHS;
 - serial triangular-solve profiling;
-- safe fallback behavior when ILU is unsuitable.
+- safe fallback behavior when ILU is unsuitable;
+- residual/progress evidence for selective Natural -> reordered ILU escalation;
+- evidence sufficient to decide whether automatic Jacobi -> ILU(0) promotion
+  is justified.
+
+The completed F1-F3 work already covers Natural/RCM comparisons,
+representative real nonsymmetric matrices, larger dimensions, and repeated RHS.
 
 See [ROADMAP.md](ROADMAP.md) and [GENERAL_SQUARE.md](GENERAL_SQUARE.md).
