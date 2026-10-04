@@ -17,6 +17,7 @@ struct Args {
     relative_tolerance: f64,
     max_iterations: usize,
     restart: usize,
+    preflight_only: bool,
 }
 
 impl Args {
@@ -26,6 +27,7 @@ impl Args {
         let mut relative_tolerance: f64 = 1.0e-8;
         let mut max_iterations = 1000usize;
         let mut restart = 30usize;
+        let mut preflight_only = false;
 
         let mut it = env::args().skip(1);
         while let Some(arg) = it.next() {
@@ -40,6 +42,9 @@ impl Args {
                 }
                 "--restart" => {
                     restart = next_value(&mut it, "--restart")?.parse()?;
+                }
+                "--preflight-only" => {
+                    preflight_only = true;
                 }
                 "-h" | "--help" => {
                     print_usage();
@@ -69,6 +74,7 @@ impl Args {
             relative_tolerance,
             max_iterations,
             restart,
+            preflight_only,
         })
     }
 }
@@ -127,6 +133,7 @@ fn print_usage() {
     println!("  --tol VALUE       relative tolerance (default 1e-8)");
     println!("  --max-iters N     maximum FGMRES iterations (default 1000)");
     println!("  --restart N       fixed FGMRES restart dimension (default 30)");
+    println!("  --preflight-only  validate corpus eligibility without solving");
 }
 
 fn load_rhs(path: &Path, n: usize) -> Result<Vec<f64>, Box<dyn Error>> {
@@ -213,6 +220,47 @@ fn relative_error_to_ones(x: &[f64]) -> f64 {
 
 fn mib(bytes: usize) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DiagonalPreflight {
+    missing: usize,
+    zero: usize,
+    first_missing: Option<usize>,
+    first_zero: Option<usize>,
+}
+
+fn diagonal_preflight(a: &Csr32Matrix) -> DiagonalPreflight {
+    let mut stats = DiagonalPreflight {
+        missing: 0,
+        zero: 0,
+        first_missing: None,
+        first_zero: None,
+    };
+
+    for row in 0..a.nrows() {
+        let start = a.row_ptr()[row] as usize;
+        let end = a.row_ptr()[row + 1] as usize;
+        let mut found = false;
+        let mut diagonal = 0.0;
+
+        for p in start..end {
+            if a.col_idx()[p] as usize == row {
+                found = true;
+                diagonal += a.values()[p];
+            }
+        }
+
+        if !found {
+            stats.missing += 1;
+            stats.first_missing.get_or_insert(row);
+        } else if diagonal == 0.0 {
+            stats.zero += 1;
+            stats.first_zero.get_or_insert(row);
+        }
+    }
+
+    stats
 }
 
 fn structural_bandwidth(a: &Csr32Matrix) -> usize {
@@ -531,12 +579,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (matrix, mm) = read_matrix_market(&args.matrix)?;
     let load_seconds = load_start.elapsed().as_secs_f64();
 
-    if matrix.nrows() != matrix.ncols() {
-        return Err("GeneralSquare ordering benchmark requires a square matrix".into());
-    }
-    // High-level GeneralSquare currently requires a structurally complete diagonal.
-    matrix.diagonal()?;
-
     println!(
         "Matrix Market       : {:?}, {} input entries -> {} CSR nnz",
         mm.symmetry, mm.input_entries, mm.csr_nnz
@@ -552,6 +594,55 @@ fn main() -> Result<(), Box<dyn Error>> {
         mib(matrix.storage_bytes())
     );
     println!("load time           : {:.3} ms", load_seconds * 1.0e3);
+
+    if matrix.nrows() != matrix.ncols() {
+        println!("preflight           : unsupported (matrix is not square)");
+        println!(
+            "PREFLIGHT|supported=false|reason=not_square|nrows={}|ncols={}|missing_diagonal=0|zero_diagonal=0",
+            matrix.nrows(),
+            matrix.ncols()
+        );
+        return Ok(());
+    }
+
+    let diagonal = diagonal_preflight(&matrix);
+    println!(
+        "diagonal preflight  : missing={} zero={}",
+        diagonal.missing, diagonal.zero
+    );
+    if let Some(row) = diagonal.first_missing {
+        println!("first missing diag  : row {row}");
+    }
+    if let Some(row) = diagonal.first_zero {
+        println!("first zero diag     : row {row}");
+    }
+
+    if diagonal.missing != 0 || diagonal.zero != 0 {
+        let reason = match (diagonal.missing != 0, diagonal.zero != 0) {
+            (true, true) => "missing_and_zero_diagonal",
+            (true, false) => "missing_diagonal",
+            (false, true) => "zero_diagonal",
+            (false, false) => unreachable!(),
+        };
+        println!(
+            "PREFLIGHT|supported=false|reason={reason}|nrows={}|ncols={}|missing_diagonal={}|zero_diagonal={}",
+            matrix.nrows(),
+            matrix.ncols(),
+            diagonal.missing,
+            diagonal.zero
+        );
+        return Ok(());
+    }
+
+    println!(
+        "PREFLIGHT|supported=true|reason=ok|nrows={}|ncols={}|missing_diagonal=0|zero_diagonal=0",
+        matrix.nrows(),
+        matrix.ncols()
+    );
+    if args.preflight_only {
+        println!("preflight-only      : eligible for Jacobi/ILU0 ordering cross-check");
+        return Ok(());
+    }
 
     let generated_rhs = args.rhs.is_none();
     let b = if let Some(path) = args.rhs.as_deref() {
@@ -596,9 +687,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         "matrix permutation  : {:.3} ms",
         permutation_seconds * 1.0e3
     );
+    let ordering_seconds = graph_seconds + rcm_seconds + permutation_seconds;
+    println!("ordering total      : {:.3} ms", ordering_seconds * 1.0e3);
     println!(
-        "ordering total      : {:.3} ms",
-        (graph_seconds + rcm_seconds + permutation_seconds) * 1.0e3
+        "ORDERING|natural_bandwidth={natural_bandwidth}|rcm_bandwidth={rcm_bandwidth}|bandwidth_ratio={:.9}|ordering_ms={:.6}",
+        if natural_bandwidth == 0 {
+            0.0
+        } else {
+            rcm_bandwidth as f64 / natural_bandwidth as f64
+        },
+        ordering_seconds * 1.0e3
     );
 
     let context = BenchmarkContext {

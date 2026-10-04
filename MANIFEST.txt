@@ -42,6 +42,7 @@ benchmarks/scripts/bench-fem-structural-spmv.ps1
 benchmarks/scripts/bench-fem-twolevel.ps1
 benchmarks/scripts/bench-fem.ps1
 benchmarks/scripts/bench-general-square-ordering.ps1
+benchmarks/scripts/bench-general-square-corpus.ps1
 book.toml
 Cargo.lock
 Cargo.toml
@@ -90,6 +91,7 @@ crates/hybit/src/lib.rs
 crates/hybit/tests/hybrid_public_api.rs
 crates/hybit/tests/structural_public_api.rs
 docs/ARCHITECTURE.md
+docs/ABTM_TOPOLOGY.md
 docs/DEVELOPMENT_STATUS.md
 docs/FEM_BENCHMARK.md
 docs/GENERAL_SQUARE.md

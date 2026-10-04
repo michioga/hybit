@@ -168,6 +168,21 @@ lengths motivate this mechanism but are not assumed to be universal.
 
 The default remains `GeneralSquareRestartPolicy::Fixed` with restart 30, so E4a
 does not silently change E2 solver behavior.
+## Future ABTM topology layer
+
+The next ABTM phase is broader than an alternative SpMV storage format. HyBIT
+will treat bitmap-oriented structure as a symbolic/topology layer that can feed
+different prepared numerical layouts. Boolean structural operations may prune
+numerical work for region extraction, masked operators, ILU(0) intersections,
+coarse construction, and later partition/halo work.
+
+The same logical topology may prepare differently for scalar CPU, block-FEM,
+Rayon, and GPU execution. ABTM does not claim to eliminate the irregular
+`x[j]` gather of ordinary SpMV or guarantee GPU coalescing merely by storing
+bitmap metadata. Ordering, occupancy, blocking, and target-specific layout are
+measured parts of preparation.
+
+See [ABTM topology algebra and metadata-first execution](ABTM_TOPOLOGY.md).
 ## Generic one-shot and prepared path
 
 `HybitSolver::solve_csr32` remains available and internally follows analyze -> prepare -> solve. For repeated right-hand sides, the prepared path reuses matrix-dependent state and Krylov workspace.

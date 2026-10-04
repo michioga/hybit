@@ -74,6 +74,29 @@ The current high-level GeneralSquare path requires a structurally complete
 diagonal. Matrices with missing diagonal entries are rejected rather than
 silently modified for this benchmark.
 
+## GeneralSquare corpus benchmark
+
+`bench-general-square-corpus.ps1` runs the ordering harness across multiple
+Matrix Market inputs and writes CSV output. `-PreflightOnly` screens eligibility
+before expensive solves; missing/zero diagonal cases are recorded as skipped
+instead of aborting the corpus.
+
+```powershell
+.\benchmarks\scripts\bench-general-square-corpus.ps1 `
+  -Matrix @("D:\Work\sherman5.mtx","D:\Work\raefsky3.mtx","D:\Work\venkat25.mtx") `
+  -PreflightOnly
+```
+
+Full example:
+
+```powershell
+.\benchmarks\scripts\bench-general-square-corpus.ps1 `
+  -Matrix "D:\Work\venkat25.mtx" `
+  -MaxIterations 5000
+```
+
+Generated CSV files default to ignored `benchmarks/results/`.
+
 ## Structural Graph coarse-dimension sweep
 
 After a structural Matrix Market matrix, free-node coordinate sidecar, and optional

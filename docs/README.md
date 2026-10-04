@@ -34,6 +34,9 @@ For numerical background:
   overlap weighting, and resumable PCG logic.
 - [Architecture](ARCHITECTURE.md) — crate boundaries, execution architecture,
   resident CPU work, FGMRES checkpoints, and internal policy flow.
+- [ABTM topology algebra](ABTM_TOPOLOGY.md) — planned symbolic/topology layer,
+  metadata-first numerical pruning, adaptive/block layouts, and validation
+  sequence for CPU, GPU, and distributed execution.
 
 For project status:
 
@@ -50,7 +53,7 @@ For project status:
 | --- | --- | --- |
 | User | How do I solve my system correctly? | `USER_GUIDE.md`, `PREPARED_API.md`, `GENERAL_SQUARE.md`, `STRUCTURAL_AUTO_API.md` |
 | Numerical | What mathematical method is being applied, and why? | `SOLVER_SELECTION.md`, `GENERAL_SQUARE.md`, `HYBRID_MATH.md` |
-| Architecture | How is reusable/execution state organized? | `ARCHITECTURE.md` |
+| Architecture | How are reusable/execution and symbolic topology states organized? | `ARCHITECTURE.md`, `ABTM_TOPOLOGY.md` |
 | Development | What is published, validated, experimental, or planned? | `DEVELOPMENT_STATUS.md`, `ROADMAP.md`, `CHANGELOG.md` |
 
 Benchmark results are evidence for tested cases, not universal performance

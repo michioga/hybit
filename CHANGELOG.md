@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0-f2 GeneralSquare real nonsymmetric corpus checkpoint
+
+- Extend the F1 ordering harness with `--preflight-only`, machine-readable `PREFLIGHT` / `ORDERING` records, and a multi-matrix CSV corpus wrapper.
+- Preserve the explicit GeneralSquare contract: current Jacobi/ILU(0) requires a structurally complete, nonzero diagonal and does not synthesize missing entries.
+- `sherman5`, `raefsky3`, and `venkat25` were eligible; `Goodwin_010`, `Goodwin_023`, `Goodwin_030`, `goodwin`, and `rma10` were rejected for structural diagonal gaps.
+- On `venkat25` (62424 x 62424, 1717763 CSR nnz), RCM reduced bandwidth 60323 -> 2451. Jacobi hit 5000 iterations under both orderings near `7.21e-4`; ILU(0)-FGMRES converged in 190 Natural versus 164 RCM iterations at `1e-8`.
+- `venkat25` ILU(0) solve wall fell from about 884.0 ms to 771.3 ms. The 53.0 ms ordering cost was recovered even on the measured first solve when analysis, prepare, ordering, and solve were charged together (about 957.0 ms Natural versus 897.2 ms RCM).
+- The supported corpus now exhibits no RCM benefit (`sherman5`), strong benefit (`raefsky3`), and moderate benefit (`venkat25`), so reordering remains evidence-driven rather than unconditional.
+- Missing diagonals are frequent enough in the screened corpus to make fallback/alternative-preconditioner behavior a first-class robustness requirement.
+- No production solver default or automatic policy changes in F2.
 ## 0.8.0-f1 GeneralSquare ILU(0) ordering checkpoint
 
 - Add `general_square_ordering`, a benchmark-only GeneralSquare harness that compares Natural and deterministic RCM symmetric permutations under identical restarted FGMRES settings.

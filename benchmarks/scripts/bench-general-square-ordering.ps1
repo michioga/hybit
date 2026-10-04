@@ -9,7 +9,9 @@ param(
 
     [int] $MaxIterations = 1000,
 
-    [int] $Restart = 30
+    [int] $Restart = 30,
+
+    [switch] $PreflightOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +41,7 @@ Write-Host ("HEAD   : {0}" -f (git rev-parse --short HEAD))
 Write-Host ("tol    : {0:e3}" -f $Tolerance)
 Write-Host ("iters  : {0}" -f $MaxIterations)
 Write-Host ("restart: {0}" -f $Restart)
+Write-Host ("preflight-only: {0}" -f [bool]$PreflightOnly)
 
 foreach ($inputPath in $Matrix) {
     $resolvedMatrix = (Resolve-Path -LiteralPath $inputPath).Path
@@ -57,6 +60,9 @@ foreach ($inputPath in $Matrix) {
     if ($Rhs) {
         $resolvedRhs = (Resolve-Path -LiteralPath $Rhs).Path
         $cargoArgs += @("--rhs", $resolvedRhs)
+    }
+    if ($PreflightOnly) {
+        $cargoArgs += "--preflight-only"
     }
 
     & cargo @cargoArgs

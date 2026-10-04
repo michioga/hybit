@@ -1,6 +1,6 @@
 # GeneralSquare FGMRES and ILU(0)
 
-> Development documentation for `develop/0.8.0`, current through F1.
+> Development documentation for `develop/0.8.0`, current through F2.
 
 ## Purpose
 
@@ -215,14 +215,58 @@ an independent forward-error cross-check. They are development evidence for
 the measured matrices, RHS construction, hardware, and revision rather than a
 universal ordering rule.
 
+## F2 real nonsymmetric corpus evidence
+
+F2 adds preflight classification and a multi-matrix corpus wrapper. Unsupported
+cases remain recorded evidence instead of aborting the sweep.
+
+| Matrix | Dimension | Preflight | Detail |
+| --- | ---: | --- | --- |
+| `sherman5` | 3312 | supported | complete nonzero diagonal |
+| `raefsky3` | 21200 | supported | complete nonzero diagonal |
+| `venkat25` | 62424 | supported | complete nonzero diagonal |
+| `Goodwin_010` | 1182 | unsupported | 299 missing diagonal rows |
+| `Goodwin_023` | 6005 | unsupported | 1586 missing diagonal rows |
+| `Goodwin_030` | 10142 | unsupported | 2699 missing diagonal rows |
+| `goodwin` | 7320 | unsupported | 1079 missing diagonal rows |
+| `rma10` | 46835 | unsupported | 5617 missing diagonal rows |
+
+Unsupported inputs are not repaired by inserting artificial diagonal values.
+
+For `venkat25`, generated `b=A*1`, restart 30, tolerance `1e-8`, maximum 5000
+iterations produced:
+
+| Metric | Natural | RCM |
+| --- | ---: | ---: |
+| structural bandwidth | 60323 | 2451 |
+| Jacobi status | max iterations | max iterations |
+| Jacobi iterations | 5000 | 5000 |
+| Jacobi verified residual | `7.210955e-4` | `7.211180e-4` |
+| ILU(0) status | converged | converged |
+| ILU(0) iterations | 190 | 164 |
+| ILU(0) solve wall | 883.959 ms | 771.268 ms |
+| ILU(0) adjusted pivots | 0 | 0 |
+
+RCM graph/order/permutation cost 52.990 ms. Charging analysis, preparation,
+ordering, and solve once gives approximately 956.95 ms Natural versus 897.19 ms
+RCM. Repeated RHS reuse should improve RCM amortization further if the prepared
+ordering and factors are reused.
+
+Together with F1, the supported real nonsymmetric corpus deliberately contains
+different ordering regimes: no convergence benefit on `sherman5`, strong
+benefit on `raefsky3`, and moderate benefit on the larger `venkat25`.
+Bandwidth reduction is therefore telemetry, not an automatic selection rule.
+
 ## Limitations
 
 - ILU(0) is ordering-sensitive.
 - Current `L`/`U` triangular application is serial.
 - There is no ILUT, drop tolerance, level-of-fill, threshold pivoting, or
   internal reordering.
-- F1 adds two real nonsymmetric ordering cross-checks, but a broader
-  nonsymmetric FEM/PDE corpus and larger dimensions are still required.
+- F2 validates three supported real nonsymmetric ordering cases up to 62424
+  unknowns, but the corpus is not exhaustive; five additional screened
+  matrices expose the current complete-diagonal contract as a major
+  applicability boundary.
 - GeneralSquare is not yet routed through resident Rayon or GPU execution.
 - GeneralSquare selection is not yet exposed through the C ABI configuration
   surface.
