@@ -426,6 +426,54 @@ fn general_square_ilu0_is_opt_in_and_reused() {
 }
 
 #[test]
+fn general_square_abtm_ilu0_is_explicit_and_reused() {
+    let a = nonsymmetric_general_matrix();
+    let exact1 = vec![1.0, -2.0, 0.5, 3.0];
+    let b1 = a.spmv(&exact1).unwrap();
+
+    let mut solver = HybitSolver::new();
+    solver.set_problem_class(MatrixProblemClass::GeneralSquare);
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 64,
+        })
+        .unwrap();
+    solver.set_general_square_preconditioner_policy(GeneralSquarePreconditionerPolicy::Ilu0Abtm);
+    solver
+        .set_general_square_options(GeneralSquareOptions {
+            restart: 3,
+            ..GeneralSquareOptions::default()
+        })
+        .unwrap();
+
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let mut prepared = solver.prepare_csr32(&a, &analysis).unwrap();
+    assert!(prepared.general_square_preconditioner_bytes() > 0);
+    assert_eq!(prepared.general_square_ilu_adjusted_pivots(), 0);
+
+    let mut x1 = vec![0.0; 4];
+    let first = prepared.solve(&a, &b1, &mut x1).unwrap();
+    assert!(first.converged());
+    assert_eq!(first.solver, SolverKind::Fgmres);
+    assert_eq!(first.preconditioner, PreconditionerKind::Ilu0);
+    assert!(!first.preconditioner_reused);
+
+    let exact2 = vec![-0.5, 1.5, -2.0, 0.25];
+    let b2 = a.spmv(&exact2).unwrap();
+    let mut x2 = vec![0.0; 4];
+    let second = prepared.solve(&a, &b2, &mut x2).unwrap();
+    assert!(second.converged());
+    assert_eq!(second.preconditioner, PreconditionerKind::Ilu0);
+    assert!(second.preconditioner_reused);
+
+    for (&actual, &expected) in x2.iter().zip(&exact2) {
+        assert!((actual - expected).abs() <= 1.0e-10);
+    }
+}
+
+#[test]
 fn general_square_ilu0_stabilizes_factor_zero_pivot() {
     let a = Csr32Matrix::new(
         3,

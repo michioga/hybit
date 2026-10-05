@@ -258,3 +258,67 @@ an unbounded all-regions-at-once policy.
 
 Next work is G4 ABTM symbolic/numeric ILU(0) comparison against canonical CSR
 ILU(0).
+
+### ABTM G4a ILU(0) symbolic intersection
+
+G4 is active. G4a compares canonical CSR ILU(0) symbolic target lookup against
+prepared ABTM row-word intersection while preserving identical canonical
+structure.
+
+The first gate requires exact per-pivot target-list agreement. Numerical
+factorization, pivot handling, triangular apply, and solver residual behavior
+remain unchanged until symbolic evidence is established.
+
+### ABTM G4b ILU(0) numeric intersection
+
+G4b evaluates numeric ILU(0) updates driven directly by ABTM word
+intersections. A per-word structural prefix maps each intersection bit to the
+existing canonical CSR factor position, retaining conventional numerical
+storage and avoiding per-product plan memory.
+
+The gate requires factor and triangular-apply agreement against the canonical
+CSR reference before timing. Production routing remains unchanged.
+
+### ABTM G4c ILU(0) rank-LUT addressing
+
+G4c isolates the G4b numerical-addressing overhead by replacing per-update
+rank-by-popcount with an all-word `u8[64]` rank table. CSR, G4b popcount, and
+G4c LUT factors are cross-validated before timing.
+
+The experiment reports LUT preparation time and bytes separately. No production
+selection rule is introduced at this stage.
+
+### ABTM G4d adaptive rank-LUT sweep
+
+G4d follows the successful G4c all-word LUT experiment with an
+occupancy-threshold sweep. The goal is to determine whether most of the
+numerical speedup can be retained with substantially less LUT memory.
+
+Every threshold is cross-checked against canonical CSR factors and triangular
+apply before timing. Production ILU(0) remains unchanged.
+
+### ABTM G4f explicit production ILU(0)
+
+G4f promotes the validated direct rank-LUT factorization algorithm into an
+explicit production constructor and GeneralSquare policy. The factor object
+retains only the canonical CSR factor arrays; ABTM topology and rank LUTs are
+temporary preparation metadata.
+
+Automatic matrix-level routing is intentionally deferred. G4e held-out results
+are encouraging, but selector cost and a cheap production predictor still need
+separate validation.
+
+### ABTM G4 closeout
+
+G4 is closed. The explicit production `Ilu0Abtm` path preserves canonical CSR
+factor storage and triangular application while using temporary ABTM topology
+and direct word-rank LUTs during factor construction.
+
+The eleven-matrix production constructor corpus was exact on every supported
+case and split 6 ABTM wins / 5 CSR wins. Strong wins include `nd3k` (~5.28x),
+`x104` (~2.34x), `cant` (~2.33x), and `raefsky3` (~2.06x).
+
+The production corpus also showed that the earlier permissive symbolic selector
+must not be promoted: `venkat25` and `cfd1` have favorable symbolic compression
+but lose after full ABTM preparation cost. Automatic matrix-level routing is
+therefore deferred. G5 block-ABTM is next.

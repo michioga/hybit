@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use hybit_core::{HybitError, LinearOperator, Preconditioner};
-use hybit_matrix::Csr32Matrix;
+use hybit_matrix::{AbtmTopology, Csr32Matrix};
 use rayon::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -118,6 +118,97 @@ impl Preconditioner for JacobiPreconditioner {
 /// is at or below `ILU0_RELATIVE_PIVOT_FLOOR * row_max`.
 pub const ILU0_RELATIVE_PIVOT_FLOOR: f64 = 1.0e-12;
 
+struct Ilu0AbtmPreparedWords {
+    row_ptr: Vec<u32>,
+    word_indices: Vec<u32>,
+    masks: Vec<u64>,
+    nnz_prefix: Vec<u32>,
+    rank_lut: Vec<[u8; 64]>,
+}
+
+impl Ilu0AbtmPreparedWords {
+    fn from_csr32(matrix: &Csr32Matrix) -> Result<Self, HybitError> {
+        let topology = AbtmTopology::from_csr32(matrix)?;
+        let mut row_ptr = Vec::with_capacity(topology.nrows() + 1);
+        let mut word_indices = Vec::with_capacity(topology.nonempty_words());
+        let mut masks = Vec::with_capacity(topology.nonempty_words());
+        let mut nnz_prefix = Vec::with_capacity(topology.nonempty_words());
+        let mut rank_lut = Vec::with_capacity(topology.nonempty_words());
+        row_ptr.push(0);
+
+        for row in 0..topology.nrows() {
+            let mut prefix = 0usize;
+            for word in topology.row(row)?.words() {
+                let mask = word.mask();
+                word_indices.push(word.word_index());
+                masks.push(mask);
+                nnz_prefix.push(u32::try_from(prefix).map_err(|_| HybitError::SizeOverflow)?);
+
+                let mut table = [u8::MAX; 64];
+                let mut ordinal = 0u8;
+                let mut bits = mask;
+                while bits != 0 {
+                    let bit = bits.trailing_zeros() as usize;
+                    table[bit] = ordinal;
+                    ordinal = ordinal.checked_add(1).ok_or(HybitError::SizeOverflow)?;
+                    bits &= bits - 1;
+                }
+                rank_lut.push(table);
+
+                prefix = prefix
+                    .checked_add(mask.count_ones() as usize)
+                    .ok_or(HybitError::SizeOverflow)?;
+            }
+
+            row_ptr.push(u32::try_from(word_indices.len()).map_err(|_| HybitError::SizeOverflow)?);
+        }
+
+        Ok(Self {
+            row_ptr,
+            word_indices,
+            masks,
+            nnz_prefix,
+            rank_lut,
+        })
+    }
+
+    fn row(&self, row: usize) -> (&[u32], &[u64], &[u32], usize) {
+        let start = self.row_ptr[row] as usize;
+        let end = self.row_ptr[row + 1] as usize;
+        (
+            &self.word_indices[start..end],
+            &self.masks[start..end],
+            &self.nnz_prefix[start..end],
+            start,
+        )
+    }
+}
+
+#[inline]
+fn ilu0_abtm_lower_bound(words: &[u32], target: u32) -> usize {
+    match words.binary_search(&target) {
+        Ok(index) | Err(index) => index,
+    }
+}
+
+#[inline]
+fn ilu0_abtm_mask_strictly_above(mask: u64, word_index: u32, pivot: usize) -> u64 {
+    let pivot_word = (pivot / 64) as u32;
+    if word_index < pivot_word {
+        return 0;
+    }
+    if word_index > pivot_word {
+        return mask;
+    }
+
+    let bit = pivot % 64;
+    if bit == 63 {
+        0
+    } else {
+        mask & (!0u64 << (bit + 1))
+    }
+}
+
 /// Canonical no-fill incomplete LU preconditioner for real general square CSR.
 ///
 /// The constructor privately canonicalizes every CSR row because `Csr32Matrix`
@@ -128,6 +219,7 @@ pub const ILU0_RELATIVE_PIVOT_FLOOR: f64 = 1.0e-12;
 /// Factorization preserves that canonical sparsity pattern. No fill entries or
 /// row permutations are introduced. Small/zero factor pivots are selectively
 /// replaced by a row-relative floor; healthy pivots are left untouched.
+
 #[derive(Clone, Debug)]
 pub struct Ilu0Preconditioner {
     n: usize,
@@ -257,6 +349,208 @@ impl Ilu0Preconditioner {
                             ));
                         }
                     }
+                }
+            }
+
+            let raw_pivot = lu[diag];
+            if !raw_pivot.is_finite() {
+                return Err(HybitError::NumericalBreakdown(
+                    "ILU(0) pivot became non-finite",
+                ));
+            }
+
+            let floor = (ILU0_RELATIVE_PIVOT_FLOOR * row_scale[row]).max(f64::MIN_POSITIVE);
+            if raw_pivot.abs() <= floor {
+                lu[diag] = if raw_pivot.is_sign_negative() {
+                    -floor
+                } else {
+                    floor
+                };
+                adjusted_pivots = adjusted_pivots
+                    .checked_add(1)
+                    .ok_or(HybitError::SizeOverflow)?;
+            }
+        }
+
+        Ok(Self {
+            n,
+            row_ptr,
+            col_idx,
+            lu,
+            diag_pos,
+            adjusted_pivots,
+        })
+    }
+
+    /// Build canonical ILU(0) using ABTM word intersections for the numeric
+    /// factorization search.
+    ///
+    /// Canonicalization, pivot stabilization, factor storage, and triangular
+    /// application semantics are identical to [`Self::from_csr32_general`].
+    /// ABTM topology metadata and the per-word rank LUT are preparation scratch:
+    /// they are dropped before this constructor returns, so persistent factor
+    /// storage is unchanged.
+    pub fn from_csr32_general_abtm(matrix: &Csr32Matrix) -> Result<Self, HybitError> {
+        if matrix.nrows() != matrix.ncols() {
+            return Err(HybitError::InvalidMatrix("ILU(0) requires a square matrix"));
+        }
+
+        let n = matrix.nrows();
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::with_capacity(matrix.nnz());
+        let mut lu = Vec::with_capacity(matrix.nnz());
+        let mut entries = Vec::<(u32, f64)>::new();
+        row_ptr.push(0);
+
+        for row in 0..n {
+            entries.clear();
+            let start = matrix.row_ptr()[row] as usize;
+            let end = matrix.row_ptr()[row + 1] as usize;
+            entries.extend(
+                matrix.col_idx()[start..end]
+                    .iter()
+                    .copied()
+                    .zip(matrix.values()[start..end].iter().copied()),
+            );
+            entries.sort_unstable_by_key(|&(col, _)| col);
+
+            let mut found_diagonal = false;
+            let mut p = 0usize;
+            while p < entries.len() {
+                let col = entries[p].0;
+                let mut value = entries[p].1;
+                p += 1;
+                while p < entries.len() && entries[p].0 == col {
+                    value += entries[p].1;
+                    p += 1;
+                }
+
+                if !value.is_finite() {
+                    return Err(HybitError::NumericalBreakdown(
+                        "ILU(0) duplicate accumulation became non-finite",
+                    ));
+                }
+
+                if col as usize == row {
+                    found_diagonal = true;
+                } else if value == 0.0 {
+                    continue;
+                }
+
+                col_idx.push(col);
+                lu.push(value);
+            }
+
+            if !found_diagonal {
+                return Err(HybitError::MissingDiagonal { row });
+            }
+
+            row_ptr.push(u32::try_from(col_idx.len()).map_err(|_| HybitError::SizeOverflow)?);
+        }
+
+        let mut diag_pos = vec![u32::MAX; n];
+        let mut row_scale = vec![0.0f64; n];
+
+        for row in 0..n {
+            let start = row_ptr[row] as usize;
+            let end = row_ptr[row + 1] as usize;
+            let diag_offset = col_idx[start..end]
+                .binary_search(&(row as u32))
+                .map_err(|_| HybitError::MissingDiagonal { row })?;
+            diag_pos[row] =
+                u32::try_from(start + diag_offset).map_err(|_| HybitError::SizeOverflow)?;
+
+            row_scale[row] = lu[start..end]
+                .iter()
+                .fold(0.0f64, |scale, &value| scale.max(value.abs()));
+            if !row_scale[row].is_finite() || row_scale[row] == 0.0 {
+                return Err(HybitError::NumericalBreakdown(
+                    "ILU(0) row scale is zero or non-finite",
+                ));
+            }
+        }
+
+        let canonical = Csr32Matrix::new(n, n, row_ptr.clone(), col_idx.clone(), lu.clone())?;
+        let words = Ilu0AbtmPreparedWords::from_csr32(&canonical)?;
+        drop(canonical);
+
+        let mut adjusted_pivots = 0usize;
+
+        for row in 0..n {
+            let start = row_ptr[row] as usize;
+            let diag = diag_pos[row] as usize;
+
+            for p in start..diag {
+                let lower_col = col_idx[p] as usize;
+                let lower_diag = diag_pos[lower_col] as usize;
+                let pivot = lu[lower_diag];
+
+                if !pivot.is_finite() || pivot == 0.0 {
+                    return Err(HybitError::NumericalBreakdown(
+                        "ILU(0) previous pivot became zero or non-finite",
+                    ));
+                }
+
+                let multiplier = lu[p] / pivot;
+                if !multiplier.is_finite() {
+                    return Err(HybitError::NumericalBreakdown(
+                        "ILU(0) multiplier became non-finite",
+                    ));
+                }
+                lu[p] = multiplier;
+
+                let (row_words, row_masks, row_prefix, row_word_base) = words.row(row);
+                let (pivot_words, pivot_masks, pivot_prefix, pivot_word_base) =
+                    words.row(lower_col);
+
+                let pivot_word = (lower_col / 64) as u32;
+                let mut a = ilu0_abtm_lower_bound(row_words, pivot_word);
+                let mut b = ilu0_abtm_lower_bound(pivot_words, pivot_word);
+
+                while a < row_words.len() && b < pivot_words.len() {
+                    let aw = row_words[a];
+                    let bw = pivot_words[b];
+
+                    if aw < bw {
+                        a += 1;
+                        continue;
+                    }
+                    if bw < aw {
+                        b += 1;
+                        continue;
+                    }
+
+                    let mut bits = row_masks[a] & pivot_masks[b];
+                    bits = ilu0_abtm_mask_strictly_above(bits, aw, lower_col);
+
+                    let row_lut = &words.rank_lut[row_word_base + a];
+                    let pivot_lut = &words.rank_lut[pivot_word_base + b];
+
+                    while bits != 0 {
+                        let bit = bits.trailing_zeros() as usize;
+                        let row_rank = row_lut[bit];
+                        let pivot_rank = pivot_lut[bit];
+                        debug_assert_ne!(row_rank, u8::MAX);
+                        debug_assert_ne!(pivot_rank, u8::MAX);
+
+                        let target =
+                            row_ptr[row] as usize + row_prefix[a] as usize + row_rank as usize;
+                        let source = row_ptr[lower_col] as usize
+                            + pivot_prefix[b] as usize
+                            + pivot_rank as usize;
+
+                        lu[target] -= multiplier * lu[source];
+                        if !lu[target].is_finite() {
+                            return Err(HybitError::NumericalBreakdown(
+                                "ILU(0) numeric update became non-finite",
+                            ));
+                        }
+
+                        bits &= bits - 1;
+                    }
+
+                    a += 1;
+                    b += 1;
                 }
             }
 
@@ -4560,6 +4854,44 @@ mod ilu0_tests {
 
         for (&a, &b) in z_base.iter().zip(&z_duplicate) {
             assert!((a - b).abs() <= 1.0e-14);
+        }
+    }
+
+    #[test]
+    fn ilu0_abtm_matches_csr_factorization_bitwise() {
+        for matrix in [
+            base_general_matrix(),
+            duplicate_unsorted_equivalent(),
+            Csr32Matrix::new(
+                3,
+                3,
+                vec![0, 2, 5, 7],
+                vec![0, 1, 0, 1, 2, 1, 2],
+                vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            )
+            .unwrap(),
+        ] {
+            let csr = Ilu0Preconditioner::from_csr32_general(&matrix).unwrap();
+            let abtm = Ilu0Preconditioner::from_csr32_general_abtm(&matrix).unwrap();
+
+            assert_eq!(abtm.row_ptr, csr.row_ptr);
+            assert_eq!(abtm.col_idx, csr.col_idx);
+            assert_eq!(abtm.diag_pos, csr.diag_pos);
+            assert_eq!(abtm.adjusted_pivots, csr.adjusted_pivots);
+            assert_eq!(abtm.factor_bytes(), csr.factor_bytes());
+            assert_eq!(abtm.lu.len(), csr.lu.len());
+            for (&a, &b) in abtm.lu.iter().zip(&csr.lu) {
+                assert_eq!(a.to_bits(), b.to_bits());
+            }
+
+            let rhs: Vec<f64> = (0..matrix.nrows())
+                .map(|index| 0.25 + index as f64 * 0.5)
+                .collect();
+            let mut z_csr = vec![0.0; matrix.nrows()];
+            let mut z_abtm = vec![0.0; matrix.nrows()];
+            csr.apply(&rhs, &mut z_csr).unwrap();
+            abtm.apply(&rhs, &mut z_abtm).unwrap();
+            assert_eq!(z_abtm, z_csr);
         }
     }
 

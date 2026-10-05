@@ -718,3 +718,20 @@ First public release candidate for GitHub and crates.io.
 - Confirm that a single bitmap physical layout is not universal; retain
   adaptive Sparse/Bitmap/Dense/block preparation as a later execution concern.
 - Keep all production solver routing unchanged.
+
+## 0.8-G4f
+
+- add explicit ABTM word-intersection ILU(0) production constructor
+- add explicit `GeneralSquarePreconditionerPolicy::Ilu0Abtm`
+- preserve canonical CSR factor storage/apply and default Jacobi routing
+- discard topology/rank-LUT metadata after factorization
+- add bitwise factor/apply and public prepared-FGMRES integration tests
+
+## 0.8-G4 closeout
+
+- close ABTM symbolic/numeric ILU(0) investigation through production constructor validation
+- retain exact canonical CSR factor/apply semantics
+- keep `Ilu0Abtm` explicit and Jacobi as the GeneralSquare default
+- reject per-word adaptive rank-LUT dispatch for the validated CPU path
+- defer automatic CSR/ABTM routing until a cheap predictor is validated against full constructor cost
+- move ABTM roadmap focus to G5 block topology

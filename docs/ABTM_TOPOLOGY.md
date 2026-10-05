@@ -837,3 +837,66 @@ while the local symbolic structure remains fixed.
 The G3d refresh result is a symbolic-reuse result, not a claim that ABTM bitmap
 value storage is universally faster than prepared CSR. See
 `ABTM_G3_CLOSEOUT.md` for the corpus and interpretation limits.
+
+## G4a ILU(0) symbolic intersection
+
+G4 begins by isolating ILU(0) symbolic update lookup from numerical
+factorization.
+
+For each lower structural entry `(i,j)`, canonical CSR ILU(0) probes the upper
+structure of row `j` and binary-searches candidates in the remainder of row
+`i`. The G4a experiment replaces those per-entry probes with word-level
+intersection of the same canonicalized pattern.
+
+The benchmark does not use raw topology directly when explicit zeros or
+duplicate cancellation would differ from canonical ILU(0). It first applies the
+same canonical structural rule as the production preconditioner, then builds
+the ABTM topology.
+
+No production ILU(0) routing changes are made in G4a.
+
+## G4b ILU(0) numeric intersection
+
+G4b adds a compact row-word prefix to turn topology intersection bits into
+canonical CSR numerical positions. This avoids a per-successful-update address
+plan, whose storage could grow with the number of ILU(0) products rather than
+with matrix topology.
+
+The experiment keeps numerical factors in conventional contiguous `f64` CSR
+order. ABTM supplies symbolic intersection and rank-within-word addressing; it
+does not replace the numerical factor layout.
+
+## G4c ILU(0) rank-LUT addressing
+
+G4c tests a direct rank lookup for numerical addressing. Each nonempty topology
+word receives a 64-byte table mapping a set bit position to its ordinal among
+the word's structural bits.
+
+This removes two hardware `popcount` rank operations per executed ILU(0)
+update, at the cost of 64 bytes per nonempty word. G4c is diagnostic: if the
+speed gain is small or inconsistent, the extra storage is rejected. If the gain
+is significant only for dense words, a later adaptive threshold may retain
+tables only where occupancy justifies them.
+
+## G4d adaptive rank-LUT sweep
+
+G4d evaluates selective rank LUT storage by topology-word occupancy. Dense
+words may receive a direct 64-byte rank table while sparse words retain
+rank-by-popcount.
+
+The experiment explicitly measures both static selected-word fraction and
+dynamic LUT-rank coverage. The distinction matters because words are not
+accessed uniformly during ILU(0): a structurally modest word may still be hot
+across many lower-pivot intersections.
+
+No production threshold is implied by average word occupancy alone.
+
+## G4f production lifetime boundary
+
+The G4c rank LUT is required only while constructing ILU(0). G4f makes that
+lifetime explicit: topology words, structural prefixes, and `u8[64]` rank
+tables are preparation scratch and are released once the canonical `L/U`
+values have been produced.
+
+As a result, ABTM factorization can accelerate setup without increasing the
+persistent ILU(0) factor footprint or changing triangular application.

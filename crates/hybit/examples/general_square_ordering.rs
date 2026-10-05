@@ -398,6 +398,7 @@ fn preconditioner_name(policy: GeneralSquarePreconditionerPolicy) -> &'static st
     match policy {
         GeneralSquarePreconditionerPolicy::Jacobi => "Jacobi",
         GeneralSquarePreconditionerPolicy::Ilu0 => "ILU0",
+        GeneralSquarePreconditionerPolicy::Ilu0Abtm => "ILU0-ABTM",
         GeneralSquarePreconditionerPolicy::Ilu0Fallback => "ILU0-FALLBACK",
     }
 }

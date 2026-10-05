@@ -280,6 +280,12 @@ impl StructuralOptions {
 pub enum GeneralSquarePreconditionerPolicy {
     Jacobi,
     Ilu0,
+    /// Explicit ABTM word-intersection ILU(0) construction.
+    ///
+    /// Factors use the same canonical CSR numerical layout and triangular
+    /// application as `Ilu0`. ABTM topology/rank metadata is preparation
+    /// scratch only and is discarded after factorization.
+    Ilu0Abtm,
     /// Explicit robust ILU(0) mode: use canonical ILU(0) when structurally
     /// applicable, otherwise fall back to the identity preconditioner when
     /// the matrix is missing one or more diagonal entries.
@@ -2115,7 +2121,8 @@ impl HybitSolver {
                         ));
                     }
                 }
-                GeneralSquarePreconditionerPolicy::Ilu0 => {
+                GeneralSquarePreconditionerPolicy::Ilu0
+                | GeneralSquarePreconditionerPolicy::Ilu0Abtm => {
                     if !profile.full_diagonal {
                         return Err(HybitError::InvalidMatrix(
                             "GeneralSquare FGMRES path requires a complete diagonal",
@@ -2223,6 +2230,11 @@ impl HybitSolver {
                     GeneralSquarePreconditionerPolicy::Ilu0 => {
                         PreparedGeneralSquarePreconditioner::Ilu0(
                             Ilu0Preconditioner::from_csr32_general(matrix)?,
+                        )
+                    }
+                    GeneralSquarePreconditionerPolicy::Ilu0Abtm => {
+                        PreparedGeneralSquarePreconditioner::Ilu0(
+                            Ilu0Preconditioner::from_csr32_general_abtm(matrix)?,
                         )
                     }
                     GeneralSquarePreconditionerPolicy::Ilu0Fallback => {

@@ -592,3 +592,124 @@ summing them on refresh. Canonical CSR gets a direct-source fast path.
 The benchmark validates both original and deterministically perturbed numerical
 values, compares repeated prepared refresh against full direct local numeric
 extraction, and reports the refresh count required to amortize plan preparation.
+
+## ABTM G4a ILU(0) symbolic intersection
+
+G4a starts the ILU(0) checkpoint without changing the production
+preconditioner. It compares the symbolic update lookup used by canonical
+CSR ILU(0) with a prepared ABTM word-intersection path.
+
+The canonical CSR reference follows the current ILU(0) structure:
+
+```text
+for lower entry (i,j):
+    for upper entry (j,k), k > j:
+        binary-search k in row i after j
+```
+
+The ABTM path uses the same canonicalized ILU(0) pattern, seeks to the pivot
+word, and intersects row-word masks:
+
+```text
+support(row i, columns > j) AND support(row j, columns > j)
+```
+
+Every pivot's exact target-column list is cross-checked before timing.
+
+Important: raw `AbtmTopology` retains explicit structural zeros, while the
+canonical ILU(0) implementation drops off-diagonal entries whose duplicate sum
+is zero. G4a therefore canonicalizes with the same ILU(0) structural rule
+before building topology. This prevents a false symbolic comparison.
+
+The prepared word-row view is benchmark-local. Promotion to a production API is
+deferred until corpus evidence justifies it.
+
+## ABTM G4b ILU(0) numeric intersection
+
+G4b carries the G4a symbolic intersection into numeric factorization without
+materializing one update-pair record per successful ILU(0) product.
+
+A prepared word-row view stores, for every nonempty topology word, the number
+of structural entries preceding that word in the row. During a row-word
+intersection, a set bit therefore maps directly to the canonical CSR numerical
+position using:
+
+```text
+row_ptr[row]
++ word_nnz_prefix
++ popcount(word_mask below target_bit)
+```
+
+The same mapping is used for the pivot row. This keeps preparation memory
+proportional to nonempty topology words rather than successful ILU(0) updates;
+that distinction is essential for dense-overlap cases such as `nd3k`.
+
+The CSR reference mirrors the current canonical ILU(0) numeric loop:
+upper-row candidate traversal followed by binary search in the current row.
+Both paths use the same canonicalized values, diagonal positions, row-relative
+pivot floor, update order, and triangular-apply validation.
+
+G4b remains benchmark-only; production ILU(0) is not changed.
+
+## ABTM G4c ILU(0) rank-LUT addressing
+
+G4b established exact numeric equivalence but exposed an addressing cost:
+every successful topology-intersection bit required two `popcount` rank
+computations to recover the row and pivot CSR positions.
+
+G4c is a diagnostic experiment that precomputes one 64-byte `u8` rank table for
+every nonempty topology word. An intersection bit can then map to each local
+word ordinal with a direct byte lookup.
+
+The benchmark compares three otherwise identical factorizations:
+
+- canonical CSR candidate traversal + binary search;
+- G4b ABTM intersection + rank-by-popcount;
+- G4c ABTM intersection + rank LUT.
+
+This is deliberately an **all-word** LUT experiment. It measures whether rank
+mapping is a material bottleneck before introducing any adaptive occupancy
+threshold. The memory cost is reported explicitly and is not automatically
+eligible for production promotion.
+
+## ABTM G4d adaptive rank-LUT sweep
+
+G4c showed that rank-by-popcount was a major part of the G4b numerical
+addressing cost. An all-word `u8[64]` rank LUT made the ABTM factorization
+faster than CSR on five of the six-matrix corpus, but added 64 bytes for every
+nonempty topology word.
+
+G4d tests whether word occupancy is a usable speed/memory selector. A rank LUT
+is retained only when:
+
+```text
+popcount(word_mask) >= threshold
+```
+
+Other words fall back to G4b rank-by-popcount. The default sweep is:
+
+```text
+1,2,4,6,8,12,16,24,32
+```
+
+For every threshold the benchmark reports selected-word fraction, LUT bytes,
+fraction of dynamic rank operations served by LUTs, numeric factorization time,
+and exact factor/apply validation.
+
+This remains diagnostic. A universal production threshold is not selected
+unless the six-matrix sweep supports one.
+
+## ABTM G4f explicit production ILU(0)
+
+G4e held-out validation supported matrix-level routing evidence, but automatic
+selection remains deliberately unpromoted. G4f therefore adds an explicit
+production constructor and public GeneralSquare policy only.
+
+`Ilu0Preconditioner::from_csr32_general_abtm` uses the G4c direct all-word
+rank-LUT factorization path. The topology/word/rank metadata is constructor
+scratch and is dropped before return. Persistent factor storage and triangular
+apply are identical to canonical CSR ILU(0).
+
+`GeneralSquarePreconditionerPolicy::Ilu0Abtm` exposes this path explicitly.
+`Jacobi` remains the default; `Ilu0` and `Ilu0Fallback` retain their existing
+behavior.
