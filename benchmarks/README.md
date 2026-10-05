@@ -339,3 +339,168 @@ The ten-matrix G1 corpus shows three distinct occupancy regimes:
 
 These benchmarks validate logical topology semantics. They do not by themselves
 select a production physical layout or backend.
+
+## ABTM G2 metadata-first sparse-dot pruning
+
+`bench-abtm-metadata-pruning-g2.ps1` is the first G2 scalar reference
+benchmark. It prepares a G1 topology plus a numerical value stream in topology
+order and evaluates matrix-row dot products against deterministic sparse-vector
+supports.
+
+For each active-support density it reports:
+
+- candidate structural products before pruning;
+- products that survive bitmap support intersection;
+- skipped products and pruning ratio;
+- topology words visited and empty-word ratio;
+- independently checked numerical error;
+- median unpruned CSR and metadata-first scalar wall time.
+
+The benchmark uses active supports of 100%, 75%, 50%, 25%, and 10%. The
+100%-support case is intentionally an overhead baseline; lower support densities
+measure whether metadata pruning can recover that overhead by avoiding matrix
+value loads and multiplications.
+
+G2a is a scalar reference experiment, not a production SpMV backend. The
+`AbtmMetadataFirstMatrix` type remains in `hybit-matrix` and is deliberately not
+re-exported through the top-level `hybit` facade at this checkpoint.
+
+## ABTM G2c dual-topology sparse-dot support intersection
+
+`bench-abtm-dual-topology-g2c.ps1` prepares both structural orientations of one
+matrix:
+
+```text
+A row topology
+A column topology == row topology of A^T
+```
+
+without duplicating numerical values. The validation workload treats the same
+square input as both operands of `A * A` and samples deterministic `(row, col)`
+dot-product supports.
+
+For each corpus matrix it compares:
+
+- explicit sorted-index support intersection;
+- 64-bit topology-word intersection;
+- total row+column metadata bytes for both representations;
+- metadata comparisons;
+- bitmap mask AND operations;
+- exact overlap-product count;
+- structurally empty dot-product pairs;
+- scalar wall time for explicit-index versus bitmap support intersection.
+
+This is the first direct validation of the G2 matrix-versus-matrix metadata
+model. Numerical sparse-dot value loading remains a later G2 checkpoint.
+
+## ABTM G2d dual-topology numerical sparse dot
+
+`bench-abtm-dual-numeric-g2d.ps1` extends G2c from structural support
+intersection to actual numerical row-by-column sparse dot products.
+
+It compares three scalar layouts on the same deterministic `(row, col)` pairs:
+
+1. explicit sorted-index row/column merge with a duplicated column value stream;
+2. bitmap dual topology with one numerical value copy and a `u32` column-to-row
+   source-value map;
+3. bitmap dual topology with a duplicated column value stream.
+
+The benchmark reports both wall time and total estimated storage. The mapped
+variant directly tests the design goal of duplicating structural metadata
+without duplicating `f64` numerical values. The duplicated-value variant shows
+the performance ceiling available if a later backend decides that contiguous
+column values justify the extra memory.
+
+G2d remains a benchmark experiment. It does not promote either numerical layout
+into production solver routing.
+
+## ABTM G2e adaptive dual-numeric sparse dot
+
+`bench-abtm-adaptive-dual-numeric-g2e.ps1` reuses the existing
+`AbtmMatrix` `Sparse/Bitmap/Dense` tile classification for both matrix
+orientations and executes numerical row-by-column sparse dots.
+
+The kernel selects its local strategy from the matched tile kinds:
+
+- Sparse/Sparse: local set-bit merge with ordinal value streams, avoiding
+  per-product rank;
+- Sparse/Bitmap or Sparse/Dense: enumerate the sparse side and probe the other
+  mask;
+- Bitmap/Bitmap and Dense-involved pairs: intersect word masks and use compact
+  rank or direct dense offsets as required.
+
+Both row and column numerical streams are prepared, so this experiment follows
+the G2d evidence that hot transpose-oriented numerical work can justify
+duplicated values. It compares adaptive ABTM directly with explicit CSR/CSC-like
+index/value storage and reports tile-kind populations, value-slot expansion,
+storage ratio, numerical agreement, and wall time.
+
+The default thresholds remain `Sparse <= 8` and `Dense >= 40`; G2e validates
+the mechanism before any threshold sweep.
+
+## ABTM G2f packed adaptive dual-numeric sparse dot
+
+G2e validates occupancy-aware execution, but its existing `AbtmMatrix`
+`TileDesc` remains 16 bytes for every tile even when the tile is classified
+`Sparse`. That means the execution path is adaptive while the sparse physical
+metadata is not yet genuinely compact.
+
+`bench-abtm-packed-adaptive-dual-g2f.ps1` therefore evaluates a benchmark-local
+packed adaptive representation:
+
+```text
+per row:
+    tile pointer     u32
+    payload pointer  u32
+    value pointer    u32
+
+per tile:
+    meta             u32  (word index + kind + sparse count)
+
+payload:
+    Sparse           k x u8 offsets
+    Bitmap           u64 mask
+    Dense            u64 mask
+
+values:
+    Sparse/Bitmap    k packed f64 values
+    Dense            64 f64 slots
+```
+
+The high bits of `meta` are available because a `u32` matrix column index needs
+at most 26 bits after division by the 64-column word width.
+
+This representation makes the Sparse case physically compact instead of merely
+selecting a sparse execution branch. G2f keeps the same default thresholds
+(`Sparse <= 8`, `Dense >= 40`) so the experiment isolates physical packing from
+threshold tuning.
+
+## ABTM G2g typed-compact adaptive dual-numeric sparse dot
+
+G2f proves that physically compact sparse metadata can reduce storage, but its
+variable byte-payload decoder is too expensive in the numerical hot path.
+
+G2g keeps the same adaptive execution policy but replaces byte-stream decoding
+with typed arrays and an 8-byte descriptor:
+
+```text
+CompactTile:
+    meta u32  = word index + kind + sparse count
+    aux  u32  = sparse-offset start OR mask index
+
+typed side streams:
+    sparse_offsets Vec<u8>
+    masks          Vec<u64>
+    values         Vec<f64>
+
+per row:
+    tile_ptr  u32
+    value_ptr u32
+```
+
+This deliberately trades some of G2f's maximum compression for constant-time,
+typed descriptor access without `from_le_bytes`, `Result`, or variable-payload
+parsing in the hot row/column merge.
+
+Thresholds remain `Sparse <= 8`, `Dense >= 40`; G2g isolates decoder/layout
+cost from threshold tuning.

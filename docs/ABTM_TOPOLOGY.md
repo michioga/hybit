@@ -553,3 +553,177 @@ representations from the same logical topology.
 
 The next checkpoint is G2: metadata-first support intersection and sparse-dot
 product pruning with candidate/executed/skipped-work metrics.
+
+## G2a scalar metadata-first sparse-dot experiment
+
+G2 begins with a deliberately narrow numerical kernel: one sparse matrix row
+dotted with a vector whose structural support is represented by a `DofMask`.
+
+The scalar prepared reference stores one numerical value per G1 structural
+position in the same packed topology order. For each 64-column topology word:
+
+```text
+active = matrix_word_mask AND vector_support_word
+```
+
+If `active == 0`, no numerical value from that matrix word is loaded. Otherwise
+word-local rank maps each active bit directly to its packed matrix value.
+
+For this experiment the work metrics are defined precisely:
+
+```text
+candidate_products = structural matrix entries before support filtering
+executed_products  = popcount(matrix topology AND vector support)
+skipped_products   = candidate_products - executed_products
+pruning_ratio      = skipped_products / candidate_products
+```
+
+This makes G2a a sparse-dot/support-intersection experiment rather than a claim
+about a production ABTM SpMV implementation. Full masked/restricted SpMV policy,
+parallel execution, and backend selection remain later checkpoints.
+
+The 100%-active case measures metadata/rank overhead when no numerical work can
+be pruned. Lower support densities measure whether avoided value loads and
+multiplications can amortize that overhead.
+
+## G2c dual row/column topology
+
+Matrix-versus-matrix sparse products require metadata on both operands. For
+
+```text
+C_ij = sum_k A_ik B_kj
+```
+
+the structural intersection is between a row support of `A` and a column
+support of `B`.
+
+G2c introduces `AbtmDualTopology`, which retains:
+
+```text
+row topology       original matrix structure
+column topology    structural transpose topology
+```
+
+while leaving numerical values unduplicated. A future numerical prepared
+backend can therefore decide independently whether values also need a
+transpose-oriented stream.
+
+The G2c benchmark first isolates structural work. It compares a conventional
+sorted explicit-index intersection with bitmap-word intersection for
+deterministic row/column pairs. The key metrics are metadata footprint,
+metadata comparisons, mask AND count, empty-dot ratio, exact overlap products,
+and scalar intersection wall time.
+
+This avoids conflating topology benefit with a particular numerical-value
+layout before the dual-metadata economics are known.
+
+## G2d numerical values for dual topology
+
+G2c establishes that row/column bitmap metadata can greatly reduce structural
+intersection work on high-occupancy matrices, while low-occupancy cases remain
+neutral or unfavorable.
+
+G2d asks the next architectural question: must numerical values also be
+duplicated for the column orientation?
+
+Two bitmap variants are compared:
+
+```text
+mapped-column values
+    one packed row-value stream
+    + u32 source-value index per column-topology entry
+
+duplicated-column values
+    packed row-value stream
+    + packed column-value stream
+```
+
+Both use the same dual row/column topology. A conventional explicit
+row/column-index merge with duplicated values is retained as the numerical
+baseline.
+
+This separates three costs that must not be conflated:
+
+```text
+topology compression
+column-value addressing indirection
+column-value duplication
+```
+
+The result will determine whether later G2 matrix-product kernels should keep a
+single numerical copy, duplicate values for hot transpose-oriented work, or
+select between the two as a prepared policy.
+
+## G2e adaptive numerical dual layout
+
+G2d shows that one fixed bitmap numerical addressing strategy is insufficient:
+high-occupancy matrices can win, but low- and medium-occupancy matrices pay too
+much rank/value-addressing overhead.
+
+G2e therefore returns to the physical-layout rule established by G1. Both row
+and column orientations use the existing adaptive tile classification:
+
+```text
+Sparse <= 8 entries / 64-column word
+Bitmap intermediate occupancy
+Dense  >= 40 entries / 64-column word
+```
+
+Execution is also adaptive. Sparse/Sparse tiles use a local ordered set-bit
+merge and avoid rank. Dense tiles use direct bit offsets. Bitmap tiles retain
+mask intersection and packed rank addressing.
+
+This checkpoint tests whether representation and execution policy must both be
+occupancy-aware. The thresholds are intentionally left unchanged until the
+mechanism is measured on the corpus.
+
+## G2f physically packed adaptive metadata
+
+G2e demonstrates that occupancy-aware execution materially improves every
+tested matrix compared with fixed bitmap numerical addressing. However, the
+existing `TileDesc` is still a fixed 16-byte descriptor. In particular, a
+`Sparse` tile still carries a full 64-bit mask and value offset.
+
+G2f separates the representation question from the execution question. Sparse
+tiles use variable-length byte offsets, while Bitmap and Dense tiles retain
+64-bit masks. Row-local payload and value pointers make each row directly
+addressable without storing a value offset in every tile.
+
+The benchmark compares the resulting dual numerical layout directly with
+explicit CSR plus transpose-CSR storage and numerical row/column dot time.
+Threshold tuning is intentionally deferred until the packed representation
+itself is validated.
+
+## G2g typed compact descriptors
+
+G2f establishes that compact Sparse storage is possible but also shows that a
+byte-oriented variable payload should not be decoded directly in the numerical
+hot loop.
+
+G2g therefore evaluates an intermediate design:
+
+```text
+8-byte typed descriptor + typed auxiliary streams
+```
+
+Sparse offsets remain one byte each and Bitmap/Dense masks remain 64-bit, but
+the descriptor directly identifies the relevant typed side stream. Value
+offsets are advanced sequentially within each row, preserving compactness
+without per-tile value offsets.
+
+This checkpoint is intended to find the practical middle ground between G2e's
+fast fixed 16-byte descriptors and G2f's compact but expensive variable decoder.
+
+## G2 closeout
+
+G2 is closed for the 0.8 development checkpoint. The full evidence and
+ten-matrix G2e corpus are recorded in
+[`ABTM_G2_CLOSEOUT.md`](ABTM_G2_CLOSEOUT.md).
+
+The selected direction is dual structural topology plus adaptive
+Sparse/Bitmap/Dense CPU execution, while retaining explicit CSR/CSC-like
+fallback. G2 does not promote a universal bitmap layout or an automatic
+ABTM/explicit threshold.
+
+G3 is the next checkpoint and moves to region growth, overlap/multiplicity, and
+local submatrix extraction.

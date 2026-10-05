@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0-g2 ABTM metadata-first checkpoint
+
+- Validate metadata-first product pruning and dual row/column topology on real sparse-matrix corpora.
+- Compare explicit CSR/CSC-like row-column products with bitmap, mapped-value, duplicated-value, adaptive, byte-packed, and typed-compact ABTM numerical layouts.
+- Select G2e-style fixed-descriptor adaptive Sparse/Bitmap/Dense execution as the strongest tested scalar CPU numerical candidate.
+- Retain explicit CSR/CSC-like fallback; the ten-matrix corpus does not support a universal ABTM replacement.
+- Permit duplicated prepared column values for hot transpose-oriented numerical reuse; mapped single-copy indirection is not the default hot path.
+- Reject byte-decoded packed payloads and the typed-compact G2g descriptor as replacements for the faster G2e hot layout.
+- Record the ten-matrix corpus and selector limitations in `docs/ABTM_G2_CLOSEOUT.md`.
+- Close G2 and move the ABTM track to G3 region growth, overlap/multiplicity, and local submatrix extraction.
+- No production solver routing or automatic ABTM/explicit threshold change.
+
 ## 0.8.0-f4 GeneralSquare ILU(0) triangular-apply checkpoint
 
 - Add benchmark-only `general_square_ilu_apply_profile` / `bench-general-square-ilu-apply.ps1` to isolate serial ILU(0) triangular application from serial CSR SpMV under Natural and RCM orderings.

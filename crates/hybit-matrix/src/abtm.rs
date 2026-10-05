@@ -223,6 +223,18 @@ impl AbtmMatrix {
         Ok(expanded)
     }
 
+    pub fn row_tiles(&self, row: usize) -> Result<&[TileDesc], HybitError> {
+        if row >= self.nrows {
+            return Err(HybitError::InvalidArgument("ABTM row index out of range"));
+        }
+        let start = self.row_tile_ptr[row] as usize;
+        let end = self.row_tile_ptr[row + 1] as usize;
+        Ok(&self.tiles[start..end])
+    }
+
+    pub fn values(&self) -> &[f64] {
+        &self.values
+    }
     pub fn stats(&self) -> AbtmStats {
         let mut stats = AbtmStats {
             nrows: self.nrows,
@@ -329,6 +341,25 @@ mod tests {
         assert_eq!(expanded.indices(), vec![0, 1, 2]);
     }
 
+    #[test]
+    fn row_tiles_and_values_expose_read_only_prepared_layout() {
+        let csr = Csr32Matrix::new(
+            2,
+            70,
+            vec![0, 3, 5],
+            vec![0, 2, 64, 1, 65],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+        )
+        .unwrap();
+        let abtm = AbtmMatrix::from_csr32(&csr, AbtmConfig::default()).unwrap();
+
+        let row0 = abtm.row_tiles(0).unwrap();
+        assert_eq!(row0.len(), 2);
+        assert_eq!(row0[0].base_col(), 0);
+        assert_eq!(row0[1].base_col(), 64);
+        assert_eq!(abtm.values().len(), abtm.stats().value_slots);
+        assert!(abtm.row_tiles(2).is_err());
+    }
     #[test]
     fn abtm_matches_csr() {
         let csr = Csr32Matrix::new(

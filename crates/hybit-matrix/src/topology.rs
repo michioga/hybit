@@ -169,16 +169,58 @@ pub struct AbtmTopology {
 impl AbtmTopology {
     pub fn from_csr32(csr: &Csr32Matrix) -> Result<Self, HybitError> {
         csr.validate()?;
-        let mut row_word_ptr = Vec::with_capacity(csr.nrows() + 1);
+        Self::from_structural_csr(csr.nrows(), csr.ncols(), csr.row_ptr(), csr.col_idx())
+    }
+
+    pub(crate) fn from_structural_csr(
+        nrows: usize,
+        ncols: usize,
+        row_ptr: &[u32],
+        col_idx: &[u32],
+    ) -> Result<Self, HybitError> {
+        if row_ptr.len() != nrows.saturating_add(1) {
+            return Err(HybitError::InvalidMatrix(
+                "ABTM topology structural row pointer length is invalid",
+            ));
+        }
+        if row_ptr.first().copied() != Some(0) {
+            return Err(HybitError::InvalidMatrix(
+                "ABTM topology structural row pointer must start at zero",
+            ));
+        }
+        if col_idx.len() > u32::MAX as usize {
+            return Err(HybitError::SizeOverflow);
+        }
+        if row_ptr.last().copied().unwrap_or_default() as usize != col_idx.len() {
+            return Err(HybitError::InvalidMatrix(
+                "ABTM topology structural row pointer terminal offset is invalid",
+            ));
+        }
+        for pair in row_ptr.windows(2) {
+            if pair[0] > pair[1] {
+                return Err(HybitError::InvalidMatrix(
+                    "ABTM topology structural row pointer is not monotone",
+                ));
+            }
+        }
+        if col_idx.iter().any(|&col| col as usize >= ncols) {
+            return Err(HybitError::InvalidMatrix(
+                "ABTM topology structural column index out of range",
+            ));
+        }
+
+        let mut row_word_ptr = Vec::with_capacity(nrows + 1);
         let mut word_indices = Vec::new();
         let mut masks = Vec::new();
         let mut structural_nnz = 0usize;
         row_word_ptr.push(0);
-        for row in 0..csr.nrows() {
-            let start = csr.row_ptr()[row] as usize;
-            let end = csr.row_ptr()[row + 1] as usize;
+
+        for row in 0..nrows {
+            let start = row_ptr[row] as usize;
+            let end = row_ptr[row + 1] as usize;
             let mut row_words: Vec<(u32, u64)> = Vec::new();
-            for &col in &csr.col_idx()[start..end] {
+
+            for &col in &col_idx[start..end] {
                 let col = col as usize;
                 let word = col / ABTM_TOPOLOGY_WORD_BITS;
                 if word > u32::MAX as usize {
@@ -186,17 +228,20 @@ impl AbtmTopology {
                 }
                 let word = word as u32;
                 let bit = col % ABTM_TOPOLOGY_WORD_BITS;
+
                 if let Some((last_word, last_mask)) = row_words.last_mut() {
                     if *last_word == word {
                         *last_mask |= 1u64 << bit;
                         continue;
                     }
                 }
+
                 match row_words.binary_search_by_key(&word, |&(index, _)| index) {
                     Ok(index) => row_words[index].1 |= 1u64 << bit,
                     Err(index) => row_words.insert(index, (word, 1u64 << bit)),
                 }
             }
+
             for (word, mask) in row_words {
                 structural_nnz = structural_nnz
                     .checked_add(mask.count_ones() as usize)
@@ -204,14 +249,16 @@ impl AbtmTopology {
                 word_indices.push(word);
                 masks.push(mask);
             }
+
             if masks.len() > u32::MAX as usize {
                 return Err(HybitError::SizeOverflow);
             }
             row_word_ptr.push(masks.len() as u32);
         }
+
         let topology = Self {
-            nrows: csr.nrows(),
-            ncols: csr.ncols(),
+            nrows,
+            ncols,
             row_word_ptr,
             word_indices,
             masks,
