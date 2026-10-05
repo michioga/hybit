@@ -65,8 +65,8 @@ GeneralSquare robustness work is closed through F7 for this 0.8 checkpoint.
 After the current GeneralSquare robustness sequence, reintroduce ABTM as a
 symbolic/topology layer rather than assuming it must replace CSR everywhere.
 
-1. G1: bitmap topology algebra: AND/OR/AND-NOT, popcount, rank/select, invariants.
-2. G2: metadata-first product pruning with candidate/executed work metrics.
+1. G1 (validated): bitmap topology algebra: AND/OR/AND-NOT/XOR, popcount, rank/select, invariants.
+2. G2 (next): metadata-first product pruning with candidate/executed work metrics.
 3. G3: region growth, overlap/multiplicity, and local submatrix extraction.
 4. G4: ABTM symbolic/numeric ILU(0) intersection versus canonical CSR ILU(0).
 5. G5: 3x3/6x6 block-ABTM experiments for FEM node topology.

@@ -1,6 +1,6 @@
 # HyBIT development status
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 
 ## Published release
 
@@ -44,7 +44,6 @@ GPU is an architectural target, not a production target here.
 10. F5 — explicit unsuitable-ILU fallback with retained Identity safety path and real missing-diagonal validation.
 11. F6 — Natural/RCM ordering-selection signals, paired short probes, and amortized policy replay; no automatic production promotion.
 12. F7 — Jacobi -> ILU(0) promotion study; strong ILU wins and strong regressions observed, with no validated automatic production selector.
-9. F4 — serial ILU(0) apply/dependency profiling; per-level Rayon scheduling rejected as too fine grained.
 
 Jacobi + fixed restart 30 remains default.
 
@@ -97,10 +96,28 @@ Production semantics remain explicit:
 - `Ilu0Fallback` remains the explicit missing-diagonal safety policy;
 - Natural/RCM ordering remains explicit rather than automatically selected.
 
-The next major development track is ABTM topology work, beginning with G1
-topology algebra and metadata-first sparse operation primitives. GeneralSquare
+ABTM G1 scalar topology algebra is validated on the ten-matrix corpus.
+The next checkpoint is G2 metadata-first support intersection and sparse-dot
+product pruning with candidate/executed/skipped-work metrics. GeneralSquare
 automatic-selection research can be revisited later with a broader held-out
 corpus or application-provided solve-horizon/cost information.
 
 Do not add ILUT, fill, pivoting, or hidden automatic preconditioner changes as
 part of the F7 conclusion.
+
+### ABTM G1
+
+G1 validates a numerical-value-independent sparse-of-64-bitmaps topology layer
+with AND/OR/AND-NOT/XOR, popcount, rank/select, invariants, occupancy telemetry,
+and general Boolean merge semantics.
+
+The ten-matrix corpus shows that bitmap topology metadata is strongly compact
+on several matrices but not universal: low-occupancy cases can be break-even or
+worse than CSR metadata. Logical topology is therefore accepted while physical
+prepared layout selection remains adaptive and workload-specific.
+
+Word-local rank/select is the intended packed-value addressing primitive.
+Row-wide rank/select remains a convenience/correctness API rather than a hot
+numeric-kernel path.
+
+Next: G2 metadata-first support intersection and sparse-dot pruning.

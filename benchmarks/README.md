@@ -313,3 +313,29 @@ advantage, and eventual time-to-tolerance can disagree.
 
 The F7 conclusion is intentionally conservative: retain explicit policies and
 do not infer a production automatic threshold from this corpus.
+
+## ABTM G1 topology benchmarks
+
+`bench-abtm-topology-g1.ps1` validates the scalar logical topology, full
+rank/select invariants, and Boolean self-identities on real matrices.
+
+`bench-abtm-topology-g1b.ps1` adds:
+
+- direct topology-versus-CSR metadata accounting;
+- non-empty-word occupancy distribution;
+- chunk-local word rank/select timing;
+- two deterministic partially overlapping structural subsets;
+- AND / OR / AND-NOT / XOR timing through the general merge path.
+
+The ten-matrix G1 corpus shows three distinct occupancy regimes:
+
+- low occupancy, where bitmap metadata is near or worse than CSR
+  (`sherman5`, `thermal1`);
+- intermediate occupancy, where bitmap metadata is already smaller but many
+  words remain candidates for a sparse physical form (`venkat25`, `cfd1`,
+  `boneS01`);
+- high occupancy, where bitmap topology is strongly compact
+  (`raefsky3`, `nd3k`, `cant`, `s3dkq4m2`, `x104`).
+
+These benchmarks validate logical topology semantics. They do not by themselves
+select a production physical layout or backend.

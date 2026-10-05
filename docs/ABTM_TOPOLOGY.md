@@ -121,6 +121,34 @@ A 64-bit logical instruction can process up to 64 Boolean topology states at
 once, but actual latency and throughput depend on the target processor,
 dependencies, memory behavior, and compiler code generation.
 
+## G1 scalar topology contract
+
+The first implementation checkpoint uses a structural sparse-of-bitmaps object,
+`AbtmTopology`, independent of numerical values.
+
+The G1 contract is deliberately structural:
+
+- every stored CSR column position becomes a topology bit, including an explicitly stored numerical zero;
+- duplicate stored columns collapse to one topology bit;
+- topology construction does not inspect the CSR value array;
+- each row stores only non-empty 64-column words;
+- row pointers and word indices are `u32`, while each topology mask is `u64`;
+- the structure-of-arrays payload is therefore 12 bytes per non-empty word plus the row-pointer array;
+- AND, OR, AND-NOT, and XOR preserve canonical increasing word order;
+- popcount is exact structural cardinality;
+- rank counts set bits strictly below a bit/column;
+- select maps a zero-based packed ordinal back to a bit/column.
+
+This structural definition is intentionally distinct from the current
+`AbtmMatrix` numerical packing, which may discard explicit numerical zeros or
+duplicate contributions that cancel. Later prepared numerical layouts must
+state explicitly which topology they consume rather than silently conflating
+stored structure with numerical activity.
+
+G1 is scalar reference semantics. SIMD, Rayon, GPU preparation, packed numeric
+updates, and backend promotion are later checkpoints and must not change these
+Boolean invariants.
+
 ## Metadata-first product pruning
 
 Consider a sparse dot product
@@ -373,7 +401,7 @@ profitable.
 After the current GeneralSquare robustness checkpoints, the ABTM track should
 proceed experimentally:
 
-1. **G1 — topology algebra:** bitmap chunks, AND/OR/AND-NOT, popcount,
+1. **G1 — topology algebra:** bitmap chunks, AND/OR/AND-NOT/XOR, popcount,
    rank/select, invariants, and scalar reference tests.
 2. **G2 — metadata-first kernels:** sparse dot/support intersection and
    quantitative pruning metrics.
@@ -404,3 +432,124 @@ The long-term invariant is:
 
 This makes ABTM a symbolic computation layer for HyBIT rather than merely
 another sparse matrix file format.
+
+## G1 validation evidence and decision
+
+G1 establishes scalar reference semantics for structural bitmap topology and
+validates the representation on the same ten-matrix corpus used by the recent
+GeneralSquare studies.
+
+The measured `AbtmTopology` physical form is a sparse-of-64-bitmaps
+structure-of-arrays:
+
+```text
+row pointer  : u32 per row boundary
+word index   : u32 per non-empty word
+word mask    : u64 per non-empty word
+```
+
+so one non-empty bitmap word costs 12 bytes before row-pointer amortization.
+
+### Ten-matrix metadata/occupancy evidence
+
+| Matrix | avg nnz/word | p50 nnz/word | topology / CSR metadata | word-local rank/select |
+| --- | ---: | ---: | ---: | ---: |
+| `sherman5` | 2.93 | 3 | 1.020 | 9.31 ns/nnz |
+| `raefsky3` | 19.10 | 24 | 0.169 | 4.98 ns/nnz |
+| `venkat25` | 5.18 | 4 | 0.594 | 3.49 ns/nnz |
+| `cfd1` | 4.24 | 3 | 0.718 | 3.83 ns/nnz |
+| `thermal1` | 2.11 | 1 | 1.371 | 5.85 ns/nnz |
+| `nd3k` | 20.06 | 17 | 0.152 | 6.38 ns/nnz |
+| `cant` | 11.55 | 10 | 0.271 | 4.07 ns/nnz |
+| `s3dkq4m2` | 12.98 | 15 | 0.247 | 4.63 ns/nnz |
+| `boneS01` | 5.90 | 6 | 0.519 | 4.06 ns/nnz |
+| `x104` | 11.62 | 11 | 0.267 | 4.45 ns/nnz |
+
+Eight of ten matrices use less topology metadata than CSR32 row-pointer plus
+column-index metadata. `sherman5` is approximately break-even and `thermal1`
+is materially worse because most 64-column words contain very few structural
+entries.
+
+The result confirms that the logical bitmap algebra is broadly useful, but a
+single physical bitmap encoding is not an appropriate universal prepared
+layout.
+
+### Occupancy and adaptive representation
+
+The observed occupancy distribution is highly matrix dependent.
+
+- `thermal1` has median occupancy 1 and about 83% of words at three entries or
+  fewer.
+- `sherman5` has median occupancy 3 and about 81% of words at three entries or
+  fewer.
+- `raefsky3` has median occupancy 24.
+- `nd3k` has median occupancy 17 and about 11% of words at 40 entries or more.
+- `cant`, `s3dkq4m2`, and `x104` occupy an intermediate regime.
+
+For a conceptual sparse word representation
+
+```text
+word_index: u32
+offsets:    k x u8
+```
+
+the metadata model is roughly `4 + k` bytes, compared with 12 bytes for the
+bitmap word. This gives a natural conceptual crossover near `k = 8`, consistent
+with the existing ABTM sparse/bitmap design direction. Concrete prepared layouts
+must still account for offsets, alignment, descriptor storage, and execution
+cost rather than freezing this arithmetic as a universal threshold.
+
+### Rank/select interpretation
+
+G1a deliberately checked both chunk-local and row-wide convenience rank/select.
+On dense rows this made the row-wide scan visible, most strongly on `nd3k`.
+
+G1b isolates the operation required by packed numerical streams: chunk-local
+word rank/select. Across the ten real matrices it measured approximately
+3.5--9.3 ns per structural nonzero on the validation machine. Therefore future
+metadata-first kernels should carry the matching word descriptor and use
+word-local rank/select; row-wide rank/select remains a correctness/convenience
+API rather than the inner numerical addressing path.
+
+### Boolean merge validation
+
+G1b also prepared two deterministic approximately 75%-dense structural subsets
+of each source topology and exercised AND, OR, AND-NOT, and XOR through the
+general merge path.
+
+The measured intersection ratios stay close to the independent expectation
+
+```text
+0.75 * 0.75 = 0.5625
+```
+
+and union ratios stay close to
+
+```text
+1 - 0.25 * 0.25 = 0.9375
+```
+
+across all ten matrices. This validates missing-word and partial-mask merge
+semantics in addition to the unit-test identities and G1a self-operations.
+
+### G1 decision
+
+G1 is accepted as the scalar logical topology layer.
+
+The retained invariants are:
+
+- numerical values are not part of topology;
+- explicitly stored structural positions remain topology even when their
+  numerical value is zero;
+- duplicate structural columns collapse to one bit;
+- row words remain canonical and strictly increasing;
+- AND / OR / AND-NOT / XOR operate only on topology;
+- popcount is exact structural cardinality;
+- word-local rank/select is the packed-value addressing primitive.
+
+G1 does **not** promote one bitmap physical layout as universal. Later prepared
+execution may choose Sparse, Bitmap, Dense, block, CPU-specific, or GPU-specific
+representations from the same logical topology.
+
+The next checkpoint is G2: metadata-first support intersection and sparse-dot
+product pruning with candidate/executed/skipped-work metrics.

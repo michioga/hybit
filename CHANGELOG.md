@@ -675,3 +675,21 @@ First public release candidate for GitHub and crates.io.
   selectors.
 - Keep Jacobi as the GeneralSquare default and canonical ILU(0) explicit.
   No automatic Jacobi -> ILU(0) production promotion is added in F7.
+
+## 0.8.0-G1 ABTM scalar topology algebra
+
+- Add `AbtmTopology` as a numerical-value-independent sparse-of-64-bitmaps
+  structural representation.
+- Add row/word views, exact structural popcount, rank/select, validation, and
+  topology metadata/occupancy statistics.
+- Add AND, OR, AND-NOT, and XOR topology algebra with canonical merge semantics.
+- Preserve explicitly stored structural zero positions while collapsing
+  duplicate structural columns to one topology bit.
+- Add G1/G1b benchmark harnesses for real-matrix occupancy, metadata cost,
+  word-local rank/select, and partially overlapping Boolean merge workloads.
+- Validate G1 on a ten-matrix corpus: bitmap topology metadata is smaller than
+  CSR metadata on eight matrices, approximately break-even on `sherman5`, and
+  worse on low-occupancy `thermal1`.
+- Confirm that a single bitmap physical layout is not universal; retain
+  adaptive Sparse/Bitmap/Dense/block preparation as a later execution concern.
+- Keep all production solver routing unchanged.
