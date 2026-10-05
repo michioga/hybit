@@ -504,3 +504,91 @@ parsing in the hot row/column merge.
 
 Thresholds remain `Sparse <= 8`, `Dense >= 40`; G2g isolates decoder/layout
 cost from threshold tuning.
+
+## ABTM G3a undirected region growth
+
+G3a starts the region-operations checkpoint with deterministic `k`-hop growth
+over the structural graph `A union A^T`.
+
+The ABTM path uses `AbtmDualTopology`: for every frontier node it ORs the row
+(outgoing) and column (incoming) topology words into the next frontier before
+removing nodes already in the accumulated region. Numerical matrix values are
+never read.
+
+The reference path uses explicit CSR plus transpose-CSR adjacency. Every tested
+seed region is cross-checked for exact set equality before timing.
+
+Machine-readable records:
+
+- `G3A_PREPARE`: transpose and dual-topology preparation;
+- `G3A_REGION`: region size, frontier work, topology-word work, explicit
+  neighbor-entry work, exact-match count, and median scalar timing.
+
+The first corpus should use modest independent single-node seed regions so that
+growth behavior is measured rather than immediately saturating a connected
+matrix.
+
+## ABTM G3b overlap and multiplicity
+
+G3b consumes deterministic G3a regions and builds an exact node multiplicity
+map:
+
+```text
+m(v) = number of regions containing node v
+```
+
+A node is overlapped when `m(v) >= 2`. The implementation also records the
+total membership count, extra memberships beyond first coverage, maximum
+multiplicity, and the pair-overlap identity
+
+```text
+sum over region pairs |Ri intersect Rj| = sum over nodes C(m(v), 2)
+```
+
+as an independent correctness invariant.
+
+The benchmark cross-checks every ABTM-grown region against CSR + transpose-CSR,
+cross-checks multiplicity counts against a straightforward reference, validates
+the pair-overlap identity, and times the complete
+growth-plus-multiplicity pipeline.
+
+The default G3b corpus uses 64 deterministic single-node seeds and two hops.
+Two hops are deep enough to expose meaningful overlap while avoiding the strong
+three-hop saturation observed for `nd3k`.
+
+## ABTM G3c structural local-submatrix extraction
+
+G3c extracts the structural pattern of `A[R,R]` for each deterministic G3
+region. Local numbering follows ascending global node order.
+
+The ABTM path intersects each visited row topology word with the region mask
+before enumerating retained columns. The CSR reference scans every stored entry
+of each selected global row and probes the region map.
+
+Both paths construct the same temporary dense `global -> local` map so the
+timing comparison focuses on row-structure traversal and pruning rather than on
+different local-numbering semantics.
+
+Machine-readable records report candidate versus retained structure, topology
+words versus CSR entries, output pattern storage, mapping scratch storage, and
+median extraction time. G3c is structural only; numerical value gathering is a
+separate subsequent checkpoint.
+
+## ABTM G3d prepared local numeric refresh
+
+G3c showed that converting an already-known local topology into CSR-like local
+column indices is not itself a universal ABTM speed win: output materialization
+dominates once the local pattern is large.
+
+G3d therefore tests the more important reuse case. A local numeric plan is
+prepared once from stable topology and binds each local structural entry to its
+source CSR value position(s). Subsequent numerical refreshes gather only values;
+they do not rebuild region topology, local numbering, row pointers, or local
+column indices.
+
+The plan supports duplicate CSR entries by storing grouped source positions and
+summing them on refresh. Canonical CSR gets a direct-source fast path.
+
+The benchmark validates both original and deterministically perturbed numerical
+values, compares repeated prepared refresh against full direct local numeric
+extraction, and reports the refresh count required to amortize plan preparation.

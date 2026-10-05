@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0-g3 ABTM region/symbolic-reuse checkpoint
+
+- Added deterministic ABTM dual-topology region growth over
+  `support(A) union support(A^T)`.
+- Added overlap/multiplicity accounting and exact pair-overlap identity checks.
+- Added exact structural local `A[R,R]` extraction.
+- Added prepared local numeric source-address plans for repeated value refresh.
+- Validated six-matrix G3a--G3d corpus with exact region/pattern/value
+  cross-checks.
+- Closed G3 with ABTM retained as a symbolic/topology layer rather than a
+  universal CSR replacement.
+- Next: G4 ABTM symbolic/numeric ILU(0) comparison.
+
 ## 0.8.0-g2 ABTM metadata-first checkpoint
 
 - Validate metadata-first product pruning and dual row/column topology on real sparse-matrix corpora.

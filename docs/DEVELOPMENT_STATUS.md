@@ -195,3 +195,66 @@ The complete evidence is in `ABTM_G2_CLOSEOUT.md`.
 
 Next checkpoint: G3 region growth, overlap/multiplicity, and local submatrix
 extraction.
+
+### ABTM G3a region growth
+
+G3 is active. G3a adds deterministic `k`-hop region growth over
+`support(A) union support(A^T)` using the dual ABTM topology and an exact
+CSR-plus-transpose reference cross-check.
+
+The checkpoint measures frontier nodes, topology words, candidate neighbor
+bits, explicit neighbor entries, preparation cost, and scalar execution time.
+Overlap/multiplicity and local submatrix extraction remain subsequent G3 work.
+
+### ABTM G3b overlap and multiplicity
+
+G3b adds exact per-node multiplicity over G3a-grown regions, overlap-node
+statistics, pairwise overlap accounting, and an end-to-end
+growth-plus-multiplicity benchmark. Region equality is still verified against
+CSR + transpose-CSR before overlap metrics are accepted.
+
+G3 local submatrix extraction remains the next step after the overlap corpus is
+validated.
+
+### ABTM G3c structural local-submatrix extraction
+
+G3c adds exact structural extraction of `A[R,R]` from a region mask and dual
+ABTM topology. Extracted global-node lists, row pointers, and local column
+indices are cross-checked against direct CSR extraction for every benchmark
+region.
+
+Numerical value gathering is intentionally deferred until structural pruning,
+mapping scratch cost, and extraction performance are measured.
+
+### ABTM G3d prepared local numeric refresh
+
+G3d evaluates symbolic/numerical separation for local submatrices. A prepared
+plan binds the G3c local structural pattern to source CSR value positions and
+supports repeated numerical refresh without rebuilding the region or local
+pattern.
+
+The benchmark reports one-time plan preparation, refresh-only time, direct
+full-extraction time, plan memory, numerical agreement under changed values,
+and the measured refresh count needed to amortize preparation.
+
+## ABTM G3 closeout
+
+G3 region operations are validated and closed for this 0.8 checkpoint.
+
+- G3a: deterministic undirected structural region growth;
+- G3b: overlap and multiplicity with pair-overlap identity checks;
+- G3c: exact structural `A[R,R]` extraction;
+- G3d: prepared local numerical refresh under fixed topology.
+
+The primary architectural result is a separation of concerns: ABTM is strongest
+as a reusable symbolic/topology layer, while materialized local sparse/numeric
+storage should remain evidence-driven. One-shot local pattern extraction did not
+show a universal speed advantage, whereas repeated prepared value refresh
+amortized its plan in roughly 4--8 refreshes on the six-matrix corpus when the
+dual topology was already available.
+
+`nd3k` remains a deliberate high-overlap memory stress case and should not drive
+an unbounded all-regions-at-once policy.
+
+Next work is G4 ABTM symbolic/numeric ILU(0) comparison against canonical CSR
+ILU(0).

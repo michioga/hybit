@@ -23,3 +23,4 @@
 - [Development status](DEVELOPMENT_STATUS.md)
 - [Roadmap](ROADMAP.md)
 - [Publishing discipline](PUBLISHING.md)
+- [ABTM G3 closeout](ABTM_G3_CLOSEOUT.md)

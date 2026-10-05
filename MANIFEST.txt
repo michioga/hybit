@@ -176,3 +176,13 @@ crates/hybit/examples/abtm_packed_adaptive_dual_g2f.rs
 benchmarks/scripts/bench-abtm-typed-compact-dual-g2g.ps1
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 docs/ABTM_G2_CLOSEOUT.md
+benchmarks/scripts/bench-abtm-region-growth-g3a.ps1
+crates/hybit-matrix/src/region.rs
+crates/hybit/examples/abtm_region_growth_g3a.rs
+benchmarks/scripts/bench-abtm-region-overlap-g3b.ps1
+crates/hybit/examples/abtm_region_overlap_g3b.rs
+benchmarks/scripts/bench-abtm-local-pattern-g3c.ps1
+crates/hybit/examples/abtm_local_pattern_g3c.rs
+benchmarks/scripts/bench-abtm-local-numeric-refresh-g3d.ps1
+crates/hybit/examples/abtm_local_numeric_refresh_g3d.rs
+docs/ABTM_G3_CLOSEOUT.md

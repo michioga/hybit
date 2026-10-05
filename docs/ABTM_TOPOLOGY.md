@@ -727,3 +727,113 @@ ABTM/explicit threshold.
 
 G3 is the next checkpoint and moves to region growth, overlap/multiplicity, and
 local submatrix extraction.
+
+## G3a region growth
+
+G3 begins with structural region growth. For a seed set `R_0`, G3a defines
+undirected adjacency from the matrix structure as
+
+```text
+G = support(A) union support(A^T)
+```
+
+and grows only the previous hop's frontier:
+
+```text
+F_0 = R_0
+N_k = neighbors(F_k)
+F_{k+1} = N_k \ R_k
+R_{k+1} = R_k union F_{k+1}
+```
+
+Using `AbtmDualTopology` avoids constructing numerical transpose values for this
+operation. Row topology supplies outgoing neighbors and column topology supplies
+incoming neighbors. The result is deterministic and purely structural.
+
+G3a intentionally does not yet assign multiplicity or extract local matrices;
+those follow after region-growth semantics and cost are validated.
+
+## G3b overlap and multiplicity
+
+For a family of grown regions `R_i`, G3b defines the node multiplicity
+
+```text
+m(v) = sum_i [v in R_i].
+```
+
+This gives three directly useful domain-decomposition quantities:
+
+- covered nodes: `m(v) >= 1`;
+- overlap nodes: `m(v) >= 2`;
+- multiplicity-weighted overlap work.
+
+The implementation retains the full per-node multiplicity map and verifies the
+identity
+
+```text
+sum_{i<j} |R_i intersect R_j| = sum_v m(v)(m(v)-1)/2.
+```
+
+This checkpoint establishes overlap semantics before G3 local submatrix
+extraction. It does not yet define partition ownership or weighting policy.
+
+## G3c structural local-submatrix extraction
+
+For a region `R`, G3c constructs the CSR-like structural pattern of `A[R,R]`.
+Rows and columns use deterministic ascending-global-index local numbering.
+
+ABTM performs this as a metadata-first operation:
+
+```text
+for global row r in R:
+    for topology word W in row(r):
+        kept = W.mask AND R.word(W.index)
+        enumerate only kept bits
+```
+
+The extracted pattern stores local row pointers and local column indices plus
+the ordered global-node list. A temporary dense global-to-local map is currently
+used and its scratch bytes are reported explicitly.
+
+This checkpoint deliberately stops at structural extraction. Numerical value
+gathering and local numeric factor preparation remain separate so topology
+benefits are not hidden by a value-addressing policy chosen too early.
+
+## G3d prepared local numeric refresh
+
+G3d separates stable symbolic structure from changing numerical coefficients.
+
+For each region, preparation stores:
+
+```text
+local pattern:
+    global nodes
+    row_ptr
+    col_idx
+
+numeric address plan:
+    local structural entry -> CSR source value position(s)
+```
+
+If the input CSR is canonical, each local structural entry has one source
+position and refresh becomes a direct indexed gather. If duplicate CSR entries
+exist, the plan stores all source positions and sums them without changing the
+local symbolic pattern.
+
+This design targets repeated refactorization/nonlinear/time-stepping use cases:
+region growth and local structure are paid once while numerical values can be
+refreshed many times.
+
+## G3 closeout decision
+
+G3 confirms the topology/numerical boundary introduced in G2.
+
+ABTM dual topology is retained for region discovery, frontier set algebra,
+overlap metadata, and symbolic pruning. Local CSR-like structures are
+materialized when downstream kernels need explicit row/column indexing.
+Prepared source-address maps are appropriate when numerical coefficients change
+while the local symbolic structure remains fixed.
+
+The G3d refresh result is a symbolic-reuse result, not a claim that ABTM bitmap
+value storage is universally faster than prepared CSR. See
+`ABTM_G3_CLOSEOUT.md` for the corpus and interpretation limits.

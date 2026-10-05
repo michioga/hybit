@@ -73,6 +73,13 @@ impl DofMask {
         }
         Ok(())
     }
+    pub(crate) fn and_not_assign(&mut self, other: &Self) -> Result<(), HybitError> {
+        self.ensure_same_len(other)?;
+        for (a, b) in self.words.iter_mut().zip(&other.words) {
+            *a &= !*b;
+        }
+        Ok(())
+    }
 
     pub fn intersects(&self, other: &Self) -> Result<bool, HybitError> {
         self.ensure_same_len(other)?;
