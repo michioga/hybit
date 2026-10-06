@@ -1,4 +1,17 @@
 # Changelog
+## 0.8.0-g5 ABTM block-topology and explicit dense-block checkpoint
+
+- Complete the G5 3x3/6x6 block-topology study and retain block structure as a workload-specific prepared representation rather than a universal CSR replacement.
+- G5a topology characterization across the 11-matrix development corpus reduced non-empty topology-word count to a geometric mean of about `.280x for B3 and `.126x for B6 versus scalar topology; dense-value inflation remained workload dependent.
+- G5b showed that a generic runtime-sized block kernel loses to scalar CSR even when topology is compact, so generic block traversal is not promoted.
+- G5c/G5d fixed-size tail-specialized kernels recovered the intended block benefit: representative development-corpus kernel speedups included 
+d3k B6 about 2.57x, x104 B6 about 2.31x, aefsky3 B6 about 2.08x, cant B3 about 1.88x, oneS01 B3 about 1.47x, and s3dkq4m2 B6 about 1.35x versus scalar CSR.
+- Preparation cost is material. Representative measured break-even horizons were roughly 63--171 SpMV for the profitable development cases, so block preparation is not appropriate for every short solve.
+- Calibrate the structural development selector as: reject to CSR when B3 fill is below `.65; otherwise prefer B6 when B6_fill / B3_fill >= 0.75, else B3. This rule is evidence, not a production automatic policy.
+- Frozen held-out G5f validation was correct on five matrices with zero false-positive block selections, zero false-negative CSR selections, and zero block-size misses. inline_1 supplied the positive held-out case: B3 fill about `.99998, B3 kernel about 1.78x CSR, storage about `.70x CSR, and break-even about 73.5 SpMV.
+- Positive held-out evidence still covers B3 only; no positive held-out B6 case was obtained. Therefore automatic CSR/B3/B6 routing remains deferred.
+- Add public explicit DenseBlockCsrOperator with DenseBlockSize::B3 / B6. The numerical hot path uses compact block CSR (ow_ptr, block col_idx, fixed dense block values), supports partial tails, preserves duplicate scalar contributions, and implements LinearOperator.
+- Keep the existing scalar CSR path and all automatic solver defaults unchanged.
 
 ## 0.8.0-g3 ABTM region/symbolic-reuse checkpoint
 
@@ -315,6 +328,19 @@
 - Add `bench-fem-hybrid-coarse-strength.ps1` for repeated Graph vs StrongGraph A/B runs at fixed coarse target, apply policy, and local-factor settings.
 
 # Changelog
+## 0.8.0-g5 ABTM block-topology and explicit dense-block checkpoint
+
+- Complete the G5 3x3/6x6 block-topology study and retain block structure as a workload-specific prepared representation rather than a universal CSR replacement.
+- G5a topology characterization across the 11-matrix development corpus reduced non-empty topology-word count to a geometric mean of about `.280x for B3 and `.126x for B6 versus scalar topology; dense-value inflation remained workload dependent.
+- G5b showed that a generic runtime-sized block kernel loses to scalar CSR even when topology is compact, so generic block traversal is not promoted.
+- G5c/G5d fixed-size tail-specialized kernels recovered the intended block benefit: representative development-corpus kernel speedups included 
+d3k B6 about 2.57x, x104 B6 about 2.31x, aefsky3 B6 about 2.08x, cant B3 about 1.88x, oneS01 B3 about 1.47x, and s3dkq4m2 B6 about 1.35x versus scalar CSR.
+- Preparation cost is material. Representative measured break-even horizons were roughly 63--171 SpMV for the profitable development cases, so block preparation is not appropriate for every short solve.
+- Calibrate the structural development selector as: reject to CSR when B3 fill is below `.65; otherwise prefer B6 when B6_fill / B3_fill >= 0.75, else B3. This rule is evidence, not a production automatic policy.
+- Frozen held-out G5f validation was correct on five matrices with zero false-positive block selections, zero false-negative CSR selections, and zero block-size misses. inline_1 supplied the positive held-out case: B3 fill about `.99998, B3 kernel about 1.78x CSR, storage about `.70x CSR, and break-even about 73.5 SpMV.
+- Positive held-out evidence still covers B3 only; no positive held-out B6 case was obtained. Therefore automatic CSR/B3/B6 routing remains deferred.
+- Add public explicit DenseBlockCsrOperator with DenseBlockSize::B3 / B6. The numerical hot path uses compact block CSR (ow_ptr, block col_idx, fixed dense block values), supports partial tails, preserves duplicate scalar contributions, and implements LinearOperator.
+- Keep the existing scalar CSR path and all automatic solver defaults unchanged.
 ### 0.7.0-r19
 
 - Add `bench-fem-hybrid-graph-coarse-sweep.ps1` to re-optimize coarse-space size after r18b demonstrated a 55.15% iteration reduction and 52.88% median wall-time reduction from graph-aware aggregation at the previous contiguous optimum.

@@ -17,7 +17,7 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - validated structural Graph rigid-body parallel CPU path;
 - release integrity/MSRV/package/ABI/real-FEM gates.
 
-## Completed on develop/0.8.0 through F7
+## Completed on develop/0.8.0 through G5
 
 ### Execution architecture
 
@@ -66,11 +66,11 @@ After the current GeneralSquare robustness sequence, reintroduce ABTM as a
 symbolic/topology layer rather than assuming it must replace CSR everywhere.
 
 1. G1 (validated): bitmap topology algebra: AND/OR/AND-NOT/XOR, popcount, rank/select, invariants.
-2. G2 (validated/closed): metadata-first product pruning, dual row/column topology, numerical-layout experiments, and explicit fallback evidence.
-3. G3 (validated/closed): region growth, overlap/multiplicity, and local submatrix extraction.
-4. G4 (validated): ABTM symbolic/numeric ILU(0), direct rank-LUT addressing, explicit production constructor, and held-out/full-constructor evidence; automatic CSR/ABTM routing remains deferred.
-5. G5 (next): 3x3/6x6 block-ABTM experiments for FEM node topology.
-6. G6: ordinary and masked/restricted SpMV; pure SpMV is not the sole success criterion.
+2. G2 (validated): metadata-first product pruning with candidate/executed work metrics.
+3. G3 (validated): region growth, overlap/multiplicity, local extraction, and symbolic/numeric reuse boundaries.
+4. G4 (validated): ABTM ILU(0) symbolic intersection and explicit production ABTM factorization path; automatic routing deferred.
+5. G5 (validated): 3x3/6x6 block-topology characterization and explicit fixed-size dense block-CSR numerical operator; automatic CSR/B3/B6 routing deferred pending broader positive held-out evidence.
+6. G6 (next): ordinary and masked/restricted SpMV; pure SpMV is not the sole success criterion.
 7. G7: Rayon prepared execution after scalar semantics and metrics stabilize.
 8. G8: GPU/CubeCL-specific prepared ABTM rather than copying the CPU layout.
 9. G9: partition/halo extraction before later MPI scheduling work.

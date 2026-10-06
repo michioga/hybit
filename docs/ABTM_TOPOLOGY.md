@@ -409,8 +409,8 @@ proceed experimentally:
    local submatrix extraction versus the current graph/index path.
 4. **G4 — ABTM ILU(0):** symbolic intersection and packed numeric updates versus
    canonical CSR ILU(0).
-5. **G5 — block ABTM:** 3x3/6x6 FEM node topology and fixed-size numerical
-   blocks.
+5. **G5 — block ABTM (validated):** 3x3/6x6 FEM node topology and explicit
+   fixed-size dense block-CSR numerical execution.
 6. **G6 — SpMV evaluation:** CSR versus ABTM for ordinary and masked/restricted
    SpMV; do not use pure SpMV as the only ABTM success criterion.
 7. **G7 — Rayon prepared execution:** work partitioning and NUMA/cache behavior.
@@ -551,8 +551,8 @@ G1 does **not** promote one bitmap physical layout as universal. Later prepared
 execution may choose Sparse, Bitmap, Dense, block, CPU-specific, or GPU-specific
 representations from the same logical topology.
 
-The next checkpoint is G2: metadata-first support intersection and sparse-dot
-product pruning with candidate/executed/skipped-work metrics.
+G2-G5 are now validated. The next checkpoint is G6: ordinary and
+masked/restricted SpMV.
 
 ## G2a scalar metadata-first sparse-dot experiment
 
@@ -900,3 +900,111 @@ values have been produced.
 
 As a result, ABTM factorization can accelerate setup without increasing the
 persistent ILU(0) factor footprint or changing triangular application.
+
+## G5 block-topology validation and production decision
+
+G5 tests the FEM-oriented hypothesis that scalar topology can be coarsened into
+node-sized 3x3 or 6x6 couplings and that sufficiently full numerical blocks can
+amortize index/gather overhead.
+
+### G5a topology evidence
+
+Across the 11-matrix development corpus, block topology compressed structural
+metadata substantially:
+
+| Block | metadata/scalar topology (geomean) | non-empty-word ratio (geomean) | dense-value inflation (geomean) | mean block fill |
+| --- | ---: | ---: | ---: | ---: |
+| B3 | 0.505 | 0.280 | 1.823 | 0.624 |
+| B6 | 0.466 | 0.126 | 2.957 | 0.434 |
+
+The B6 topology is especially compact, but low block fill can make dense value
+storage prohibitively expensive. Therefore block topology and numerical
+physical layout must remain separate decisions.
+
+### G5b-G5d numerical kernel evidence
+
+A generic runtime-sized block kernel lost to scalar CSR on all 11 development
+matrices. G5 therefore does not promote a generic block traversal.
+
+Fixed-size B3/B6 kernels changed the result. Tail-specialized execution keeps
+full interior blocks on the fixed kernel and isolates only the final partial
+row/column block. Representative kernel speedups versus scalar CSR were:
+
+| Matrix | selected block | block fill | kernel speedup | storage / CSR | break-even SpMV |
+| --- | ---: | ---: | ---: | ---: | ---: |
+|
+d3k | B6 | 0.741 | 2.57x | 0.912 | 62.8 |
+| x104 | B6 | 0.857 | 2.31x | 0.786 | 66.8 |
+| aefsky3 | B6 | 0.748 | 2.08x | 0.900 | 73.8 |
+| cant | B3 | 0.930 | 1.88x | 0.755 | 77.6 |
+| oneS01 | B3 | 0.822 | 1.47x | 0.853 | 116 |
+| s3dkq4m2 | B6 | 0.549 | 1.35x | 1.224 | 171 |
+
+Low-fill matrices such as 	hermal1, pache2, cfd1, and enkat25
+remain better served by scalar CSR.
+
+### G5e-G5f selector evidence
+
+The development selector was deliberately simple:
+
+`	ext
+if B3 fill < 0.65:
+    CSR
+else if B6_fill / B3_fill >= 0.75:
+    B6
+else:
+    B3
+`
+
+On the 11-matrix calibration corpus it produced no false-positive block routes.
+Its one kernel-winner miss was sherman5, where B3 was only about 1% faster and
+required roughly 2088 SpMV to repay preparation, so CSR remained the sensible
+finite-horizon choice.
+
+The thresholds were then frozen. Held-out validation on
+Goodwin_010, G3_circuit, parabolic_fem, 	hermal2, and inline_1
+classified all five correctly with:
+
+`	ext
+false_positive_block = 0
+false_negative_csr   = 0
+block_size_miss      = 0
+`
+
+inline_1 provides the positive held-out B3 case: B3 fill about 0.99998,
+kernel speed about 1.78x CSR, storage about 0.70x CSR, and preparation break-even
+about 73.5 SpMV.
+
+No positive held-out B6 case is available yet. The structural rule is therefore
+retained as development evidence, not promoted to an automatic production
+selector.
+
+### Explicit G5 production API
+
+G5 exposes the validated numerical representation explicitly:
+
+`ust
+use hybit::{DenseBlockCsrOperator, DenseBlockSize};
+
+let block =
+    DenseBlockCsrOperator::from_csr32(&matrix, DenseBlockSize::B3)?;
+`
+
+The prepared numerical layout is conventional compact block CSR:
+
+`	ext
+block row_ptr
+block col_idx
+fixed dense BxB values
+`
+
+The operator supports B3/B6, partial final row/column blocks, duplicate scalar
+contribution accumulation, storage/fill diagnostics, and the common
+LinearOperator interface.
+
+This preserves the ABTM architectural boundary: topology and measurements
+identify profitable structure, while the hot numerical representation can be a
+specialized conventional layout. Existing CSR paths and solver defaults are
+unchanged.
+
+G6 is the next checkpoint: ordinary and masked/restricted SpMV.

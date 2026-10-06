@@ -1,6 +1,6 @@
 # HyBIT development status
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 ## Published release
 
@@ -17,7 +17,7 @@ The `v0.7.0` tag is immutable. 0.8 development does not change the published
 
 ## Current develop/0.8.0 checkpoint
 
-Current validated development sequence is complete through F7. The F2 base
+Current validated development sequence is complete through G5. The F2 base
 commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse
 measurement and documentation on top of that checkpoint.
 
@@ -96,11 +96,13 @@ Production semantics remain explicit:
 - `Ilu0Fallback` remains the explicit missing-diagonal safety policy;
 - Natural/RCM ordering remains explicit rather than automatically selected.
 
-ABTM G1 scalar topology algebra is validated on the ten-matrix corpus.
-The next checkpoint is G2 metadata-first support intersection and sparse-dot
-product pruning with candidate/executed/skipped-work metrics. GeneralSquare
-automatic-selection research can be revisited later with a broader held-out
-corpus or application-provided solve-horizon/cost information.
+ABTM G1-G5 are validated through topology algebra, metadata-first pruning,
+region/local extraction, explicit ABTM ILU(0), and fixed-size 3x3/6x6 block
+execution. G5 retains an explicit DenseBlockCsrOperator production path but
+does not automatically route CSR to B3/B6. The next checkpoint is G6 ordinary
+and masked/restricted SpMV. GeneralSquare automatic-selection research can be
+revisited later with a broader held-out corpus or application-provided
+solve-horizon/cost information.
 
 Do not add ILUT, fill, pivoting, or hidden automatic preconditioner changes as
 part of the F7 conclusion.
@@ -120,7 +122,7 @@ Word-local rank/select is the intended packed-value addressing primitive.
 Row-wide rank/select remains a convenience/correctness API rather than a hot
 numeric-kernel path.
 
-Next: G2 metadata-first support intersection and sparse-dot pruning.
+G2-G5 are now complete. Next: G6 ordinary and masked/restricted SpMV.
 
 ### ABTM G2a
 
@@ -322,3 +324,36 @@ The production corpus also showed that the earlier permissive symbolic selector
 must not be promoted: `venkat25` and `cfd1` have favorable symbolic compression
 but lose after full ABTM preparation cost. Automatic matrix-level routing is
 therefore deferred. G5 block-ABTM is next.
+
+### ABTM G2-G5 closeout
+
+G2 validates metadata-first support intersection/pruning and establishes that
+logical row/column topology can drive candidate elimination before numerical
+value access.
+
+G3 validates topology-driven region growth, overlap/multiplicity, local
+structural extraction, and repeated local numeric refresh. The architectural
+boundary remains deliberate: ABTM discovers/prunes reusable structure while
+conventional prepared local numerical layouts remain appropriate downstream.
+
+G4 validates ABTM symbolic ILU(0) intersection and exposes explicit
+Ilu0Preconditioner::from_csr32_general_abtm /
+GeneralSquarePreconditionerPolicy::Ilu0Abtm. The returned factor remains the
+canonical CSR ILU(0) representation; ABTM preparation metadata is scratch.
+Automatic ILU route selection remains deferred.
+
+G5 validates node-oriented dense block execution only where structure supports
+it. Generic block traversal was rejected. Fixed-size 3x3/6x6 tail-specialized
+kernels produced substantial CSR speedups on high-fill development cases, while
+low-fill matrices remained better on CSR. A frozen held-out selector classified
+five matrices correctly with zero false-positive block routes; inline_1
+provided a positive B3 held-out case at about 1.78x CSR kernel speed and about
+0.70x CSR storage.
+
+The production G5 result is therefore explicit rather than automatic:
+DenseBlockCsrOperator with DenseBlockSize::B3 / B6 is public and implements
+LinearOperator, but existing scalar CSR and solver defaults are unchanged.
+Positive held-out evidence for B6 is still missing, so automatic CSR/B3/B6
+routing is not promoted.
+
+Next: G6 ordinary and masked/restricted SpMV.
