@@ -1,4 +1,18 @@
 # Changelog
+## 0.8.0-g6 prepared masked/restricted SpMV checkpoint
+
+- Close G6 after separating ordinary scalar SpMV from fixed restricted-operator preparation.
+- G6a rejected scalar ABTM as a universal ordinary SpMV replacement: the 11-matrix development corpus produced no ordinary ABTM wins and a geometric-mean ABTM/CSR speedup of about 0.43x.
+- On-the-fly ABTM masking remained useful as metadata-first pruning evidence, but it did not consistently beat the stronger pre-zeroed-vector CSR baseline; this path is therefore not promoted as the production masked-SpMV hot loop.
+- G6b showed that a fixed column restriction `A*M` should be materialized as compact prepared CSR for repeated arithmetic. On the 11-matrix development corpus, the prepared dynamic path achieved geometric-mean speedups of about 5.92x, 3.87x, 2.56x, 1.83x, and 1.28x at 5%, 10%, 25%, 50%, and 75% active-column density.
+- G6b also showed that preparation from an already-existing ABTM layout can be faster on some workloads, but G6d held-out validation did not support an automatic preparation selector.
+- G6c validated graph-local `R*A*R` materialization as compact local CSR. The prepared dynamic path won all 11 development matrices at 1%, 5%, 10%, and 25% region fractions with geometric-mean speedups of about 3.61x, 3.09x, 2.93x, and 2.75x.
+- G6c rejected the existing ABTM local numeric-plan builder for one-shot `R*A*R` preparation: direct region-row CSR extraction won every development case.
+- G6d held-out validation on `Goodwin_010`, `G3_circuit`, `parabolic_fem`, `thermal2`, and `inline_1` confirmed the production boundary. Column-restricted prepared dynamic execution won 5/5 held-out matrices through 50% density and 4/5 at 75%; local `R*A*R` prepared dynamic execution won 5/5 at every tested region fraction.
+- Held-out direct `R*A*R` preparation was about 6.84x--8.57x faster geometrically than the existing ABTM local-plan preparation, with direct CSR winning all held-out cases.
+- Add explicit public `PreparedColumnRestrictedCsrOperator` and `PreparedLocalCsrOperator`. The former supports conservative `from_csr32` preparation and explicit opt-in `from_abtm` preparation; the latter uses direct CSR region-row extraction and compact local numbering.
+- Keep ordinary CSR SpMV and all automatic solver/backend policies unchanged. G6 adds no automatic restriction, CSR/ABTM preparation, or backend routing.
+
 ## 0.8.0-g5 ABTM block-topology and explicit dense-block checkpoint
 
 - Complete the G5 3x3/6x6 block-topology study and retain block structure as a workload-specific prepared representation rather than a universal CSR replacement.

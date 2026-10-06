@@ -199,3 +199,5 @@ crates/hybit/examples/abtm_ilu0_adaptive_rank_g4d.rs
 benchmarks/scripts/bench-abtm-ilu0-production-g4f.ps1
 crates/hybit/examples/abtm_ilu0_production_g4f.rs
 docs/ABTM_G4_CLOSEOUT.md
+crates/hybit-matrix/src/restricted.rs
+crates/hybit/tests/restricted_public_api.rs

@@ -60,7 +60,8 @@ pub use hybit_matrix::{
     AbtmConfig, AbtmMatrix, AbtmStats, AbtmTopology, AbtmTopologyRow, AbtmTopologyStats,
     AbtmTopologyWord, Csr32Matrix, DenseBlockCsrOperator, DenseBlockSize, DofMask,
     MatrixMarketError, MatrixMarketInfo, MatrixMarketSymmetry, MatrixProfile,
-    ParallelCsr32Operator, TileDesc, TileKind, ABTM_TOPOLOGY_WORD_BITS, TILE_WIDTH,
+    ParallelCsr32Operator, PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator, TileDesc,
+    TileKind, ABTM_TOPOLOGY_WORD_BITS, TILE_WIDTH,
 };
 pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,

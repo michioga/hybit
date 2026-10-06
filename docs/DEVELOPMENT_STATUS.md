@@ -17,7 +17,7 @@ The `v0.7.0` tag is immutable. 0.8 development does not change the published
 
 ## Current develop/0.8.0 checkpoint
 
-Current validated development sequence is complete through G5. The F2 base
+Current validated development sequence is complete through G6. The F2 base
 commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse
 measurement and documentation on top of that checkpoint.
 
@@ -96,11 +96,13 @@ Production semantics remain explicit:
 - `Ilu0Fallback` remains the explicit missing-diagonal safety policy;
 - Natural/RCM ordering remains explicit rather than automatically selected.
 
-ABTM G1-G5 are validated through topology algebra, metadata-first pruning,
-region/local extraction, explicit ABTM ILU(0), and fixed-size 3x3/6x6 block
-execution. G5 retains an explicit DenseBlockCsrOperator production path but
-does not automatically route CSR to B3/B6. The next checkpoint is G6 ordinary
-and masked/restricted SpMV. GeneralSquare automatic-selection research can be
+ABTM G1-G6 are validated through topology algebra, metadata-first pruning,
+region/local extraction, explicit ABTM ILU(0), fixed-size 3x3/6x6 block
+execution, and explicit prepared restricted/local CSR operators. G5 retains an
+explicit DenseBlockCsrOperator path without automatic CSR/B3/B6 routing. G6
+retains ordinary CSR for scalar SpMV, adds explicit prepared A*M and R*A*R
+operators, and adds no automatic CSR/ABTM preparation selector. The next
+checkpoint is G7 Rayon prepared execution. GeneralSquare automatic-selection research can be
 revisited later with a broader held-out corpus or application-provided
 solve-horizon/cost information.
 
@@ -122,7 +124,7 @@ Word-local rank/select is the intended packed-value addressing primitive.
 Row-wide rank/select remains a convenience/correctness API rather than a hot
 numeric-kernel path.
 
-G2-G5 are now complete. Next: G6 ordinary and masked/restricted SpMV.
+G2-G6 are now complete. Next: G7 Rayon prepared execution.
 
 ### ABTM G2a
 

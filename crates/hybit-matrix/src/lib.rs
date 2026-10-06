@@ -7,6 +7,7 @@ mod matrix_market;
 mod metadata_first;
 mod profile;
 mod region;
+mod restricted;
 mod topology;
 
 pub use abtm::{AbtmConfig, AbtmMatrix, AbtmStats, TileDesc, TileKind, TILE_WIDTH};
@@ -28,6 +29,7 @@ pub use region::{
     AbtmLocalSubmatrixPattern, AbtmLocalSubmatrixPatternStats, AbtmRegionGrowth,
     AbtmRegionGrowthStats, AbtmRegionMultiplicity, AbtmRegionMultiplicityStats,
 };
+pub use restricted::{PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator};
 pub use topology::{
     AbtmTopology, AbtmTopologyRow, AbtmTopologyStats, AbtmTopologyWord, ABTM_TOPOLOGY_WORD_BITS,
 };

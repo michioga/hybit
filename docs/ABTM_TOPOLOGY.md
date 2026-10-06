@@ -411,9 +411,10 @@ proceed experimentally:
    canonical CSR ILU(0).
 5. **G5 — block ABTM (validated):** 3x3/6x6 FEM node topology and explicit
    fixed-size dense block-CSR numerical execution.
-6. **G6 — SpMV evaluation:** CSR versus ABTM for ordinary and masked/restricted
-   SpMV; do not use pure SpMV as the only ABTM success criterion.
-7. **G7 — Rayon prepared execution:** work partitioning and NUMA/cache behavior.
+6. **G6 — prepared restricted SpMV (validated):** ordinary scalar ABTM remains
+   diagnostic; fixed A*M and graph-local R*A*R restrictions materialize
+   compact CSR, with preparation policy kept explicit and workload-specific.
+7. **G7 — Rayon prepared execution (next):** work partitioning and NUMA/cache behavior.
 8. **G8 — GPU prepared ABTM:** CubeCL-oriented descriptors and resident
    execution after the CPU semantics are stable.
 9. **G9 — distributed topology:** partition/halo extraction and later MPI
@@ -551,8 +552,7 @@ G1 does **not** promote one bitmap physical layout as universal. Later prepared
 execution may choose Sparse, Bitmap, Dense, block, CPU-specific, or GPU-specific
 representations from the same logical topology.
 
-G2-G5 are now validated. The next checkpoint is G6: ordinary and
-masked/restricted SpMV.
+G2-G6 are now validated. The next checkpoint is G7: Rayon prepared execution.
 
 ## G2a scalar metadata-first sparse-dot experiment
 
@@ -1008,3 +1008,128 @@ specialized conventional layout. Existing CSR paths and solver defaults are
 unchanged.
 
 G6 is the next checkpoint: ordinary and masked/restricted SpMV.
+
+## G6 validation evidence and decision
+
+G6 evaluated ordinary SpMV, masked column restriction, and graph-local
+restriction as separate workload classes instead of forcing one ABTM numerical
+layout onto all three.
+
+### G6a ordinary and on-the-fly masked SpMV
+
+The 11-matrix development corpus rejected scalar ABTM as a universal ordinary
+SpMV replacement. Ordinary ABTM produced no wins and a geometric-mean
+ABTM-versus-CSR speedup of about `0.43x`.
+
+Metadata-first masking still demonstrated useful pruning semantics. Intersecting
+tile topology with the active-DOF mask before loading numerical values strongly
+beat a CSR implementation that branches on every stored entry. However, the
+stronger baseline--a pre-zeroed input vector followed by ordinary CSR SpMV--was
+harder to beat and did not justify promoting the on-the-fly ABTM masked kernel.
+
+The retained conclusion is that metadata-first pruning is valuable during
+preparation, but repeated scalar arithmetic should use a layout specialized for
+the prepared workload.
+
+### G6b fixed column restriction `A*M`
+
+For a fixed active-column mask `M`, G6b materialized a compact CSR operator that
+retains global dimensions but stores only active-column entries. Repeated apply
+therefore consumes the changing global input vector directly without a
+per-entry mask branch or a per-apply masked-vector refresh.
+
+Development-corpus geometric-mean speedup of prepared execution versus the
+dynamic full-CSR baseline was approximately:
+
+| Active columns | Prepared / dynamic full CSR | Wins |
+| ---: | ---: | ---: |
+| 5% | 5.924x | 11/11 |
+| 10% | 3.865x | 11/11 |
+| 25% | 2.564x | 11/11 |
+| 50% | 1.835x | 11/11 |
+| 75% | 1.282x | 10/11 |
+
+When an `AbtmMatrix` already existed, ABTM metadata intersection sometimes
+accelerated preparation. Development-corpus preparation speedup versus direct
+CSR scan was geometrically about `1.17x--1.35x` through 50% density. The
+advantage was not universal, so it remains explicit rather than automatic.
+
+### G6c graph-local `R*A*R`
+
+G6c built deterministic graph-local regions and compared repeated scanning of
+global CSR region rows against an explicitly materialized compact local CSR.
+
+Development-corpus dynamic prepared speedup was:
+
+| Region fraction | Prepared / repeated region-row scan | Wins |
+| ---: | ---: | ---: |
+| 1% | 3.613x | 11/11 |
+| 5% | 3.089x | 11/11 |
+| 10% | 2.934x | 11/11 |
+| 25% | 2.747x | 11/11 |
+
+Unlike the column-mask case, the existing ABTM local numeric-plan builder lost
+to direct CSR region-row extraction on every measured development case.
+The local plan performs general topology extraction and source binding work that
+is unnecessary when a one-shot compact `R*A*R` operator can be built directly.
+
+### G6d held-out validation
+
+The held-out corpus was `Goodwin_010`, `G3_circuit`, `parabolic_fem`,
+`thermal2`, and `inline_1`.
+
+For fixed `A*M`, prepared dynamic execution won `5/5` held-out matrices at
+5%, 10%, 25%, and 50% density and `4/5` at 75%. Geometric-mean speedups were
+about `4.249x`, `2.798x`, `2.048x`, `1.745x`, and `1.229x` respectively.
+
+The held-out ABTM-preparation advantage was mixed: geometric-mean
+ABTM-versus-direct-CSR preparation speedup was about `1.03x`, `1.00x`, `0.97x`,
+`1.07x`, and `0.87x` over the same densities. This rules out an unconditional
+ABTM preparation selector.
+
+For graph-local `R*A*R`, prepared dynamic execution won `5/5` held-out matrices
+at every tested region fraction. Geometric-mean speedups at 1%, 5%, 10%, and
+25% were about `3.727x`, `2.682x`, `2.516x`, and `2.381x`.
+
+Direct CSR local preparation beat the existing ABTM local-plan path `5/5` at
+every held-out fraction, by geometric means of about `6.84x`, `7.82x`, `8.09x`,
+and `8.57x`.
+
+### G6 production boundary
+
+G6 therefore retains this workload-specific boundary:
+
+```text
+ordinary SpMV
+    -> CSR remains the baseline numerical path
+
+fixed column restriction A*M
+    -> compact prepared CSR
+    -> direct CSR preparation by default
+    -> explicit ABTM preparation only when an ABTM layout already exists
+
+graph-local R*A*R
+    -> direct CSR region-row extraction
+    -> compact local CSR
+
+repeated arithmetic
+    -> conventional compact CSR
+```
+
+The public production surface is explicit:
+
+- `PreparedColumnRestrictedCsrOperator`
+  - `from_csr32`
+  - `from_abtm` as an explicit opt-in preparation path
+- `PreparedLocalCsrOperator`
+  - `from_csr32`
+  - compact ascending local numbering
+  - `gather_input` / `gather_input_vec` for changing global vectors
+
+No automatic restriction policy, CSR/ABTM preparation selector, or solver
+backend promotion is introduced by G6.
+
+This reinforces the ABTM architectural role: topology metadata is used where it
+can eliminate structural work profitably, while repeated numerical execution is
+free to use a conventional representation better matched to the target
+workload.

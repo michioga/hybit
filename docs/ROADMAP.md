@@ -17,7 +17,7 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - validated structural Graph rigid-body parallel CPU path;
 - release integrity/MSRV/package/ABI/real-FEM gates.
 
-## Completed on develop/0.8.0 through G5
+## Completed on develop/0.8.0 through G6
 
 ### Execution architecture
 
@@ -70,8 +70,8 @@ symbolic/topology layer rather than assuming it must replace CSR everywhere.
 3. G3 (validated): region growth, overlap/multiplicity, local extraction, and symbolic/numeric reuse boundaries.
 4. G4 (validated): ABTM ILU(0) symbolic intersection and explicit production ABTM factorization path; automatic routing deferred.
 5. G5 (validated): 3x3/6x6 block-topology characterization and explicit fixed-size dense block-CSR numerical operator; automatic CSR/B3/B6 routing deferred pending broader positive held-out evidence.
-6. G6 (next): ordinary and masked/restricted SpMV; pure SpMV is not the sole success criterion.
-7. G7: Rayon prepared execution after scalar semantics and metrics stabilize.
+6. G6 (validated): ordinary scalar ABTM SpMV remains diagnostic; fixed column restrictions and graph-local restrictions use explicit prepared compact CSR, with direct or ABTM-assisted preparation selected explicitly by workload.
+7. G7 (next): Rayon prepared execution after scalar semantics and metrics stabilize.
 8. G8: GPU/CubeCL-specific prepared ABTM rather than copying the CPU layout.
 9. G9: partition/halo extraction before later MPI scheduling work.
 
