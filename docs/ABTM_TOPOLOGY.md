@@ -414,8 +414,10 @@ proceed experimentally:
 6. **G6 — prepared restricted SpMV (validated):** ordinary scalar ABTM remains
    diagnostic; fixed A*M and graph-local R*A*R restrictions materialize
    compact CSR, with preparation policy kept explicit and workload-specific.
-7. **G7 — Rayon prepared execution (next):** work partitioning and NUMA/cache behavior.
-8. **G8 — GPU prepared ABTM:** CubeCL-oriented descriptors and resident
+7. **G7 — Rayon prepared execution (validated):** explicit full-Rayon and
+   task-limited prepared CSR execution, serial gather, and no automatic
+   hardware-specific size selector.
+8. **G8 — GPU prepared ABTM (next):** CubeCL-oriented descriptors and resident
    execution after the CPU semantics are stable.
 9. **G9 — distributed topology:** partition/halo extraction and later MPI
    communication scheduling.
@@ -552,7 +554,7 @@ G1 does **not** promote one bitmap physical layout as universal. Later prepared
 execution may choose Sparse, Bitmap, Dense, block, CPU-specific, or GPU-specific
 representations from the same logical topology.
 
-G2-G6 are now validated. The next checkpoint is G7: Rayon prepared execution.
+G2-G7 are now validated. The next checkpoint is G8: GPU/CubeCL prepared execution.
 
 ## G2a scalar metadata-first sparse-dot experiment
 
@@ -1133,3 +1135,150 @@ This reinforces the ABTM architectural role: topology metadata is used where it
 can eliminate structural work profitably, while repeated numerical execution is
 free to use a conventional representation better matched to the target
 workload.
+
+## G7 validation evidence and decision
+
+G7 evaluates CPU parallel execution only after G6 has already materialized the
+repeated numerical workload as compact prepared CSR. The question is therefore
+not whether ABTM itself should become the parallel numerical storage format, but
+how prepared `A*M` and `R*A*R` operators should expose Rayon execution without
+hiding hardware-specific policy.
+
+### G7a prepared execution crossover
+
+With the default 16-worker Rayon pool, fixed-column `A*M` was strongly
+parallel-friendly once the prepared matrix was beyond the smallest test case.
+Across the 11-matrix development corpus the geometric-mean parallel speedups
+versus serial prepared CSR were approximately:
+
+| Active columns | Parallel / serial | Wins |
+| ---: | ---: | ---: |
+| 5% | 2.345x | 10/11 |
+| 10% | 3.217x | 10/11 |
+| 25% | 4.093x | 10/11 |
+| 50% | 4.604x | 10/11 |
+| 75% | 5.155x | 10/11 |
+
+The five losses were the very small `sherman5` prepared operators. The
+development envelope was `max_loss_nnz=15,330` and
+`min_win_nnz=28,316`, which suggests a useful size signal but does not by
+itself define a portable production threshold.
+
+For graph-local `R*A*R`, full-pool parallelism was more size-sensitive.
+At 16 workers the kernel geometric-mean speedups at 1%, 5%, 10%, and 25%
+region fractions were about `0.298x`, `1.178x`, `1.814x`, and `3.118x`.
+The corresponding changing-global-vector dynamic path, including serial
+`gather_input`, measured about `0.331x`, `1.112x`, `1.580x`, and `2.015x`.
+
+### G7b worker-count sensitivity
+
+A 4/8/16-worker sweep showed that `A*M` continues to favor wider parallelism as
+the prepared matrix grows. Across 55 development cases, the fastest measured
+worker count was 4, 8, and 16 in 8, 22, and 25 cases respectively.
+
+`R*A*R` behaves differently. Across the 44 development cases, the fastest
+kernel worker count was 4/8/16 in 20/17/7 cases, and the fastest dynamic
+gather-plus-SpMV path was 4/8/16 in 24/16/4 cases.
+
+This demonstrates that one global worker count is not a sufficient portable
+prepared-local execution policy.
+
+### G7c task granularity and gather policy
+
+G7c retained the default 16-worker global Rayon pool and varied only the number
+of contiguous row tasks submitted per operation: 2, 4, 8, or 16.
+
+The result rejected the idea that a small fixed task count can simply reproduce
+the favorable 4-worker behavior. Sixteen tasks were the fastest full dynamic
+path in 39 of 44 development cases; 8 tasks won 4 cases, 4 tasks won 1, and 2
+tasks won none.
+
+The experiment also isolates global-to-local gathering. Parallel gather was
+usually slower than the existing serial `PreparedLocalCsrOperator::gather_input`.
+Even at 16 tasks, the gather geometric-mean speedup versus serial gather was
+only about `0.030x`, `0.126x`, `0.246x`, and `0.545x` at the tested 1%, 5%,
+10%, and 25% region fractions. Therefore G7 retains serial gather.
+
+With serial gather retained, 16-task local SpMV became profitable around the
+low-tens-of-thousands nnz range on the development corpus, but this observation
+is treated as evidence rather than API semantics.
+
+### G7d held-out selector validation
+
+G7d froze a candidate development selector and tested it on
+`Goodwin_010`, `G3_circuit`, `parabolic_fem`, `thermal2`, and `inline_1`.
+
+For fixed-column `A*M`, the candidate was:
+
+```text
+prepared nnz < 32k  -> serial CSR
+otherwise           -> existing full Rayon CSR
+```
+
+This candidate produced no held-out regressions at any tested density. The
+oracle-capture geometric mean was `1.0` at 5%, 10%, 25%, 50%, and 75% active
+columns, meaning the selector chose the fastest measured serial/full-Rayon path
+for every held-out `A*M` point.
+
+For graph-local `R*A*R`, the candidate was:
+
+```text
+local nnz < 32k        -> serial gather + serial CSR
+32k <= nnz < 512k      -> serial gather + capped contiguous-row tasks
+local nnz >= 512k      -> serial gather + existing full Rayon CSR
+```
+
+The aggregate result was positive but not strong enough to freeze the policy.
+At 5%, 10%, and 25% region fractions the candidate had no meaningful
+held-out regression, but at 1% only 4/5 cases were non-regressions.
+
+Two cases explain why an automatic selector remains deferred:
+
+- `G3_circuit`, 1% region, 74,239 local nnz: the candidate chunked path ran at
+  about `0.848x` the serial baseline.
+- `inline_1`, 1% region, 348,237 local nnz: the candidate chunked path was still
+  about `1.97x` faster than serial, but the existing full-Rayon path was much
+  faster, reducing oracle capture to about `0.608`.
+
+The held-out evidence therefore supports explicit Rayon capability but not a
+portable hardware-independent `R*A*R` nnz selector.
+
+### G7 production boundary
+
+G7 exposes execution mechanisms without embedding the benchmark machine's
+routing thresholds:
+
+```text
+Csr32Matrix
+    apply_parallel(...)
+    apply_parallel_with_tasks(...)
+
+ParallelCsr32Operator
+    apply(...)
+    apply_with_tasks(...)
+
+PreparedColumnRestrictedCsrOperator
+    apply(...)                       # serial LinearOperator path
+    apply_parallel(...)
+    apply_parallel_with_tasks(...)
+
+PreparedLocalCsrOperator
+    gather_input(...)                # serial
+    apply(...)                       # serial LinearOperator path
+    apply_parallel(...)
+    apply_parallel_with_tasks(...)
+```
+
+`target_tasks` bounds contiguous row-task granularity while retaining the
+process-wide Rayon pool. It does not create a private pool and does not promise
+that exactly that many workers run concurrently.
+
+No automatic matrix-size threshold, hardware-specific worker policy, or
+prepared-operator route is promoted in G7. The caller remains responsible for
+selecting serial, full-Rayon, or task-limited execution from application and
+hardware context.
+
+This closes the CPU prepared-execution sequence while preserving the broader
+ABTM architectural rule: topology discovers and prepares the workload; the
+numerical representation and execution policy remain target-specific and
+evidence-driven.

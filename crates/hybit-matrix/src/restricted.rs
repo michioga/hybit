@@ -172,6 +172,25 @@ impl PreparedColumnRestrictedCsrOperator {
                 .saturating_mul(std::mem::size_of::<u64>()),
         )
     }
+
+    /// Apply the prepared restricted CSR using the process-wide Rayon pool.
+    ///
+    /// This is explicit execution policy. The ordinary `LinearOperator`
+    /// implementation remains serial.
+    pub fn apply_parallel(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+        self.matrix.apply_parallel(x, y)
+    }
+
+    /// Apply with an explicit upper bound on contiguous row tasks while
+    /// retaining the process-wide Rayon worker pool.
+    pub fn apply_parallel_with_tasks(
+        &self,
+        x: &[f64],
+        y: &mut [f64],
+        target_tasks: usize,
+    ) -> Result<(), HybitError> {
+        self.matrix.apply_parallel_with_tasks(x, y, target_tasks)
+    }
 }
 
 impl LinearOperator for PreparedColumnRestrictedCsrOperator {
@@ -343,6 +362,26 @@ impl PreparedLocalCsrOperator {
         self.gather_input(global, &mut local)?;
         Ok(local)
     }
+
+    /// Apply the compact local CSR using the process-wide Rayon pool.
+    ///
+    /// G7 keeps global-to-local gathering serial and separate. This method
+    /// operates only on already-gathered local vectors.
+    pub fn apply_parallel(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+        self.matrix.apply_parallel(x, y)
+    }
+
+    /// Apply the compact local CSR with an explicit upper bound on contiguous
+    /// row tasks. No automatic matrix-size or hardware-specific selector is
+    /// embedded in the operator.
+    pub fn apply_parallel_with_tasks(
+        &self,
+        x: &[f64],
+        y: &mut [f64],
+        target_tasks: usize,
+    ) -> Result<(), HybitError> {
+        self.matrix.apply_parallel_with_tasks(x, y, target_tasks)
+    }
 }
 
 impl LinearOperator for PreparedLocalCsrOperator {
@@ -473,5 +512,57 @@ mod tests {
         let local = PreparedLocalCsrOperator::from_csr32(&matrix, &region).unwrap();
         let mut gathered = vec![0.0; 2];
         assert!(local.gather_input(&[1.0, 2.0], &mut gathered).is_err());
+    }
+
+    #[test]
+    fn prepared_restrictions_explicit_rayon_paths_match_serial() {
+        let matrix = Csr32Matrix::new(
+            5,
+            5,
+            vec![0, 3, 6, 9, 12, 15],
+            vec![0, 1, 4, 0, 1, 2, 1, 2, 3, 0, 3, 4, 0, 3, 4],
+            vec![
+                4.0, -1.0, 0.5, -1.0, 5.0, 0.25, 0.25, 6.0, -0.75, 0.5, 7.0, -1.0, 0.5, -1.0, 8.0,
+            ],
+        )
+        .unwrap();
+
+        let mask = DofMask::from_indices(5, &[0, 2, 4]).unwrap();
+        let column = PreparedColumnRestrictedCsrOperator::from_csr32(&matrix, &mask).unwrap();
+        let x_global = [1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let mut column_serial = vec![0.0; 5];
+        let mut column_parallel = vec![0.0; 5];
+        let mut column_chunked = vec![0.0; 5];
+        column.apply(&x_global, &mut column_serial).unwrap();
+        column
+            .apply_parallel(&x_global, &mut column_parallel)
+            .unwrap();
+        column
+            .apply_parallel_with_tasks(&x_global, &mut column_chunked, 2)
+            .unwrap();
+
+        assert_close(&column_serial, &column_parallel);
+        assert_close(&column_serial, &column_chunked);
+
+        let region = DofMask::from_indices(5, &[0, 3, 4]).unwrap();
+        let local = PreparedLocalCsrOperator::from_csr32(&matrix, &region).unwrap();
+        let x_local = local.gather_input_vec(&x_global).unwrap();
+
+        let mut local_serial = vec![0.0; local.local_nodes()];
+        let mut local_parallel = vec![0.0; local.local_nodes()];
+        let mut local_chunked = vec![0.0; local.local_nodes()];
+        local.apply(&x_local, &mut local_serial).unwrap();
+        local.apply_parallel(&x_local, &mut local_parallel).unwrap();
+        local
+            .apply_parallel_with_tasks(&x_local, &mut local_chunked, 2)
+            .unwrap();
+
+        assert_close(&local_serial, &local_parallel);
+        assert_close(&local_serial, &local_chunked);
+
+        assert!(local
+            .apply_parallel_with_tasks(&x_local, &mut local_chunked, 0)
+            .is_err());
     }
 }

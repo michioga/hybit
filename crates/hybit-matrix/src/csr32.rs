@@ -175,6 +175,63 @@ impl Csr32Matrix {
         });
         Ok(())
     }
+
+    /// Apply CSR SpMV with an explicit upper bound on the number of contiguous
+    /// row tasks submitted to Rayon.
+    ///
+    /// This controls task granularity without creating a private Rayon pool or
+    /// changing the caller's global worker-pool policy. `target_tasks` is an
+    /// execution-policy knob, not a promise that exactly that many workers will
+    /// execute concurrently.
+    ///
+    /// G7 validation found this useful for prepared local operators, where
+    /// full row-level parallelism can over-schedule medium-size compact CSR
+    /// matrices. No matrix-size selector is embedded here; callers retain
+    /// explicit control.
+    pub fn apply_parallel_with_tasks(
+        &self,
+        x: &[f64],
+        y: &mut [f64],
+        target_tasks: usize,
+    ) -> Result<(), HybitError> {
+        if x.len() != self.ncols {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.ncols,
+                actual: x.len(),
+            });
+        }
+        if y.len() != self.nrows {
+            return Err(HybitError::DimensionMismatch {
+                expected: self.nrows,
+                actual: y.len(),
+            });
+        }
+        if target_tasks == 0 {
+            return Err(HybitError::InvalidArgument(
+                "target_tasks must be greater than zero",
+            ));
+        }
+        if self.nrows == 0 {
+            return Ok(());
+        }
+
+        let row_chunk = self.nrows / target_tasks + usize::from(self.nrows % target_tasks != 0);
+
+        y.par_chunks_mut(row_chunk)
+            .enumerate()
+            .for_each(|(chunk_index, out_chunk)| {
+                let row_start = chunk_index * row_chunk;
+                for (offset, out) in out_chunk.iter_mut().enumerate() {
+                    let row = row_start + offset;
+                    // SAFETY: dimensions are checked above and all CSR indices
+                    // were validated by Csr32Matrix::new. Each Rayon task owns
+                    // a disjoint output chunk.
+                    *out = unsafe { self.dot_row_unchecked(row, x) };
+                }
+            });
+
+        Ok(())
+    }
 }
 
 /// Read-only parallel CSR operator wrapper. It shares the validated CSR
@@ -193,6 +250,17 @@ impl<'a> ParallelCsr32Operator<'a> {
     }
     pub fn rayon_threads(&self) -> usize {
         rayon::current_num_threads()
+    }
+
+    /// Apply through the same matrix with an explicit contiguous-row task
+    /// target while retaining the process-wide Rayon pool.
+    pub fn apply_with_tasks(
+        &self,
+        x: &[f64],
+        y: &mut [f64],
+        target_tasks: usize,
+    ) -> Result<(), HybitError> {
+        self.matrix.apply_parallel_with_tasks(x, y, target_tasks)
     }
 }
 
@@ -271,6 +339,37 @@ mod tests {
         let serial = a.spmv(&x).unwrap();
         let mut parallel = vec![0.0; 3];
         a.apply_parallel(&x, &mut parallel).unwrap();
+        assert_eq!(parallel, serial);
+    }
+
+    #[test]
+    fn task_limited_parallel_csr_matches_serial() {
+        let a = Csr32Matrix::new(
+            5,
+            5,
+            vec![0, 2, 5, 8, 11, 13],
+            vec![0, 1, 0, 1, 2, 1, 2, 3, 2, 3, 4, 3, 4],
+            vec![
+                2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0,
+            ],
+        )
+        .unwrap();
+
+        let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let serial = a.spmv(&x).unwrap();
+
+        for target_tasks in [1, 2, 4, 16] {
+            let mut parallel = vec![0.0; 5];
+            a.apply_parallel_with_tasks(&x, &mut parallel, target_tasks)
+                .unwrap();
+            assert_eq!(parallel, serial);
+        }
+
+        let mut parallel = vec![0.0; 5];
+        assert!(a.apply_parallel_with_tasks(&x, &mut parallel, 0).is_err());
+
+        let wrapper = ParallelCsr32Operator::new(&a);
+        wrapper.apply_with_tasks(&x, &mut parallel, 2).unwrap();
         assert_eq!(parallel, serial);
     }
 }

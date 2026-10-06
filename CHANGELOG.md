@@ -1,4 +1,17 @@
 # Changelog
+## 0.8.0-g7 explicit prepared Rayon execution checkpoint
+
+- Close G7 after validating Rayon execution for the compact prepared CSR operators introduced by G6.
+- G7a separated fixed-column `A*M` and graph-local `R*A*R` execution. On the 11-matrix development corpus with the default 16-worker Rayon pool, prepared `A*M` parallel execution won 10/11 matrices at every tested density, with geometric-mean speedups of about 2.34x, 3.22x, 4.09x, 4.60x, and 5.16x at 5%, 10%, 25%, 50%, and 75% active-column density.
+- G7a showed a sharper size sensitivity for compact local `R*A*R`: the 16-worker kernel crossed from losses to wins around the 60k-nnz regime, while gather-plus-SpMV remained less monotonic.
+- G7b swept 4/8/16 Rayon workers. `A*M` remained robust above the small-matrix regime, but `R*A*R` often preferred fewer workers: the best measured dynamic path selected 4, 8, and 16 workers in 24, 16, and 4 of the 44 development cases respectively.
+- G7c isolated task granularity inside the normal 16-worker pool. A fixed small task count was not a universal replacement for worker-count control: 16 contiguous tasks were fastest in 39/44 `R*A*R` cases. Parallel global-to-local gather was generally slower than serial gather and is not promoted.
+- G7d validated a candidate held-out execution selector on `Goodwin_010`, `G3_circuit`, `parabolic_fem`, `thermal2`, and `inline_1`. The `A*M` 32k-nnz serial/parallel split achieved no held-out regressions and oracle-capture geometric mean 1.0 at every tested density.
+- The same held-out study rejected freezing one automatic `R*A*R` nnz selector: `G3_circuit` at 1% region regressed to about 0.85x under the candidate chunked route, while `inline_1` at 1% region strongly preferred the existing full Rayon path over the candidate chunked path.
+- Add explicit task-limited CSR Rayon execution through `Csr32Matrix::apply_parallel_with_tasks` and `ParallelCsr32Operator::apply_with_tasks`.
+- Add explicit `apply_parallel` and `apply_parallel_with_tasks` methods to `PreparedColumnRestrictedCsrOperator` and `PreparedLocalCsrOperator`.
+- Keep `LinearOperator::apply` serial, keep `PreparedLocalCsrOperator::gather_input` serial, create no private Rayon pool, and embed no hardware-specific G7 threshold or automatic prepared-operator routing policy.
+
 ## 0.8.0-g6 prepared masked/restricted SpMV checkpoint
 
 - Close G6 after separating ordinary scalar SpMV from fixed restricted-operator preparation.

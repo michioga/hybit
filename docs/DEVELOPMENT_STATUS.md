@@ -17,7 +17,7 @@ The `v0.7.0` tag is immutable. 0.8 development does not change the published
 
 ## Current develop/0.8.0 checkpoint
 
-Current validated development sequence is complete through G6. The F2 base
+Current validated development sequence is complete through G7. The F2 base
 commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse
 measurement and documentation on top of that checkpoint.
 
@@ -96,14 +96,16 @@ Production semantics remain explicit:
 - `Ilu0Fallback` remains the explicit missing-diagonal safety policy;
 - Natural/RCM ordering remains explicit rather than automatically selected.
 
-ABTM G1-G6 are validated through topology algebra, metadata-first pruning,
+ABTM G1-G7 are validated through topology algebra, metadata-first pruning,
 region/local extraction, explicit ABTM ILU(0), fixed-size 3x3/6x6 block
-execution, and explicit prepared restricted/local CSR operators. G5 retains an
-explicit DenseBlockCsrOperator path without automatic CSR/B3/B6 routing. G6
-retains ordinary CSR for scalar SpMV, adds explicit prepared A*M and R*A*R
-operators, and adds no automatic CSR/ABTM preparation selector. The next
-checkpoint is G7 Rayon prepared execution. GeneralSquare automatic-selection research can be
-revisited later with a broader held-out corpus or application-provided
+execution, explicit prepared restricted/local CSR operators, and explicit
+prepared Rayon execution. G5 retains an explicit DenseBlockCsrOperator path
+without automatic CSR/B3/B6 routing. G6 retains ordinary CSR for scalar SpMV
+and materializes A*M / R*A*R as compact prepared CSR. G7 exposes full-Rayon and
+task-limited prepared execution, keeps global-to-local gather serial, and
+promotes no hardware-specific automatic nnz selector. The next checkpoint is
+G8 GPU/CubeCL prepared execution. GeneralSquare automatic-selection research can
+be revisited later with a broader held-out corpus or application-provided
 solve-horizon/cost information.
 
 Do not add ILUT, fill, pivoting, or hidden automatic preconditioner changes as
@@ -124,7 +126,7 @@ Word-local rank/select is the intended packed-value addressing primitive.
 Row-wide rank/select remains a convenience/correctness API rather than a hot
 numeric-kernel path.
 
-G2-G6 are now complete. Next: G7 Rayon prepared execution.
+G2-G7 are now complete. Next: G8 GPU/CubeCL prepared execution.
 
 ### ABTM G2a
 
