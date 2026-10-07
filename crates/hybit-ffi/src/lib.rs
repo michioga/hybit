@@ -1,9 +1,11 @@
 use std::cell::RefCell;
+use std::env;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::panic::AssertUnwindSafe;
 use std::ptr;
 use std::slice;
+use std::sync::OnceLock;
 
 use hybit_auto::{BackendPolicy, HybitPreparedSystem, HybitSolver};
 use hybit_core::{MatrixBackend, PreconditionerKind, SolveStatus, SolverKind};
@@ -15,6 +17,61 @@ const HYBIT_INVALID_MATRIX: c_int = 2;
 const HYBIT_NUMERICAL_FAILURE: c_int = 3;
 const HYBIT_NOT_CONVERGED: c_int = 4;
 const HYBIT_PANIC: c_int = 100;
+
+static HYBIT_RAYON_THREADS: OnceLock<usize> = OnceLock::new();
+
+fn parse_positive_thread_count(value: &str) -> Option<usize> {
+    let first = value.split(',').next()?.trim();
+    let threads = first.parse::<usize>().ok()?;
+    (threads > 0).then_some(threads)
+}
+
+fn configured_thread_count_from_env() -> Option<usize> {
+    if let Ok(value) = env::var("RAYON_NUM_THREADS") {
+        if let Some(threads) = parse_positive_thread_count(&value) {
+            return Some(threads);
+        }
+    }
+    env::var("OMP_NUM_THREADS")
+        .ok()
+        .and_then(|value| parse_positive_thread_count(&value))
+}
+
+fn configure_rayon_threads(requested: Option<usize>) -> Result<usize, hybit_core::HybitError> {
+    if let Some(&configured) = HYBIT_RAYON_THREADS.get() {
+        if let Some(requested) = requested {
+            if requested != configured {
+                return Err(hybit_core::HybitError::InvalidArgument(
+                    "HyBIT Rayon pool is already initialized with a different thread count",
+                ));
+            }
+        }
+        return Ok(configured);
+    }
+
+    let requested = requested.or_else(configured_thread_count_from_env);
+
+    if let Some(threads) = requested {
+        match rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global()
+        {
+            Ok(()) => {}
+            Err(_) => {
+                let existing = rayon::current_num_threads();
+                if existing != threads {
+                    return Err(hybit_core::HybitError::InvalidArgument(
+                        "Rayon global pool was initialized before HyBIT with a different thread count",
+                    ));
+                }
+            }
+        }
+    }
+
+    let effective = rayon::current_num_threads().max(1);
+    let _ = HYBIT_RAYON_THREADS.set(effective);
+    Ok(effective)
+}
 
 thread_local! {
     static LAST_ERROR: RefCell<CString> = RefCell::new(CString::new("no error").unwrap());
@@ -174,13 +231,48 @@ fn ffi_report(result: &hybit_core::SolveReport) -> HybitSolveReport {
     }
 }
 
+/// Configures the process-wide Rayon worker pool used by HyBIT.
+///
+/// This must be called before the first HyBIT solver is created or before any
+/// other code initializes Rayon's global pool with a different size. Repeating
+/// the same value is allowed. A different value after initialization is
+/// rejected because Rayon's global pool cannot be resized.
+///
+/// C/C++/Fortran OpenMP callers that use `omp_set_num_threads` should pass
+/// `omp_get_max_threads()` here before creating a HyBIT solver.
+#[no_mangle]
+pub extern "C" fn hybit_set_num_threads(threads: u32) -> c_int {
+    if threads == 0 {
+        set_last_error("threads must be greater than zero");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        configure_rayon_threads(Some(threads as usize))?;
+        Ok(())
+    })
+}
+
+/// Returns the effective process-wide Rayon worker count used by HyBIT.
+///
+/// The first call initializes the pool using `RAYON_NUM_THREADS` when present,
+/// otherwise the first value of `OMP_NUM_THREADS`, otherwise Rayon's default.
+#[no_mangle]
+pub extern "C" fn hybit_num_threads() -> u32 {
+    match configure_rayon_threads(None) {
+        Ok(threads) => u32::try_from(threads).unwrap_or(u32::MAX),
+        Err(err) => {
+            set_last_error(err.to_string());
+            0
+        }
+    }
+}
 #[no_mangle]
 pub extern "C" fn hybit_version_major() -> u32 {
     0
 }
 #[no_mangle]
 pub extern "C" fn hybit_version_minor() -> u32 {
-    7
+    8
 }
 #[no_mangle]
 pub extern "C" fn hybit_version_patch() -> u32 {
@@ -222,6 +314,7 @@ pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHa
         return HYBIT_INVALID_ARGUMENT;
     }
     ffi_guard(|| {
+        configure_rayon_threads(None)?;
         let handle = Box::new(HybitSolverHandle {
             solver: HybitSolver::new(),
         });
@@ -658,5 +751,21 @@ mod tests {
             hybit_matrix_destroy(matrix);
             hybit_solver_destroy(solver);
         }
+    }
+}
+
+#[cfg(test)]
+mod thread_interop_tests {
+    use super::parse_positive_thread_count;
+
+    #[test]
+    fn parses_openmp_thread_count_and_nesting_list() {
+        assert_eq!(parse_positive_thread_count("8"), Some(8));
+        assert_eq!(parse_positive_thread_count(" 12 "), Some(12));
+        assert_eq!(parse_positive_thread_count("8,4,2"), Some(8));
+        assert_eq!(parse_positive_thread_count(" 8, 4, 2 "), Some(8));
+        assert_eq!(parse_positive_thread_count("0"), None);
+        assert_eq!(parse_positive_thread_count("garbage"), None);
+        assert_eq!(parse_positive_thread_count(""), None);
     }
 }

@@ -40,6 +40,7 @@ module hybit
         integer(c_int64_t) :: krylov_workspace_bytes
     end type
 
+    public :: hybit_set_num_threads, hybit_num_threads
     public :: hybit_solver_create, hybit_solver_destroy
     public :: hybit_solver_set_tolerances, hybit_solver_set_max_iterations, hybit_solver_set_backend
     public :: hybit_solver_set_hybrid_enabled, hybit_solver_set_overlap_layers
@@ -47,6 +48,14 @@ module hybit
     public :: hybit_prepare, hybit_prepared_destroy, hybit_solve_prepared
 
     interface
+        integer(c_int) function hybit_set_num_threads(threads) bind(C, name="hybit_set_num_threads")
+            import :: c_int, c_int32_t
+            integer(c_int32_t), value :: threads
+        end function
+
+        integer(c_int32_t) function hybit_num_threads() bind(C, name="hybit_num_threads")
+            import :: c_int32_t
+        end function
         integer(c_int) function hybit_solver_create(out_solver) bind(C, name="hybit_solver_create")
             import :: c_int, c_ptr
             type(c_ptr), intent(out) :: out_solver

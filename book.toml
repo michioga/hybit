@@ -12,7 +12,7 @@ create-missing = false
 default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/michioga/hybit"
-edit-url-template = "https://github.com/michioga/hybit/edit/develop/0.8.0/docs/{path}"
+edit-url-template = "https://github.com/michioga/hybit/edit/main/docs/{path}"
 site-url = "/hybit/"
 
 [output.html.playground]

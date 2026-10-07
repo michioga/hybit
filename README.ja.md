@@ -1,18 +1,14 @@
 # HyBIT
 
-> **公開状況:** HyBIT 0.7.0 は現在の公開版です。crates.ioから利用でき、GitHubでは `v0.7.0` タグに公開ソースを固定しています。0.7では検証済みの0.6構造FEM経路を維持しつつ、generic algebraic two-level coarseとcoarse-first resumable PCG controllerを追加しました。
+> **公開状況:** HyBIT 0.8.0 は現在の公開版です。crates.ioから利用でき、GitHubでは `v0.8.0` タグに公開ソースを固定します。0.8ではGeneralSquare向けprepared FGMRES、明示ILU(0)、ABTM G1-G7、prepared Rayon execution、C/C++/Fortran向けOpenMP thread-count interoperabilityを追加しました。
 
 **HyBIT — Autonomous Hybrid Sparse Solver** は、FEM/HPCで現れる大規模疎行列を対象としたRust-firstの線形ソルバーフレームワークです。
 
 低コストな反復法から開始し、収束状況を観測し、進捗が悪い場合には数値的に難しい自由度を抽出して、限定された局所領域だけをCholesky直接法へ昇格させます。ABTMのbitmap topology metadataは、選択領域の近傍展開や構造処理に内部利用します。利用側は通常のCSR32行列を渡すだけです。
 
-> **現在の位置づけ:** HyBIT 0.7.0 はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
+> **現在の位置づけ:** HyBIT 0.8.0 はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
 
-> **開発ブランチ:** `develop/0.8.0` ではresident execution architectureと、
-> `GeneralSquare`向けprepared FGMRES、Jacobi/opt-in ILU(0)を開発中です。
-> これらは公開済み0.7.0には含まれません。0.8開発版を利用する場合は
-> [docs/README.md](docs/README.md) と
-> [docs/USER_GUIDE.md](docs/USER_GUIDE.md) から参照してください。
+> **0.8以降:** 次の優先課題はdistributed topology / partition / haloとMPI連携です。GPU/CubeCLはCubeCL APIがproduction境界として十分安定するまで後段へ回します。
 ## 主な機能
 
 - Rustを中核とし、C ABI経由でC/C++/Fortranから利用可能
@@ -30,17 +26,17 @@
 ## crates.ioから利用
 
 ```bash
-cargo add hybit@0.7.0
+cargo add hybit@0.8.0
 ```
 
 または、`Cargo.toml`へ以下を追加します。
 
 ```toml
 [dependencies]
-hybit = "0.7.0"
+hybit = "0.8.0"
 ```
 
-HyBIT 0.7.0はcrates.ioへ公開済みです。対応する公開ソースはGitHubの `v0.7.0` タグから取得できます。
+HyBIT 0.8.0はcrates.ioへ公開します。対応する公開ソースはGitHubの `v0.8.0` タグへ固定します。
 
 Rust 1.73以降を対象とします。
 
@@ -137,15 +133,25 @@ solve #2..N
 
 PCG反復の途中で前処理器を変更せず、前処理器を強化するときはKrylov系列をrestartする設計です。
 
-## 0.7.0のリリース内容
+## 0.8.0のリリース内容
 
-0.7.0では、0.6で検証した構造FEM経路を維持したまま、r23-r32で検証したgeneric algebraic coarse経路を追加しました。主な追加点はGraph aggregation、Jacobi-smoothed transfer basis、parallel transfer、Wide/Compact index storage、F64/F32/Auto transfer-value storage、FactorSolve/ExplicitInverse/Auto coarse apply、明示coarseをiteration 0から使うcoarse-first controller、前処理器が変わらない場合の`PcgSession`継続、prepared coarse-only reuseです。
+0.8.0では、0.7のSPD/構造FEM基盤を維持しながら、GeneralSquare向けprepared
+FGMRES、再利用可能workspace、明示ILU(0)、ABTM G1-G7、prepared restriction、
+full/task-limited Rayon executionを追加します。
 
-r33-r36で実験したwatchdog、energy gate、filtered spectral enrichmentは0.7.0には含めず、post-0.7の研究項目として分離します。ベンチマーク値は回帰・設計判断のための測定であり、一般的な高速化を保証するものではありません。
+GeneralSquareではJacobiを既定のまま維持し、ILU(0)、Natural/RCM ordering、
+fallback policyは明示選択とします。実行性能が行列・ハードウェアに依存するため、
+G7で測定したprepared operatorのnnz閾値をportableな自動policyとして固定しません。
+
+C/C++/Fortran利用時はOpenMPホストとのthread数整合を追加します。明示
+`hybit_set_num_threads()`、`RAYON_NUM_THREADS`、`OMP_NUM_THREADS`、Rayon既定値
+の順で選択し、OpenMP API利用時は最初のsolver生成前に
+`omp_get_max_threads()`をHyBITへ同期します。運用上の詳細は
+[docs/THREADING.md](docs/THREADING.md)を参照してください。
 
 ## 現在の制約
 
-HyBIT 0.7.0は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。3次元構造FEM向けには6剛体モードの二段coarse correctionを実装済みですが、一般的なAMGではありません。MINRES/GMRES/BiCGStab、MPI、GPU、out-of-coreはまだ未実装です。prepared contextは現段階ではsingle-threaded利用を想定しています。
+HyBIT 0.7.0は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。3次元構造FEM向けには6剛体モードの二段coarse correctionを実装済みですが、一般的なAMGではありません。MINRESのproduction route、MPI distributed solver、GPU backend、out-of-coreはまだ未実装です。prepared contextは複数host threadからの同時mutationを想定していませんが、内部Rayon並列は利用できます。
 
 したがって、現時点のHyBITは実験的な数値ソフトウェアです。工学的判断へ利用する場合は、残差だけでなく物理量・参照解・独立ソルバー等による検証を行ってください。
 
@@ -180,11 +186,18 @@ GitHubリポジトリにはC ABI、C++ wrapper、Fortran `ISO_C_BINDING` module�
 
 WindowsではRust/MSVCで`hybit.dll`を作成し、MinGW利用時はGNU import libraryを生成します。
 
+0.8ではC ABIに`hybit_set_num_threads()` / `hybit_num_threads()`を追加します。
+優先順位は明示指定、`RAYON_NUM_THREADS`、`OMP_NUM_THREADS`、Rayon既定値です。
+OpenMP APIでthread数を変更するホストは、最初のsolver生成前に
+`omp_get_max_threads()`をHyBITへ同期してください。同一のHyBIT solveをOpenMP
+parallel regionの各workerから同時に呼ぶとOpenMP x Rayonのoversubscriptionを
+起こすため避けます。MPI/OpenMPホストを含む詳細は
+[docs/THREADING.md](docs/THREADING.md)を参照してください。
+
 ## ドキュメント
 
-開発版ドキュメントはmdBookで構築し、
-<https://michioga.github.io/hybit/> で公開します。0.8開発中は
-`docs/` のMarkdownを `develop/0.8.0` からGitHub Pagesへデプロイします。
+0.8ドキュメントはmdBookで構築し、
+<https://michioga.github.io/hybit/> で公開します。`docs/` のMarkdownを `main` からGitHub Pagesへデプロイします。
 
 Windowsでローカルに構築する場合:
 
@@ -199,12 +212,18 @@ crates.io: https://crates.io/crates/hybit
 
 API documentation: https://docs.rs/hybit
 
-## 0.7.0公開時の検証ゲート
+## 0.8.0公開時の検証ゲート
 
-0.7.0は、`v0.7.0` に固定した公開ソースcommitに対して `release-candidate-gate.ps1` を実行し、clean treeで合格した状態から公開しました。source hash、workspace metadata、fmt/Clippy、Rust 1.73 MSRV、Rust/C ABI/C/C++/Fortran、crates.io package、実L-angleの収束・独立残差・反復数guard、prepared solve-many reuseまで一括確認しています。L-angleの大規模入力自体はrepositoryへ含めず、外部パスを渡します。
+0.8.0は、公開対象とするexact source commitに対して
+`tools/release/0.8/release-candidate-gate.ps1`を実行し、clean treeで合格した
+状態から公開します。source hash、workspace metadata、fmt/Clippy、Rust 1.73
+MSRV、Rust/C ABI/C/C++/Fortran、OpenMP/Rayon thread interoperability、
+crates.io package、実L-angleの収束・独立残差・反復数guard、prepared
+solve-many reuseまで確認します。L-angleの大規模入力自体はrepositoryへ含めず、
+外部パスを渡します。
 
 ```powershell
-.\tools\release\0.7\release-candidate-gate.ps1 `
+.\tools\release\0.8\release-candidate-gate.ps1 `
   -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
   -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
   -Rhs D:\Work\mf_rhs\L-angle-b.txt `

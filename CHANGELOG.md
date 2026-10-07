@@ -1,4 +1,14 @@
 # Changelog
+## 0.8.0 release
+
+- Freeze the validated GeneralSquare FGMRES/ILU(0), ABTM G1-G7, prepared restricted/local execution, and explicit Rayon paths as the 0.8 release line.
+- Add C/C++/Fortran thread-count interoperability: explicit `hybit_set_num_threads`, `RAYON_NUM_THREADS`, `OMP_NUM_THREADS`, then Rayon default.
+- Keep HyBIT independent of a specific OpenMP runtime; OpenMP API callers synchronize `omp_get_max_threads()` before first solver creation.
+- Document process-wide Rayon-pool lifetime, MPI/OpenMP host integration, affinity boundaries, and OpenMP x Rayon oversubscription avoidance.
+- Retain Rust 1.73 and the exact Rayon/rayon-core MSRV pins.
+- Keep automatic numerical/backend promotion conservative: GeneralSquare Jacobi remains default, ILU/order selection remains explicit, and prepared local nnz routing is not hard-coded.
+- Move the post-0.8 priority to distributed topology / partition / halo and MPI-host integration; defer CubeCL production integration until its API stabilizes.
+
 ## 0.8.0-g7 explicit prepared Rayon execution checkpoint
 
 - Close G7 after validating Rayon execution for the compact prepared CSR operators introduced by G6.

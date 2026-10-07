@@ -1,14 +1,9 @@
 # HyBIT documentation
 
-HyBIT 0.7.0 is the current published release. Documents describing
-`develop/0.8.0` are development documentation and are not claims about the
-immutable `v0.7.0` release.
-Rendered development documentation: <https://michioga.github.io/hybit/>
+HyBIT 0.8.0 is the current published release. The immutable release source is tagged `v0.8.0`.
+Rendered documentation: <https://michioga.github.io/hybit/>
 
-The site is built with mdBook from the Markdown files in this directory.
-During the 0.8 development cycle, GitHub Pages deploys from
-`develop/0.8.0`; the deployment branch should move to `main` when the 0.8
-release documentation is frozen.
+The site is built with mdBook from the Markdown files in this directory and GitHub Pages deploys the frozen release documentation from `main`.
 
 ## Start here
 
@@ -25,6 +20,8 @@ For library users:
    Jacobi versus ILU(0), pivot stabilization, and current limitations.
 5. [Structural Auto API](STRUCTURAL_AUTO_API.md) — 3-D structural SPD systems
    with rigid-body coarse correction.
+6. [Threading and host-runtime interoperability](THREADING.md) — Rayon/OpenMP
+   thread-count precedence, MPI/OpenMP embedding, and oversubscription rules.
 
 For numerical background:
 

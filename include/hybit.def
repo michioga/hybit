@@ -4,6 +4,8 @@ EXPORTS
     hybit_version_minor
     hybit_version_patch
     hybit_last_error_message
+    hybit_set_num_threads
+    hybit_num_threads
     hybit_solver_create
     hybit_solver_destroy
     hybit_solver_set_tolerances

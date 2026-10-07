@@ -20,6 +20,11 @@ inline std::string last_error() {
 inline void check(int status) {
     if (status != HYBIT_OK) throw std::runtime_error(last_error());
 }
+#ifdef _OPENMP
+inline void sync_openmp_threads() {
+    check(hybit_sync_openmp_threads());
+}
+#endif
 
 class Matrix {
 public:

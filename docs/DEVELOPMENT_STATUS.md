@@ -1,21 +1,19 @@
 # HyBIT development status
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
 ## Published release
 
-- Current published release: HyBIT 0.7.0.
-- Release tag: `v0.7.0`.
-- Immutable source:
-  `1fdcd6a1b8127c84306c38c3fdbad42563538ad8`.
-- Six Rust crates are published as 0.7.0 on crates.io.
+- Current published release: HyBIT 0.8.0.
+- Release tag: `v0.8.0`.
+- Six Rust crates are published as 0.8.0 on crates.io.
 - `hybit-ffi` remains repository-only.
-- 0.7 production numerical freeze point: r32.
+- Rust 1.73 remains the declared MSRV.
 
-The `v0.7.0` tag is immutable. 0.8 development does not change the published
-0.7 source.
+The 0.8 release freezes the validated GeneralSquare FGMRES/ILU(0), ABTM G1-G7,
+prepared execution, Rayon, and C/C++/Fortran thread-interoperability work.
 
-## Current develop/0.8.0 checkpoint
+## 0.8.0 release checkpoint
 
 Current validated development sequence is complete through G7. The F2 base
 commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse
@@ -104,7 +102,7 @@ without automatic CSR/B3/B6 routing. G6 retains ordinary CSR for scalar SpMV
 and materializes A*M / R*A*R as compact prepared CSR. G7 exposes full-Rayon and
 task-limited prepared execution, keeps global-to-local gather serial, and
 promotes no hardware-specific automatic nnz selector. The next checkpoint is
-G8 GPU/CubeCL prepared execution. GeneralSquare automatic-selection research can
+G8 distributed topology / partition / halo and MPI-host integration. GeneralSquare automatic-selection research can
 be revisited later with a broader held-out corpus or application-provided
 solve-horizon/cost information.
 
@@ -126,7 +124,7 @@ Word-local rank/select is the intended packed-value addressing primitive.
 Row-wide rank/select remains a convenience/correctness API rather than a hot
 numeric-kernel path.
 
-G2-G7 are now complete. Next: G8 GPU/CubeCL prepared execution.
+G2-G7 are now complete. Next: G8 distributed topology / MPI-host integration.
 
 ### ABTM G2a
 

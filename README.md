@@ -9,15 +9,11 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
-> **Project status:** HyBIT 0.7.0 is the current published release. It is available from crates.io and tagged as `v0.7.0` in this repository. The 0.7 release adds a generic algebraic two-level coarse path and a coarse-first resumable PCG controller while retaining the validated 0.6 structural path. The automatic solver path remains restricted to real symmetric positive-definite (SPD) systems and PCG. APIs may evolve before 1.0.
+> **Project status:** HyBIT 0.8.0 is the current published release. It is available from crates.io and tagged as `v0.8.0`. The SPD automatic path uses PCG/Hybrid/structural policies; GeneralSquare uses prepared FGMRES with Jacobi by default and explicit ILU(0) options. ABTM is retained as a topology/symbolic/preparation layer, while repeated numerical execution uses target-appropriate prepared representations. APIs may evolve before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
-> **Development branch:** `develop/0.8.0` adds the resident execution
-> architecture and a prepared `GeneralSquare` FGMRES path with Jacobi or
-> opt-in ILU(0). These APIs are not part of the published 0.7.0 release.
-> Start with [docs/README.md](docs/README.md) and
-> [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for development-branch usage.
+> **Post-0.8 direction:** distributed topology/partition/halo work is the next priority. GPU/CubeCL integration remains planned but is deferred until the CubeCL API is sufficiently stable for HyBIT's production boundary.
 ## Highlights
 
 - Rust-first implementation with a stable C ABI for C, C++, and Fortran consumers.
@@ -34,13 +30,13 @@ HyBIT starts from a low-cost iterative path, observes convergence, identifies nu
 
 ## Install
 
-The HyBIT 0.7.0 release uses the `hybit` facade crate together with its internal Rust crates:
+The HyBIT 0.8.0 release uses the `hybit` facade crate together with its internal Rust crates:
 
 ```bash
-cargo add hybit@0.7.0
+cargo add hybit@0.8.0
 ```
 
-HyBIT 0.7.0 is published on crates.io; the matching release source is tagged `v0.7.0`.
+HyBIT 0.8.0 is published on crates.io; the matching release source is tagged `v0.8.0`.
 
 Rust 1.73 or newer is required.
 
@@ -181,36 +177,51 @@ The repository contains a C ABI and thin language bindings under `include/` and 
 .\build\hybit_fortran.exe
 ```
 
-Prepared execution is available through the C ABI functions `hybit_prepare`, `hybit_solve_prepared`, and `hybit_prepared_destroy`. The C++ wrapper provides an RAII `Prepared` object and the Fortran module exposes matching `ISO_C_BINDING` declarations.
+Prepared execution is available through the C ABI functions `hybit_prepare`,
+`hybit_solve_prepared`, and `hybit_prepared_destroy`. The C++ wrapper provides
+an RAII `Prepared` object and the Fortran module exposes matching
+`ISO_C_BINDING` declarations.
 
-## 0.7.0 release focus
+HyBIT 0.8 also exposes `hybit_set_num_threads()` / `hybit_num_threads()` for
+C/C++/Fortran hosts. Before the first solver is created, explicit configuration
+takes precedence over `RAYON_NUM_THREADS`, then `OMP_NUM_THREADS`, then the
+Rayon default. OpenMP API callers can synchronize `omp_get_max_threads()` via
+`hybit_sync_openmp_threads()` in C/C++ or call `hybit_set_num_threads()` from
+Fortran. Do not call one parallel HyBIT solve from every worker of an active
+OpenMP team; this can oversubscribe OpenMP x Rayon. See
+[docs/THREADING.md](docs/THREADING.md).
 
-HyBIT 0.7.0 keeps the 0.6 structural FEM execution path and adds the generic algebraic coarse work validated through the r23-r32 development checkpoints. The release includes:
+## 0.8.0 release focus
 
-- algebraic two-level coarse correction for generic SPD/PCG solves;
-- Graph aggregation and one-step Jacobi-smoothed transfer basis;
-- serial/parallel transfer application and wide/compact transfer-index storage;
-- F64/F32/Auto persistent transfer-value storage;
-- factor-solve / explicit-inverse / Auto coarse application;
-- coarse-first controller sequencing for explicitly enabled algebraic coarse correction;
-- resumable `PcgSession` continuation whenever the preconditioner is unchanged;
-- prepared coarse-only reuse across solve-many RHS vectors.
+HyBIT 0.8.0 extends the validated 0.7 SPD/structural baseline with:
 
-The 0.7 release does **not** include the later r33-r36 watchdog, energy-gate, or filtered spectral-enrichment experiments. Those remain post-0.7 research work. Performance measurements in the benchmark scripts are regression evidence, not universal speedup claims.
+- resident CPU execution architecture and explicit Rayon paths;
+- prepared GeneralSquare FGMRES with reusable workspace;
+- canonical explicit ILU(0), pivot stabilization, and explicit fallback policy;
+- ABTM G1-G7 topology, region, ILU, block, restriction, and prepared-execution work;
+- explicit B3/B6 dense block-CSR execution;
+- prepared fixed-column and graph-local compact CSR operators;
+- explicit full-Rayon and task-limited prepared execution;
+- C/C++/Fortran OpenMP-oriented thread-count interoperability.
+
+Automatic policy remains conservative. GeneralSquare keeps Jacobi as the
+default, ordering/ILU promotion remains explicit, and G7 does not embed a
+hardware-specific prepared-operator nnz selector.
 
 ## Current scope and limitations
 
-HyBIT 0.7.0 intentionally has a narrow numerical scope:
+HyBIT 0.8.0 remains intentionally bounded in numerical scope:
 
 - real `f64` matrices;
-- square SPD systems on the automatic path;
-- PCG as the automatic Krylov method;
+- SPD systems on the automatic path with PCG/Hybrid/structural routes;
+- GeneralSquare systems through prepared FGMRES;
+- Jacobi as the GeneralSquare default and ILU(0) as explicit opt-in;
 - CSR32 public storage and an internal ABTM backend;
 - dense local Cholesky factors with bounded region sizes;
 - up to 8 local regions by default, each limited to 128 DOFs by default;
 - prepared-factor reuse only when matrix structure and coefficient bits are unchanged;
-- prepared contexts are intended for single-threaded use;
-- no MINRES, GMRES, BiCGStab, distributed memory, GPU, or out-of-core execution yet;
+- prepared contexts are not intended for concurrent mutation by multiple host threads; internal Rayon parallelism is supported;
+- no routed MINRES, distributed-memory solver, production GPU backend, or out-of-core execution yet;
 - the geometry-aware rigid-body coarse correction is currently specific to the explicit 3-D structural path and is not a general algebraic multigrid implementation;
 - adaptive region selection is currently heuristic rather than spectral.
 
@@ -239,9 +250,8 @@ tools/release/    retained version-specific release qualification tooling
 
 ## Documentation
 
-The development documentation is built with mdBook and published at
-<https://michioga.github.io/hybit/>. The 0.8 development site is generated
-from the Markdown sources under `docs/`.
+The release documentation is built with mdBook and published at
+<https://michioga.github.io/hybit/>. The 0.8 site is generated from the Markdown sources under `docs/` and deployed from `main`.
 
 Build it locally on Windows with:
 
@@ -258,10 +268,15 @@ cd hybit
 .\tools\build\build.ps1
 ```
 
-HyBIT 0.7.0 was qualified with `release-candidate-gate.ps1` on the exact source commit later tagged as `v0.7.0`. The gate covers source integrity, metadata, formatting, Clippy, Rust 1.73 MSRV, ABI/language bindings, package validation, real-FEM residual/iteration checks, and prepared reuse. The L-angle files are supplied externally rather than stored in the repository:
+HyBIT 0.8.0 is qualified with `tools/release/0.8/release-candidate-gate.ps1`
+on the exact release-source commit. The gate covers source integrity, metadata,
+formatting, Clippy, Rust 1.73 MSRV, ABI/language bindings, OpenMP/Rayon host
+interoperability, package validation, real-FEM residual/iteration checks, and
+prepared reuse. The L-angle files are supplied externally rather than stored in
+the repository:
 
 ```powershell
-.\tools\release\0.7\release-candidate-gate.ps1 `
+.\tools\release\0.8\release-candidate-gate.ps1 `
   -Matrix D:\Work\mf_solver-hybit-export\L-angle-K.mtx `
   -Coordinates D:\Work\mf_solver-hybit-export\L-angle-K.coords `
   -Rhs D:\Work\mf_rhs\L-angle-b.txt `
@@ -284,7 +299,7 @@ cargo run --release -p hybit --example fem_bench -- --matrix benchmarks/data/poi
 
 Near-term work is focused on real FEM validation, separation of symbolic reuse from numerical refactorization, broader Krylov coverage, stronger diagnostics, and scalable local/coarse corrections. Parallel CPU, GPU, and distributed-memory backends are longer-term directions.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for post-0.7 / 0.8 work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current published-release status.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for post-0.8 work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current published-release status.
 
 ## Contributing
 

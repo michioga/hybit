@@ -201,3 +201,13 @@ crates/hybit/examples/abtm_ilu0_production_g4f.rs
 docs/ABTM_G4_CLOSEOUT.md
 crates/hybit-matrix/src/restricted.rs
 crates/hybit/tests/restricted_public_api.rs
+docs/THREADING.md
+RELEASE_NOTES_0.8.0.md
+tools/release/0.8/README.md
+tools/release/0.8/crates-package-gate.ps1
+tools/release/0.8/openmp-interop-gate.ps1
+tools/release/0.8/public-release-gate.ps1
+tools/release/0.8/real-fem-release-gate.ps1
+tools/release/0.8/release-candidate-gate.ps1
+tools/release/0.8/release-gate.ps1
+tools/release/0.8/workspace-metadata-gate.ps1

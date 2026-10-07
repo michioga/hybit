@@ -9,6 +9,7 @@
 - [Prepared execution](PREPARED_API.md)
 - [GeneralSquare: FGMRES and ILU(0)](GENERAL_SQUARE.md)
 - [Structural Auto API](STRUCTURAL_AUTO_API.md)
+- [Threading and host-runtime interoperability](THREADING.md)
 
 # Numerical foundations
 

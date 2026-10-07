@@ -2,7 +2,7 @@ name: Documentation Pages
 
 on:
   push:
-    branches: [develop/0.8.0]
+    branches: [main]
     paths:
       - "docs/**"
       - "book.toml"

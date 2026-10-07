@@ -14,6 +14,10 @@
   #define HYBIT_API
 #endif
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -69,6 +73,19 @@ typedef struct hybit_solve_report {
     uint64_t krylov_workspace_bytes;
 } hybit_solve_report_t;
 
+/* HyBIT uses Rayon's process-wide worker pool.
+ *
+ * Precedence before first solver creation:
+ *   explicit hybit_set_num_threads()
+ *   RAYON_NUM_THREADS
+ *   OMP_NUM_THREADS (first nesting-list value)
+ *   Rayon default
+ *
+ * The pool cannot be resized after initialization.
+ */
+HYBIT_API int32_t hybit_set_num_threads(uint32_t threads);
+HYBIT_API uint32_t hybit_num_threads(void);
+
 HYBIT_API uint32_t hybit_version_major(void);
 HYBIT_API uint32_t hybit_version_minor(void);
 HYBIT_API uint32_t hybit_version_patch(void);
@@ -115,6 +132,19 @@ HYBIT_API int32_t hybit_solve(
     double *x,
     hybit_solve_report_t *report);
 
+
+/* Optional OpenMP bridge. HyBIT itself does not link against an OpenMP runtime;
+ * this inline helper uses the caller's already-selected OpenMP runtime.
+ *
+ * Call before hybit_solver_create() when omp_set_num_threads() or another
+ * OpenMP API, rather than OMP_NUM_THREADS alone, determines the desired count.
+ */
+#ifdef _OPENMP
+  static inline int32_t hybit_sync_openmp_threads(void) {
+      const int n = omp_get_max_threads();
+      return n > 0 ? hybit_set_num_threads((uint32_t)n) : HYBIT_INVALID_ARGUMENT;
+  }
+#endif
 #ifdef __cplusplus
 }
 #endif

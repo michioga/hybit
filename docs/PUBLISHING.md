@@ -4,6 +4,34 @@ Public repository: `https://github.com/michioga/hybit`
 
 User-facing Rust crate: `https://crates.io/crates/hybit`
 
+## HyBIT 0.8.0 release procedure
+
+HyBIT 0.8.0 publishes the same six Rust crates as 0.7.0. `hybit-ffi` remains
+repository-only but its C ABI, C++ wrapper, Fortran module, and OpenMP/Rayon
+thread-interoperability path are release-qualified.
+
+The 0.8 release candidate must pass:
+
+- source integrity;
+- exact 0.8.0 workspace/dependency metadata;
+- formatting and Clippy;
+- workspace release tests and all targets;
+- Rust 1.73 MSRV;
+- C/C++/Fortran ABI/runtime;
+- OpenMP/Rayon environment/API interoperability;
+- crates.io package checks and dependency-ordered dry-runs;
+- the physical L-angle structural regression and prepared reuse;
+- mdBook build.
+
+After qualifying the exact source commit on `develop/0.8.0`, move that exact
+source to `main` and rerun the complete gate there. Publish crates in dependency
+order, create immutable tag `v0.8.0`, and create the GitHub Release from
+`RELEASE_NOTES_0.8.0.md`.
+
+GitHub Pages deploys the frozen 0.8 documentation from `main`.
+
+Threading integration and oversubscription requirements are documented in
+`THREADING.md`.
 ## HyBIT 0.7.0 publication record
 
 HyBIT 0.7.0 was published on 2026-09-27 from the exact validated source commit:

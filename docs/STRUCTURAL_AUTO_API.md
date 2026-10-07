@@ -1,4 +1,4 @@
-# Structural Auto API (retained in 0.7)
+# Structural Auto API (0.8)
 
 HyBIT's generic `solve_csr32` path remains geometry-free and backward compatible.
 For 3-D structural SPD systems, callers can provide node coordinates explicitly:
@@ -128,9 +128,13 @@ requires the CSR32 backend. The parallel implementation preserves the same
 CSR storage and arithmetic ordering within each row, so iteration counts should
 remain unchanged.
 
-The Rayon pool size is intentionally external to the solver policy in r20. Set
-`RAYON_NUM_THREADS` (or use `-RayonThreads` in the supplied PowerShell wrappers)
-to tune a particular CPU. On the development L-angle case on a Ryzen 7 7800X3D,
+The Rayon pool size is intentionally external to the solver policy. Rust callers
+can continue to use `RAYON_NUM_THREADS`. C/C++/Fortran hosts additionally have
+the 0.8 thread-interoperability API: explicit `hybit_set_num_threads(n)` takes
+precedence, followed by `RAYON_NUM_THREADS`, then `OMP_NUM_THREADS`, then the
+Rayon default. OpenMP API users should synchronize `omp_get_max_threads()` into
+HyBIT before creating the first solver. See [Threading and host-runtime
+interoperability](THREADING.md). On the development L-angle case on a Ryzen 7 7800X3D,
 4 threads was the best tested point: CSR SpMV improved from about 13.24 ms to
 5.09 ms and the 220-iteration structural PCG solve from about 4.44 s to 2.73 s.
 This machine-specific result is not used as a hard-coded library thread count.

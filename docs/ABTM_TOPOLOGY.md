@@ -417,10 +417,10 @@ proceed experimentally:
 7. **G7 — Rayon prepared execution (validated):** explicit full-Rayon and
    task-limited prepared CSR execution, serial gather, and no automatic
    hardware-specific size selector.
-8. **G8 — GPU prepared ABTM (next):** CubeCL-oriented descriptors and resident
-   execution after the CPU semantics are stable.
-9. **G9 — distributed topology:** partition/halo extraction and later MPI
-   communication scheduling.
+8. **G8 — distributed topology (next):** partition/halo extraction and MPI-host
+   integration before distributed Krylov scheduling.
+9. **G9 — GPU prepared execution:** CubeCL-oriented descriptors and resident
+   execution after the CubeCL API is sufficiently stable.
 
 No automatic backend promotion should occur until the relevant workload class
 shows repeatable benefit including preparation cost.
@@ -554,7 +554,7 @@ G1 does **not** promote one bitmap physical layout as universal. Later prepared
 execution may choose Sparse, Bitmap, Dense, block, CPU-specific, or GPU-specific
 representations from the same logical topology.
 
-G2-G7 are now validated. The next checkpoint is G8: GPU/CubeCL prepared execution.
+G2-G7 are now validated. The next checkpoint is G8: distributed topology / MPI-host integration.
 
 ## G2a scalar metadata-first sparse-dot experiment
 
