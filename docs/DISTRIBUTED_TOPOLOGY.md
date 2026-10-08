@@ -171,3 +171,48 @@ MPI transport remains a later layer. HyBIT will use the Rust `mpi` crate and
 will not hard-code a particular MPI implementation into the distributed core.
 MS-MPI is one development/test implementation; compatible MPI implementations
 remain part of the intended portability boundary.
+## G8-A3 ABTM partition prototype
+
+G8-A3 moves from halo extraction to partition ownership itself.
+
+The first prototype introduces `PartitionAssignment`, which stores an arbitrary
+rank owner for every global DOF. This is intentionally separate from
+`ContiguousPartition`, because production graph partitions do not preserve
+contiguous global numbering.
+
+`abtm_region_grow_partition()` uses `AbtmDualTopology` (`A union A^T` semantics
+through row and column topology) to build deterministic, exactly balanced
+regions. It is a baseline ABTM graph-growth prototype, **not yet a multilevel
+replacement for METIS or Scotch**.
+
+The quality harness evaluates arbitrary owner labels with the same metrics:
+
+```text
+cut_nnz
+communication_volume
+directional_peer_relations
+max_neighbors
+owned_dof_imbalance
+local_nnz_imbalance
+```
+
+Run:
+
+```text
+cargo run --release -p hybit-distributed --example partition_quality_probe -- <matrix.mtx> <ranks>
+```
+
+An optional zero-based owner-label file can be supplied:
+
+```text
+cargo run --release -p hybit-distributed --example partition_quality_probe -- <matrix.mtx> <ranks> <owners.txt>
+```
+
+The owner file is one rank id per global DOF, matching the basic `gpmetis
+*.part.N` convention. This gives HyBIT a dependency-free way to compare ABTM
+quality against external partitioners before any automatic policy is promoted.
+
+The next partition work should add refinement/coarsening and test real FEM
+matrices. A claim that ABTM exceeds METIS/Scotch requires held-out evidence on
+quality, setup/memory, halo preparation, and repeated distributed execution,
+not one favorable cut result.

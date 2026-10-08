@@ -1,0 +1,146 @@
+use hybit_distributed::{
+    abtm_region_grow_partition, partition_telemetry_assignment, ContiguousPartition,
+    PartitionAssignment, PartitionTelemetry,
+};
+use hybit_matrix::read_matrix_market;
+use std::env;
+use std::error::Error;
+use std::fs;
+use std::time::Instant;
+
+fn print_metrics(label: &str, metrics: &PartitionTelemetry) {
+    println!("{label}");
+    println!("  cut nnz              : {}", metrics.cut_nnz);
+    println!("  communication volume : {}", metrics.communication_volume);
+    println!(
+        "  peer relations       : {}",
+        metrics.directional_peer_relations
+    );
+    println!("  max neighbors        : {}", metrics.max_neighbors);
+    println!(
+        "  owned DOF min/max    : {} / {}",
+        metrics.min_owned_dofs, metrics.max_owned_dofs
+    );
+    println!(
+        "  owned DOF imbalance  : {:.6}",
+        metrics.owned_dof_imbalance
+    );
+    println!(
+        "  local nnz min/max    : {} / {}",
+        metrics.min_local_nnz, metrics.max_local_nnz
+    );
+    println!(
+        "  local nnz imbalance  : {:.6}",
+        metrics.local_nnz_imbalance
+    );
+}
+
+fn read_owner_labels(path: &str, ranks: u32) -> Result<PartitionAssignment, Box<dyn Error>> {
+    let text = fs::read_to_string(path)?;
+    let mut owners = Vec::new();
+
+    for token in text.split_whitespace() {
+        if token.starts_with('#') || token.starts_with('%') {
+            continue;
+        }
+        owners.push(token.parse::<u32>()?);
+    }
+
+    Ok(PartitionAssignment::from_owners(ranks, owners)?)
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<_> = env::args().collect();
+    if !(args.len() == 3 || args.len() == 4) {
+        eprintln!("usage: partition_quality_probe <matrix.mtx> <ranks> [owner_labels.txt]");
+        eprintln!(
+            "owner_labels.txt is zero-based: one rank id per global DOF (gpmetis .part.N compatible)"
+        );
+        std::process::exit(2);
+    }
+
+    let ranks: u32 = args[2].parse()?;
+    let (matrix, info) = read_matrix_market(&args[1])?;
+
+    let contiguous = ContiguousPartition::balanced(matrix.nrows() as u64, ranks)?;
+    let contiguous_assignment = PartitionAssignment::from_contiguous(&contiguous)?;
+
+    let t0 = Instant::now();
+    let contiguous_metrics = partition_telemetry_assignment(&matrix, &contiguous_assignment)?;
+    let contiguous_ms = t0.elapsed().as_secs_f64() * 1.0e3;
+
+    let t1 = Instant::now();
+    let (abtm_assignment, abtm_stats) = abtm_region_grow_partition(&matrix, ranks)?;
+    let abtm_partition_ms = t1.elapsed().as_secs_f64() * 1.0e3;
+
+    let t2 = Instant::now();
+    let abtm_metrics = partition_telemetry_assignment(&matrix, &abtm_assignment)?;
+    let abtm_metrics_ms = t2.elapsed().as_secs_f64() * 1.0e3;
+
+    println!("HyBIT G8-A3 partition quality probe");
+    println!("matrix                  : {}", args[1]);
+    println!("shape                   : {} x {}", info.nrows, info.ncols);
+    println!("nnz                     : {}", matrix.nnz());
+    println!("ranks                   : {}", ranks);
+    println!();
+    println!("contiguous metric ms    : {:.6}", contiguous_ms);
+    print_metrics("contiguous baseline", &contiguous_metrics);
+    println!();
+    println!("ABTM partition ms       : {:.6}", abtm_partition_ms);
+    println!("ABTM metric ms          : {:.6}", abtm_metrics_ms);
+    println!(
+        "ABTM topology bytes     : {}",
+        abtm_stats.dual_topology_metadata_bytes
+    );
+    println!("ABTM seeds              : {}", abtm_stats.seeds_started);
+    println!(
+        "ABTM disconnected rest. : {}",
+        abtm_stats.disconnected_restarts
+    );
+    println!(
+        "ABTM frontier expanded  : {}",
+        abtm_stats.frontier_nodes_expanded
+    );
+    println!(
+        "ABTM topology words     : {}",
+        abtm_stats.topology_words_visited
+    );
+    println!(
+        "ABTM candidate bits     : {}",
+        abtm_stats.candidate_neighbor_bits
+    );
+    print_metrics("ABTM region-growth prototype", &abtm_metrics);
+
+    println!();
+    println!(
+        "ABTM cut delta          : {}",
+        abtm_metrics.cut_nnz as i128 - contiguous_metrics.cut_nnz as i128
+    );
+    println!(
+        "ABTM comm-volume delta  : {}",
+        abtm_metrics.communication_volume as i128 - contiguous_metrics.communication_volume as i128
+    );
+
+    if args.len() == 4 {
+        let external = read_owner_labels(&args[3], ranks)?;
+        if external.global_dofs() != matrix.nrows() as u64 {
+            return Err(format!(
+                "external labels contain {} DOFs; matrix has {}",
+                external.global_dofs(),
+                matrix.nrows()
+            )
+            .into());
+        }
+
+        let t3 = Instant::now();
+        let external_metrics = partition_telemetry_assignment(&matrix, &external)?;
+        let external_ms = t3.elapsed().as_secs_f64() * 1.0e3;
+
+        println!();
+        println!("external labels         : {}", args[3]);
+        println!("external metric ms      : {:.6}", external_ms);
+        print_metrics("external partition", &external_metrics);
+    }
+
+    Ok(())
+}

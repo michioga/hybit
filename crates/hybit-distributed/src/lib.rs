@@ -1,4 +1,10 @@
+mod partition;
+
 use hybit_matrix::Csr32Matrix;
+pub use partition::{
+    abtm_region_grow_partition, partition_telemetry_assignment, AbtmPartitionStats,
+    PartitionAssignment,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
