@@ -1,6 +1,7 @@
 use hybit_distributed::{
-    abtm_balanced_multisource_partition, abtm_region_grow_partition,
-    partition_telemetry_assignment, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
+    abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
+    partition_telemetry_assignment, AbtmMultilevelOptions, ContiguousPartition,
+    PartitionAssignment, PartitionTelemetry,
 };
 use hybit_matrix::read_matrix_market;
 use std::env;
@@ -77,7 +78,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let abtm_metrics = partition_telemetry_assignment(&matrix, &abtm_assignment)?;
     let abtm_metrics_ms = t2.elapsed().as_secs_f64() * 1.0e3;
 
-    println!("HyBIT G8-A3 partition quality probe");
+    println!("HyBIT G8 partition quality probe");
     println!("matrix                  : {}", args[1]);
     println!("shape                   : {} x {}", info.nrows, info.ncols);
     println!("nnz                     : {}", matrix.nnz());
@@ -181,6 +182,87 @@ fn main() -> Result<(), Box<dyn Error>> {
             - abtm_metrics.communication_volume as i128
     );
 
+    let mut multilevel_options = AbtmMultilevelOptions::default();
+    if let Ok(levels) = std::env::var("HYBIT_A6_MAX_LEVELS") {
+        multilevel_options.max_levels = levels.parse()?;
+    }
+    if let Ok(vertices) = std::env::var("HYBIT_A6_COARSE_PER_RANK") {
+        multilevel_options.coarse_vertices_per_rank = vertices.parse()?;
+    }
+    if let Ok(passes) = std::env::var("HYBIT_A6_REFINEMENT_PASSES") {
+        multilevel_options.refinement_passes = passes.parse()?;
+    }
+    println!(
+        "A6 options              : max_levels={}, coarse_per_rank={}, refinement_passes={}, imbalance_per_mille={}",
+        multilevel_options.max_levels,
+        multilevel_options.coarse_vertices_per_rank,
+        multilevel_options.refinement_passes,
+        multilevel_options.imbalance_per_mille
+    );
+    let t5 = Instant::now();
+    let (multilevel_assignment, multilevel_stats) =
+        abtm_multilevel_partition(&matrix, ranks, multilevel_options)?;
+    let multilevel_partition_ms = t5.elapsed().as_secs_f64() * 1.0e3;
+
+    let t6 = Instant::now();
+    let multilevel_metrics = partition_telemetry_assignment(&matrix, &multilevel_assignment)?;
+    let multilevel_metrics_ms = t6.elapsed().as_secs_f64() * 1.0e3;
+
+    println!();
+    // F12: stable, cross-run owner-label hash, distinct from cut/halo telemetry.
+    let mut owner_hash = 0xcbf29ce484222325u64;
+    for &owner in multilevel_assignment.owners() {
+        for byte in owner.to_le_bytes() {
+            owner_hash ^= u64::from(byte);
+            owner_hash = owner_hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    println!("multilevel owner FNV64   : {:016x}", owner_hash);
+    println!("ABTM multilevel ms      : {:.6}", multilevel_partition_ms);
+    println!("multilevel metric ms    : {:.6}", multilevel_metrics_ms);
+    println!(
+        "multilevel levels       : {}",
+        multilevel_stats.levels_built
+    );
+    println!(
+        "coarsest vertices       : {}",
+        multilevel_stats.coarsest_vertices
+    );
+    println!(
+        "matched pairs           : {}",
+        multilevel_stats.matched_pairs
+    );
+    println!(
+        "singleton aggregates    : {}",
+        multilevel_stats.singleton_aggregates
+    );
+    println!(
+        "coarse restarts         : {}",
+        multilevel_stats.coarse_restarts
+    );
+    println!(
+        "refinement moves        : {}",
+        multilevel_stats.refinement_moves
+    );
+    print_metrics("ABTM G8-A6 multilevel", &multilevel_metrics);
+    println!(
+        "multilevel vs A4 cut    : {}",
+        multilevel_metrics.cut_nnz as i128 - multisource_metrics.cut_nnz as i128
+    );
+    println!(
+        "multilevel vs A4 comm   : {}",
+        multilevel_metrics.communication_volume as i128
+            - multisource_metrics.communication_volume as i128
+    );
+    println!(
+        "multilevel vs contig cut: {}",
+        multilevel_metrics.cut_nnz as i128 - contiguous_metrics.cut_nnz as i128
+    );
+    println!(
+        "multilevel vs contig com: {}",
+        multilevel_metrics.communication_volume as i128
+            - contiguous_metrics.communication_volume as i128
+    );
     if args.len() == 4 {
         let external = read_owner_labels(&args[3], ranks)?;
         if external.global_dofs() != matrix.nrows() as u64 {
@@ -192,9 +274,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .into());
         }
 
-        let t5 = Instant::now();
+        let t7 = Instant::now();
         let external_metrics = partition_telemetry_assignment(&matrix, &external)?;
-        let external_ms = t5.elapsed().as_secs_f64() * 1.0e3;
+        let external_ms = t7.elapsed().as_secs_f64() * 1.0e3;
 
         println!();
         println!("external labels         : {}", args[3]);

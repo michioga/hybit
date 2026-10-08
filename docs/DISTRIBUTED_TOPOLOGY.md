@@ -341,3 +341,34 @@ The next partition algorithm should therefore be **multilevel ABTM**:
 3. uncoarsening;
 4. boundary refinement with a configurable balance tolerance;
 5. identical HyBIT telemetry against METIS/SCOTCH on held-out FEM matrices.
+## G8-A6 multilevel ABTM prototype
+
+G8-A5 established the measured target on `boneS01` / 4 partitions:
+
+```text
+                    cut_nnz   communication_volume   owned DOF imbalance
+ABTM G8-A4           199002             16959              1.000000
+METIS                115730             10935              1.014840
+SCOTCH               112792             10762              1.009998
+```
+
+The main gap is separator/halo surface, not rank adjacency. G8-A6 therefore
+introduces the first multilevel ABTM partition prototype:
+
+1. build `A union A^T` structural adjacency from ABTM dual topology;
+2. deterministic pair aggregation using local structural affinity
+   (common-neighbor count);
+3. construct progressively smaller coarse graphs;
+4. partition the coarsest graph with weighted multi-source growth;
+5. prolong owner labels toward the fine graph;
+6. perform greedy cut-reducing boundary moves at every uncoarsening level.
+
+Unlike G8-A4, G8-A6 does not require exact cardinality balance. The default
+prototype allows a 3% fine-DOF imbalance cap, matching the scale of the METIS
+baseline. Coarse aggregate weights always represent the number of original fine
+DOFs, so the balance constraint is applied in the original problem's units.
+
+This is still an experimental policy. It is not an automatic production
+partitioner until real FEM evidence shows that multilevel coarsening closes a
+meaningful part of the METIS/SCOTCH cut and halo-volume gap without damaging
+load balance.

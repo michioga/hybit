@@ -1,6 +1,8 @@
+mod multilevel;
 mod partition;
 
 use hybit_matrix::Csr32Matrix;
+pub use multilevel::{abtm_multilevel_partition, AbtmMultilevelOptions, AbtmMultilevelStats};
 pub use partition::{
     abtm_balanced_multisource_partition, abtm_region_grow_partition,
     partition_telemetry_assignment, AbtmMultisourceStats, AbtmPartitionStats, PartitionAssignment,
