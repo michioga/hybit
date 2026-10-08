@@ -102,11 +102,27 @@ engine; it is not assumed to be the numerical distributed SpMV storage.
 
 ### G8-A2 — rank-local operator preparation
 
-- owned-row extraction
-- global-to-local/ghost column renumbering
-- rank-local CSR
-- distributed SpMV reference assembled from simulated halo exchange
-- ABTM-assisted halo extraction cross-check
+Implemented on the 0.9 development branch:
+
+- owned-row extraction;
+- global-to-local/ghost column renumbering;
+- rank-local CSR over `[owned | ghosts]`;
+- transport-free halo exchange using the exact reciprocal G8-A1 send/recv lists;
+- distributed SpMV reference assembled from rank-local applies;
+- bit-for-bit SpMV cross-check against the serial CSR reference;
+- ABTM-topology halo extraction with exact plan equality against the CSR path;
+- partition telemetry for stored cut references, unique communication volume,
+  peer relations, neighbor count, owned-DOF balance, and local-nnz balance.
+
+The repository also contains:
+
+```text
+cargo run --release -p hybit-distributed --example distributed_probe -- <matrix.mtx> <ranks>
+```
+
+This is a preparation/quality probe, not yet an MPI benchmark. Timing of CSR
+versus ABTM halo preparation is diagnostic only and must not be interpreted as
+a backend promotion result from one matrix or one machine.
 
 ### G8-B — transport boundary
 
@@ -131,3 +147,27 @@ engine; it is not assumed to be the numerical distributed SpMV storage.
 
 The release path will not promote an MPI backend until residuals and physical
 results match the established single-process reference.
+## Partitioning direction after G8-A2
+
+HyBIT will not treat balanced contiguous ownership as the production
+partitioner. The next topology experiments will use ABTM as the structural
+engine for partition/coarsening/refinement candidates and will retain external
+graph partitioners as comparison baselines.
+
+The comparison target is broader than edge cut alone. For distributed FEM,
+HyBIT will record at least:
+
+- stored cross-rank CSR references (`cut_nnz`);
+- unique halo values communicated per refresh (`communication_volume`);
+- neighbor-rank count;
+- rank-local nnz balance;
+- partition/preparation time and memory;
+- repeated halo/SpMV cost.
+
+The objective is to improve end-to-end distributed sparse execution rather than
+claim a universal edge-cut advantage.
+
+MPI transport remains a later layer. HyBIT will use the Rust `mpi` crate and
+will not hard-code a particular MPI implementation into the distributed core.
+MS-MPI is one development/test implementation; compatible MPI implementations
+remain part of the intended portability boundary.
