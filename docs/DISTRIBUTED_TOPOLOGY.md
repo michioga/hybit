@@ -249,3 +249,95 @@ completely before starting the next and required 11 disconnected restarts on
 This remains a single-level prototype. The real-FEM probe decides whether
 multi-source growth materially reduces communication volume / rank adjacency
 before multilevel coarsening and refinement are introduced.
+## G8-A5 external partitioner baselines
+
+G8-A5 freezes the comparison boundary before multilevel ABTM work.
+
+`partition_graph_export` converts the same structural graph used by ABTM
+(`A union A^T`, with self-loops removed and duplicate adjacency collapsed) into
+two unweighted graph files:
+
+```text
+<prefix>.metis.graph
+<prefix>.scotch.grf
+```
+
+The METIS file uses 1-based adjacency identifiers and counts each undirected
+edge once in the header. The SCOTCH file uses graph version 0, base 0, format
+flag `000`, and stores the total number of adjacency arcs.
+
+This intentionally compares all partitioners on the same unweighted structural
+graph. HyBIT then evaluates the produced owner labels with its own matrix-aware
+telemetry (`cut_nnz`, unique halo communication volume, rank adjacency, and
+nnz balance). Therefore METIS/SCOTCH-reported edge cut is not substituted for
+HyBIT's distributed execution metrics.
+
+Examples:
+
+```text
+cargo run --release -p hybit-distributed --example partition_graph_export -- matrix.mtx out/prefix
+
+gpmetis out/prefix.metis.graph 4
+
+gpart 4 out/prefix.scotch.grf out/prefix.scotch.map
+cargo run --release -p hybit-distributed --example scotch_map_to_labels -- \
+  out/prefix.scotch.map out/prefix.scotch.labels 127224 4
+```
+
+Both resulting zero-based owner-label files can then be supplied to
+`partition_quality_probe`.
+
+G8-A5 does not add METIS or SCOTCH as HyBIT dependencies. They remain external
+baseline tools. The next ABTM multilevel design is driven by the measured gap,
+not by assumptions about partition quality.
+### G8-A5 measured boneS01 baseline
+
+The external baseline harness was run on WSL Ubuntu 26.04 using METIS
+`5.1.0.dfsg-8` and SCOTCH `7.0.11`, on the exact common unweighted structural
+graph exported by HyBIT:
+
+```text
+matrix       : boneS01.mtx
+DOFs         : 127224
+matrix nnz   : 5516602
+graph edges  : 2694689
+partitions   : 4
+```
+
+HyBIT re-evaluated every owner-label file with the same distributed telemetry:
+
+| partitioner | cut_nnz | communication_volume | peer relations | max neighbors | owned DOF imbalance | local nnz imbalance |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| contiguous | 288964 | 17256 | 6 | 2 | 1.000000 | 1.015148 |
+| ABTM G8-A4 multi-source | 199002 | 16959 | 12 | 3 | 1.000000 | 1.011033 |
+| METIS | 115730 | 10935 | 12 | 3 | 1.014840 | 1.017228 |
+| SCOTCH | 112792 | 10762 | 12 | 3 | 1.009998 | 1.014705 |
+
+The comparison changes the next ABTM priority:
+
+- G8-A4 is materially better than contiguous ownership, but still has a large
+  cut/halo-volume gap to mature graph partitioners.
+- At four ranks, METIS and SCOTCH also produce 12 directional peer relations
+  and a maximum of three neighbors. Therefore rank adjacency is not the main
+  quality gap in this case.
+- Exact equal-DOF ownership is stricter than the external baselines. METIS used
+  an owned-DOF imbalance of about 1.015 and SCOTCH about 1.010. The next ABTM
+  design should support an explicit balance tolerance rather than forcing exact
+  cardinality when doing so harms separator quality.
+- ABTM's local-nnz balance remains competitive, so multilevel work should retain
+  nnz/load balance as a secondary constraint while aggressively reducing the
+  separator and halo surface.
+
+The METIS result also gives a useful consistency check: METIS reported an edge
+cut of `57865`, while HyBIT measured `cut_nnz = 115730`, exactly twice that
+value for this symmetric structural graph. METIS reported communication volume
+`10935`, exactly matching HyBIT's independently computed value. This validates
+the G8-A5 graph-export and telemetry interpretation for the measured case.
+
+The next partition algorithm should therefore be **multilevel ABTM**:
+
+1. topology-aware coarsening/aggregation;
+2. coarse balanced partitioning;
+3. uncoarsening;
+4. boundary refinement with a configurable balance tolerance;
+5. identical HyBIT telemetry against METIS/SCOTCH on held-out FEM matrices.
