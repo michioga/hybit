@@ -4,8 +4,8 @@ This roadmap describes direction, not guaranteed dates.
 
 ## Published baseline
 
-HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
-`1fdcd6a1b8127c84306c38c3fdbad42563538ad8`.
+HyBIT 0.8.0 is published at immutable tag `v0.8.0`, commit
+`2eddfe1551f5a11aa0c07ee8d50d6cac4372e400`.
 
 ## Completed in 0.7
 
@@ -17,7 +17,7 @@ HyBIT 0.7.0 is published at immutable tag `v0.7.0`, commit
 - validated structural Graph rigid-body parallel CPU path;
 - release integrity/MSRV/package/ABI/real-FEM gates.
 
-## Completed on develop/0.8.0 through G7
+## Completed in 0.8.0 through G7
 
 ### Execution architecture
 
@@ -72,7 +72,7 @@ symbolic/topology layer rather than assuming it must replace CSR everywhere.
 5. G5 (validated): 3x3/6x6 block-topology characterization and explicit fixed-size dense block-CSR numerical operator; automatic CSR/B3/B6 routing deferred pending broader positive held-out evidence.
 6. G6 (validated): ordinary scalar ABTM SpMV remains diagnostic; fixed column restrictions and graph-local restrictions use explicit prepared compact CSR, with direct or ABTM-assisted preparation selected explicitly by workload.
 7. G7 (validated): explicit full-Rayon and task-limited prepared CSR execution; serial gather retained; automatic hardware-specific size routing deferred.
-8. G8 (next): distributed topology, partition/halo extraction, and MPI-host integration.
+8. G8 (active in 0.9): A1 reference partition/halo topology; A2 rank-local operator preparation and ABTM cross-check; B transport/MPI boundary; C distributed Krylov; D real FEM MPI-host validation.
 9. G9: GPU/CubeCL-specific prepared execution after the CubeCL API stabilizes.
 
 Track occupancy, metadata bytes, rank/select cost, bitmap operations,

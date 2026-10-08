@@ -266,17 +266,23 @@ pub extern "C" fn hybit_num_threads() -> u32 {
         }
     }
 }
+fn package_version_component(value: &'static str) -> u32 {
+    value
+        .parse::<u32>()
+        .expect("Cargo package version component must be a valid u32")
+}
+
 #[no_mangle]
 pub extern "C" fn hybit_version_major() -> u32 {
-    0
+    package_version_component(env!("CARGO_PKG_VERSION_MAJOR"))
 }
 #[no_mangle]
 pub extern "C" fn hybit_version_minor() -> u32 {
-    8
+    package_version_component(env!("CARGO_PKG_VERSION_MINOR"))
 }
 #[no_mangle]
 pub extern "C" fn hybit_version_patch() -> u32 {
-    0
+    package_version_component(env!("CARGO_PKG_VERSION_PATCH"))
 }
 
 /// Copies the thread-local last-error message into a caller-provided buffer.

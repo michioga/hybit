@@ -13,7 +13,7 @@ description = "Adaptive solver policy, algebraic coarse control, and selective-d
 publish = ["crates-io"]
 
 [dependencies]
-hybit-core = { version = "0.8.0", path = "../hybit-core" }
-hybit-matrix = { version = "0.8.0", path = "../hybit-matrix" }
-hybit-precond = { version = "0.8.0", path = "../hybit-precond" }
-hybit-krylov = { version = "0.8.0", path = "../hybit-krylov" }
+hybit-core = { version = "0.9.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
+hybit-precond = { version = "0.9.0", path = "../hybit-precond" }
+hybit-krylov = { version = "0.9.0", path = "../hybit-krylov" }

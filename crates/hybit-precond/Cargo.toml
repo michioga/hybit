@@ -13,7 +13,7 @@ description = "Jacobi, block Jacobi, two-level coarse, local Cholesky, and weigh
 publish = ["crates-io"]
 
 [dependencies]
-hybit-core = { version = "0.8.0", path = "../hybit-core" }
-hybit-matrix = { version = "0.8.0", path = "../hybit-matrix" }
+hybit-core = { version = "0.9.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
 rayon = "=1.10.0"
 rayon-core = "=1.12.1"

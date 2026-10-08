@@ -16,6 +16,7 @@
 - [Hybrid SPD mathematics](HYBRID_MATH.md)
 - [Architecture and execution model](ARCHITECTURE.md)
 - [ABTM topology algebra and metadata-first execution](ABTM_TOPOLOGY.md)
+- [Distributed topology and MPI-host integration](DISTRIBUTED_TOPOLOGY.md)
 - [ABTM G2 metadata-first closeout](ABTM_G2_CLOSEOUT.md)
 
 # Validation and project status

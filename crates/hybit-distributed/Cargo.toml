@@ -1,5 +1,5 @@
 [package]
-name = "hybit-matrix"
+name = "hybit-distributed"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,10 +9,8 @@ repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "CSR32 and ABTM matrix backends for the HyBIT sparse solver"
-publish = ["crates-io"]
+description = "MPI-independent partition and halo topology for HyBIT distributed solvers"
+publish = false
 
 [dependencies]
-hybit-core = { version = "0.9.0", path = "../hybit-core" }
-rayon = "=1.10.0"
-rayon-core = "=1.12.1"
+hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }

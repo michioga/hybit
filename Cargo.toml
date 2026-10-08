@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/hybit-core",
     "crates/hybit-matrix",
+    "crates/hybit-distributed",
     "crates/hybit-precond",
     "crates/hybit-krylov",
     "crates/hybit-auto",
@@ -12,7 +13,7 @@ members = [
 default-members = ["crates/hybit"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 rust-version = "1.73"
 license = "MIT"
