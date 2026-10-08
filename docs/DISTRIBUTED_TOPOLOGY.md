@@ -216,3 +216,36 @@ The next partition work should add refinement/coarsening and test real FEM
 matrices. A claim that ABTM exceeds METIS/Scotch requires held-out evidence on
 quality, setup/memory, halo preparation, and repeated distributed execution,
 not one favorable cut result.
+## G8-A4 balanced multi-source growth
+
+An initial, uncommitted G8-A4 experiment tried exact-balance pair swaps on top
+of G8-A3. On `boneS01` / 4 partitions it required about 7.16 seconds for only
+384 candidate evaluations because every candidate recomputed full partition
+telemetry. It also failed the intended communication objective:
+
+```text
+G8-A3 communication volume : 17695
+pair-swap result            : 17698
+peer relations              : 12 -> 12
+max neighbors               : 3 -> 3
+```
+
+It improved `cut_nnz` further (`248866 -> 246898`), but that is not the problem
+A4 was meant to solve. The pair-swap experiment was therefore discarded before
+checkpointing.
+
+The replacement G8-A4 attacks the observed root cause: G8-A3 filled one rank
+completely before starting the next and required 11 disconnected restarts on
+`boneS01`.
+
+`abtm_balanced_multisource_partition()` instead:
+
+1. chooses graph-spread initial seeds using repeated ABTM multi-source BFS;
+2. grows all rank regions concurrently with independent FIFO frontiers;
+3. permits at most one claimed DOF per rank per sweep;
+4. preserves the same exact balanced DOF targets;
+5. uses a restart only if a rank frontier is exhausted.
+
+This remains a single-level prototype. The real-FEM probe decides whether
+multi-source growth materially reduces communication volume / rank adjacency
+before multilevel coarsening and refinement are introduced.

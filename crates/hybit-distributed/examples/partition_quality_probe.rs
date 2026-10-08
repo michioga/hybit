@@ -1,6 +1,6 @@
 use hybit_distributed::{
-    abtm_region_grow_partition, partition_telemetry_assignment, ContiguousPartition,
-    PartitionAssignment, PartitionTelemetry,
+    abtm_balanced_multisource_partition, abtm_region_grow_partition,
+    partition_telemetry_assignment, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
 };
 use hybit_matrix::read_matrix_market;
 use std::env;
@@ -121,6 +121,66 @@ fn main() -> Result<(), Box<dyn Error>> {
         abtm_metrics.communication_volume as i128 - contiguous_metrics.communication_volume as i128
     );
 
+    let t3 = Instant::now();
+    let (multisource_assignment, multisource_stats) =
+        abtm_balanced_multisource_partition(&matrix, ranks)?;
+    let multisource_partition_ms = t3.elapsed().as_secs_f64() * 1.0e3;
+
+    let t4 = Instant::now();
+    let multisource_metrics = partition_telemetry_assignment(&matrix, &multisource_assignment)?;
+    let multisource_metrics_ms = t4.elapsed().as_secs_f64() * 1.0e3;
+
+    println!();
+    println!("ABTM multisource ms     : {:.6}", multisource_partition_ms);
+    println!("multisource metric ms   : {:.6}", multisource_metrics_ms);
+    println!(
+        "multisource topology B  : {}",
+        multisource_stats.dual_topology_metadata_bytes
+    );
+    println!(
+        "multisource seeds       : {}",
+        multisource_stats.seeds_started
+    );
+    println!(
+        "seed-distance BFS runs  : {}",
+        multisource_stats.seed_distance_bfs_runs
+    );
+    println!(
+        "multisource restarts    : {}",
+        multisource_stats.disconnected_restarts
+    );
+    println!(
+        "frontier nodes claimed  : {}",
+        multisource_stats.frontier_nodes_claimed
+    );
+    println!(
+        "multisource topo words  : {}",
+        multisource_stats.topology_words_visited
+    );
+    println!(
+        "multisource cand bits   : {}",
+        multisource_stats.candidate_neighbor_bits
+    );
+    print_metrics("ABTM balanced multi-source", &multisource_metrics);
+    println!(
+        "multisource cut delta   : {}",
+        multisource_metrics.cut_nnz as i128 - contiguous_metrics.cut_nnz as i128
+    );
+    println!(
+        "multisource comm delta  : {}",
+        multisource_metrics.communication_volume as i128
+            - contiguous_metrics.communication_volume as i128
+    );
+    println!(
+        "multisource vs A3 cut   : {}",
+        multisource_metrics.cut_nnz as i128 - abtm_metrics.cut_nnz as i128
+    );
+    println!(
+        "multisource vs A3 comm  : {}",
+        multisource_metrics.communication_volume as i128
+            - abtm_metrics.communication_volume as i128
+    );
+
     if args.len() == 4 {
         let external = read_owner_labels(&args[3], ranks)?;
         if external.global_dofs() != matrix.nrows() as u64 {
@@ -132,9 +192,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .into());
         }
 
-        let t3 = Instant::now();
+        let t5 = Instant::now();
         let external_metrics = partition_telemetry_assignment(&matrix, &external)?;
-        let external_ms = t3.elapsed().as_secs_f64() * 1.0e3;
+        let external_ms = t5.elapsed().as_secs_f64() * 1.0e3;
 
         println!();
         println!("external labels         : {}", args[3]);

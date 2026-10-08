@@ -536,3 +536,422 @@ mod tests {
         ));
     }
 }
+// -----------------------------------------------------------------------------
+// G8-A4: balanced multi-source ABTM region growth.
+// -----------------------------------------------------------------------------
+
+/// Structural work counters for the balanced multi-source partition prototype.
+///
+/// Seed placement uses repeated ABTM multi-source BFS so the initial rank seeds
+/// are graph-separated. Partition growth then proceeds one claimed DOF per rank
+/// per sweep from independent FIFO candidate queues.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AbtmMultisourceStats {
+    pub ranks: RankId,
+    pub seeds_started: usize,
+    pub disconnected_restarts: usize,
+    pub seed_distance_bfs_runs: usize,
+    pub frontier_nodes_claimed: usize,
+    pub topology_words_visited: usize,
+    pub candidate_neighbor_bits: usize,
+    pub dual_topology_metadata_bytes: usize,
+}
+
+fn append_unassigned_neighbors(
+    topology: &AbtmDualTopology,
+    node: usize,
+    owners: &[RankId],
+    queue: &mut VecDeque<usize>,
+    stats: &mut AbtmMultisourceStats,
+) -> Result<(), DistributedTopologyError> {
+    let row = topology.row(node).map_err(|_| {
+        DistributedTopologyError::InvalidPartition(
+            "ABTM row lookup failed during multi-source growth",
+        )
+    })?;
+
+    for word in row.words() {
+        stats.topology_words_visited += 1;
+        stats.candidate_neighbor_bits += word.popcount();
+
+        let mut bits = word.mask();
+        while bits != 0 {
+            let bit = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            let neighbor = word.base_col() + bit;
+            if neighbor < owners.len() && neighbor != node && owners[neighbor] == UNASSIGNED {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+
+    let column = topology.column(node).map_err(|_| {
+        DistributedTopologyError::InvalidPartition(
+            "ABTM column lookup failed during multi-source growth",
+        )
+    })?;
+
+    for word in column.words() {
+        stats.topology_words_visited += 1;
+        stats.candidate_neighbor_bits += word.popcount();
+
+        let mut bits = word.mask();
+        while bits != 0 {
+            let bit = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            let neighbor = word.base_col() + bit;
+            if neighbor < owners.len() && neighbor != node && owners[neighbor] == UNASSIGNED {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn graph_distances_from_seeds(
+    topology: &AbtmDualTopology,
+    seeds: &[usize],
+    node_count: usize,
+    stats: &mut AbtmMultisourceStats,
+) -> Result<Vec<usize>, DistributedTopologyError> {
+    let mut distance = vec![usize::MAX; node_count];
+    let mut queue = VecDeque::new();
+
+    for &seed in seeds {
+        distance[seed] = 0;
+        queue.push_back(seed);
+    }
+
+    stats.seed_distance_bfs_runs += 1;
+
+    while let Some(node) = queue.pop_front() {
+        let next_distance = distance[node].saturating_add(1);
+
+        let row = topology.row(node).map_err(|_| {
+            DistributedTopologyError::InvalidPartition(
+                "ABTM row lookup failed during seed-distance BFS",
+            )
+        })?;
+
+        for word in row.words() {
+            stats.topology_words_visited += 1;
+            stats.candidate_neighbor_bits += word.popcount();
+
+            let mut bits = word.mask();
+            while bits != 0 {
+                let bit = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let neighbor = word.base_col() + bit;
+
+                if neighbor < node_count && distance[neighbor] == usize::MAX {
+                    distance[neighbor] = next_distance;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        let column = topology.column(node).map_err(|_| {
+            DistributedTopologyError::InvalidPartition(
+                "ABTM column lookup failed during seed-distance BFS",
+            )
+        })?;
+
+        for word in column.words() {
+            stats.topology_words_visited += 1;
+            stats.candidate_neighbor_bits += word.popcount();
+
+            let mut bits = word.mask();
+            while bits != 0 {
+                let bit = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let neighbor = word.base_col() + bit;
+
+                if neighbor < node_count && distance[neighbor] == usize::MAX {
+                    distance[neighbor] = next_distance;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+    }
+
+    Ok(distance)
+}
+
+fn choose_spread_seeds(
+    topology: &AbtmDualTopology,
+    degree: &[usize],
+    ranks: RankId,
+    stats: &mut AbtmMultisourceStats,
+) -> Result<Vec<usize>, DistributedTopologyError> {
+    let mut seeds = Vec::with_capacity(ranks as usize);
+
+    let first = degree
+        .iter()
+        .enumerate()
+        .max_by(|(node_a, degree_a), (node_b, degree_b)| {
+            degree_a.cmp(degree_b).then_with(|| node_b.cmp(node_a))
+        })
+        .map(|(node, _)| node)
+        .ok_or(DistributedTopologyError::InvalidPartition(
+            "cannot choose ABTM partition seed from empty topology",
+        ))?;
+
+    seeds.push(first);
+
+    while seeds.len() < ranks as usize {
+        let distance = graph_distances_from_seeds(topology, &seeds, degree.len(), stats)?;
+        let mut best: Option<(bool, usize, usize, usize)> = None;
+
+        for node in 0..degree.len() {
+            if seeds.contains(&node) {
+                continue;
+            }
+
+            let unreachable = distance[node] == usize::MAX;
+            let candidate = (
+                unreachable,
+                if unreachable { 0 } else { distance[node] },
+                degree[node],
+                usize::MAX - node,
+            );
+
+            let replace = match best {
+                None => true,
+                Some(current) => candidate > current,
+            };
+            if replace {
+                best = Some(candidate);
+            }
+        }
+
+        let (_, _, _, reverse_node) = best.ok_or(DistributedTopologyError::InvalidPartition(
+            "cannot choose enough distinct ABTM partition seeds",
+        ))?;
+        seeds.push(usize::MAX - reverse_node);
+    }
+
+    Ok(seeds)
+}
+
+/// Balanced simultaneous ABTM region growth.
+///
+/// G8-A3 filled one rank completely before starting the next. On `boneS01`,
+/// that created 11 disconnected restarts and a fully connected four-rank
+/// communication graph. G8-A4 instead:
+///
+/// 1. chooses graph-spread seeds with repeated multi-source ABTM BFS;
+/// 2. creates one FIFO frontier per rank;
+/// 3. claims at most one DOF per rank per global sweep;
+/// 4. preserves the exact balanced target sizes;
+/// 5. restarts only when a rank's frontier is exhausted before its target.
+///
+/// This is still a single-level prototype. It intentionally precedes
+/// multilevel coarsening/refinement.
+pub fn abtm_balanced_multisource_partition(
+    matrix: &Csr32Matrix,
+    ranks: RankId,
+) -> Result<(PartitionAssignment, AbtmMultisourceStats), DistributedTopologyError> {
+    if matrix.nrows() != matrix.ncols() {
+        return Err(DistributedTopologyError::MatrixMustBeSquare {
+            rows: matrix.nrows(),
+            cols: matrix.ncols(),
+        });
+    }
+    if ranks == 0 || ranks == RankId::MAX || matrix.nrows() == 0 || ranks as usize > matrix.nrows()
+    {
+        return Err(DistributedTopologyError::InvalidRankCount);
+    }
+
+    let topology = AbtmDualTopology::from_csr32(matrix).map_err(|_| {
+        DistributedTopologyError::InvalidPartition(
+            "ABTM dual topology construction failed for multi-source partition",
+        )
+    })?;
+    let topology_stats = topology.stats();
+
+    let mut degree = Vec::with_capacity(matrix.nrows());
+    for node in 0..matrix.nrows() {
+        degree.push(node_degree(&topology, node)?);
+    }
+
+    let mut stats = AbtmMultisourceStats {
+        ranks,
+        dual_topology_metadata_bytes: topology_stats.total_metadata_bytes(),
+        ..AbtmMultisourceStats::default()
+    };
+
+    let seeds = choose_spread_seeds(&topology, &degree, ranks, &mut stats)?;
+    stats.seeds_started = seeds.len();
+
+    let targets = balanced_targets(matrix.nrows(), ranks);
+    let mut owners = vec![UNASSIGNED; matrix.nrows()];
+    let mut counts = vec![0usize; ranks as usize];
+    let mut frontiers: Vec<VecDeque<usize>> = (0..ranks).map(|_| VecDeque::new()).collect();
+
+    for (rank_index, &seed) in seeds.iter().enumerate() {
+        owners[seed] = rank_index as RankId;
+        counts[rank_index] = 1;
+    }
+
+    for (rank_index, &seed) in seeds.iter().enumerate() {
+        append_unassigned_neighbors(
+            &topology,
+            seed,
+            &owners,
+            &mut frontiers[rank_index],
+            &mut stats,
+        )?;
+    }
+
+    let mut assigned_total = seeds.len();
+
+    while assigned_total < matrix.nrows() {
+        let mut sweep_changed = false;
+
+        for rank_index in 0..ranks as usize {
+            if counts[rank_index] >= targets[rank_index] {
+                continue;
+            }
+
+            let mut claimed = None;
+            while let Some(candidate) = frontiers[rank_index].pop_front() {
+                if owners[candidate] == UNASSIGNED {
+                    claimed = Some(candidate);
+                    break;
+                }
+            }
+
+            let node = match claimed {
+                Some(node) => node,
+                None => {
+                    let seed = choose_seed(&owners, &degree).ok_or(
+                        DistributedTopologyError::InvalidPartition(
+                            "multi-source partition ran out of restart seeds",
+                        ),
+                    )?;
+                    stats.disconnected_restarts += 1;
+                    stats.seeds_started += 1;
+                    seed
+                }
+            };
+
+            owners[node] = rank_index as RankId;
+            counts[rank_index] += 1;
+            assigned_total += 1;
+            stats.frontier_nodes_claimed += 1;
+            sweep_changed = true;
+
+            append_unassigned_neighbors(
+                &topology,
+                node,
+                &owners,
+                &mut frontiers[rank_index],
+                &mut stats,
+            )?;
+        }
+
+        if !sweep_changed {
+            return Err(DistributedTopologyError::InvalidPartition(
+                "multi-source partition made no progress",
+            ));
+        }
+    }
+
+    let assignment = PartitionAssignment::from_owners(ranks, owners)?;
+
+    for (rank, &target) in targets.iter().enumerate() {
+        if assignment.owned_count(rank as RankId)? != target {
+            return Err(DistributedTopologyError::InvalidPartition(
+                "multi-source partition did not preserve balanced target sizes",
+            ));
+        }
+    }
+
+    Ok((assignment, stats))
+}
+
+#[cfg(test)]
+mod g8_a4_tests {
+    use super::*;
+
+    fn chain_matrix(n: usize) -> Csr32Matrix {
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::new();
+        let mut values = Vec::new();
+        row_ptr.push(0);
+
+        for row in 0..n {
+            if row > 0 {
+                col_idx.push((row - 1) as u32);
+                values.push(-1.0);
+            }
+            col_idx.push(row as u32);
+            values.push(2.0);
+            if row + 1 < n {
+                col_idx.push((row + 1) as u32);
+                values.push(-1.0);
+            }
+            row_ptr.push(col_idx.len() as u32);
+        }
+
+        Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap()
+    }
+
+    fn interleaved_two_chain_matrix() -> Csr32Matrix {
+        let n = 8usize;
+        let mut rows: Vec<Vec<u32>> = vec![Vec::new(); n];
+
+        for (row, row_cols) in rows.iter_mut().enumerate() {
+            row_cols.push(row as u32);
+            if row >= 2 {
+                row_cols.push((row - 2) as u32);
+            }
+            if row + 2 < n {
+                row_cols.push((row + 2) as u32);
+            }
+            row_cols.sort_unstable();
+        }
+
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::new();
+        let mut values = Vec::new();
+        row_ptr.push(0);
+
+        for row in rows {
+            for col in row {
+                col_idx.push(col);
+                values.push(1.0);
+            }
+            row_ptr.push(col_idx.len() as u32);
+        }
+
+        Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap()
+    }
+
+    #[test]
+    fn multisource_partition_is_balanced_and_deterministic() {
+        let matrix = chain_matrix(17);
+
+        let (a, stats_a) = abtm_balanced_multisource_partition(&matrix, 4).unwrap();
+        let (b, stats_b) = abtm_balanced_multisource_partition(&matrix, 4).unwrap();
+
+        assert_eq!(a, b);
+        assert_eq!(stats_a, stats_b);
+        assert_eq!(a.owned_count(0).unwrap(), 5);
+        assert_eq!(a.owned_count(1).unwrap(), 4);
+        assert_eq!(a.owned_count(2).unwrap(), 4);
+        assert_eq!(a.owned_count(3).unwrap(), 4);
+    }
+
+    #[test]
+    fn spread_seeds_separate_disconnected_components() {
+        let matrix = interleaved_two_chain_matrix();
+        let (assignment, stats) = abtm_balanced_multisource_partition(&matrix, 2).unwrap();
+        let metrics = partition_telemetry_assignment(&matrix, &assignment).unwrap();
+
+        assert_eq!(metrics.cut_nnz, 0);
+        assert_eq!(metrics.communication_volume, 0);
+        assert_eq!(stats.disconnected_restarts, 0);
+    }
+}

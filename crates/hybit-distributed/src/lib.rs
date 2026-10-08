@@ -2,8 +2,8 @@ mod partition;
 
 use hybit_matrix::Csr32Matrix;
 pub use partition::{
-    abtm_region_grow_partition, partition_telemetry_assignment, AbtmPartitionStats,
-    PartitionAssignment,
+    abtm_balanced_multisource_partition, abtm_region_grow_partition,
+    partition_telemetry_assignment, AbtmMultisourceStats, AbtmPartitionStats, PartitionAssignment,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
