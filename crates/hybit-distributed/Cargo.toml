@@ -14,3 +14,6 @@ publish = false
 
 [dependencies]
 hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
+[dev-dependencies]
+hybit-core = { version = '0.9.0', path = '../hybit-core' }
+hybit-krylov = { version = '0.9.0', path = '../hybit-krylov' }
