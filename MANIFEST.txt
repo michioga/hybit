@@ -225,3 +225,5 @@ tools/release/0.8/real-fem-release-gate.ps1
 tools/release/0.8/release-candidate-gate.ps1
 tools/release/0.8/release-gate.ps1
 tools/release/0.8/workspace-metadata-gate.ps1
+crates/hybit-distributed/src/mpi_backend.rs
+crates/hybit/examples/mpi_smoke.rs

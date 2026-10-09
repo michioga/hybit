@@ -46,6 +46,10 @@ pub use hybit_core::{
     MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind,
     SolverOptions,
 };
+/// Feature-gated distributed topology and MPI backend.
+/// Enabled by `cargo build --features mpi`.
+#[cfg(feature = "mpi")]
+pub use hybit_distributed as distributed;
 pub use hybit_krylov::{
     fgmres, fgmres_with_workspace, fgmres_with_workspace_and_restart_controller,
     parallel_vector_worker_count, pcg, pcg_with_execution, pcg_with_workspace,

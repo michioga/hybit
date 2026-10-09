@@ -1,3 +1,5 @@
+#[cfg(feature = "mpi")]
+pub mod mpi_backend;
 mod multilevel;
 mod partition;
 

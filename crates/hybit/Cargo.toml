@@ -13,12 +13,19 @@ description = "Autonomous hybrid sparse linear solver with algebraic coarse and 
 documentation = "https://docs.rs/hybit"
 publish = ["crates-io"]
 
+[features]
+default = []
+mpi = ["dep:hybit-distributed", "hybit-distributed/mpi"]
 [dependencies]
+hybit-distributed = { version = "0.9.0", path = "../hybit-distributed", optional = true }
 hybit-core = { version = "0.9.0", path = "../hybit-core" }
 hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
 hybit-precond = { version = "0.9.0", path = "../hybit-precond" }
 hybit-krylov = { version = "0.9.0", path = "../hybit-krylov" }
 hybit-auto = { version = "0.9.0", path = "../hybit-auto" }
 
+[[example]]
+name = "mpi_smoke"
+required-features = ["mpi"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
