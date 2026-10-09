@@ -30,5 +30,8 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_halo_spmv"
 required-features = ["mpi"]
+[[example]]
+name = "mpi_overlap_spmv"
+required-features = ["mpi"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]

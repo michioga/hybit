@@ -228,3 +228,5 @@ tools/release/0.8/workspace-metadata-gate.ps1
 crates/hybit-distributed/src/mpi_backend.rs
 crates/hybit/examples/mpi_smoke.rs
 crates/hybit/examples/mpi_halo_spmv.rs
+crates/hybit-distributed/src/mpi_overlap.rs
+crates/hybit/examples/mpi_overlap_spmv.rs
