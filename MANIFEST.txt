@@ -230,3 +230,5 @@ crates/hybit/examples/mpi_smoke.rs
 crates/hybit/examples/mpi_halo_spmv.rs
 crates/hybit-distributed/src/mpi_overlap.rs
 crates/hybit/examples/mpi_overlap_spmv.rs
+crates/hybit-distributed/src/mpi_pcg.rs
+crates/hybit/examples/mpi_distributed_pcg.rs
