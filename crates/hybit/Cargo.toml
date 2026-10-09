@@ -45,3 +45,7 @@ name = "mpi_mtx_pcg"
 required-features = ["mpi"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "mpi_mtx_profile"
+required-features = ["mpi"]

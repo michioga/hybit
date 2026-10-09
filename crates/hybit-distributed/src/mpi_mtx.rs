@@ -5,9 +5,9 @@
 //! without full matrix replication. Matrix Market support is intentionally
 //! restricted to coordinate real/integer general/symmetric matrices.
 //!
-//! PCG eligibility is conservative: the assembled matrix must be symmetric,
-//! have positive diagonal, and be strictly row diagonally dominant. This is
-//! a sufficient SPD certificate, NOT a test of every possible SPD matrix.
+//! The default PCG eligibility is conservative: symmetric, positive diagonal,
+//! strictly row diagonally dominant. G8-C4 adds an explicitly experimental
+//! acceptance policy that is NOT a mathematical SPD certificate.
 
 use crate::mpi_backend::MpiRuntime;
 use crate::mpi_input::OwnedCsrRows;
@@ -21,6 +21,15 @@ use std::time::Instant;
 
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
+}
+
+/// G8-C4: parser acceptance is separate from mathematical SPD certification.
+/// StrictCertified is the safe default; ExperimentalUnverified permits
+/// symmetric positive-diagonal candidates, but DOES NOT prove they are SPD.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MtxPcgPolicy {
+    StrictCertified,
+    ExperimentalUnverified,
 }
 
 #[derive(Debug)]
@@ -44,7 +53,7 @@ fn next_record<I: Iterator<Item = io::Result<String>>>(
     Ok(None)
 }
 
-fn read_root<R: BufRead>(reader: R) -> io::Result<RootCsr> {
+fn read_root<R: BufRead>(reader: R, policy: MtxPcgPolicy) -> io::Result<RootCsr> {
     let mut lines = reader.lines();
     let header = lines
         .next()
@@ -127,7 +136,12 @@ fn read_root<R: BufRead>(reader: R) -> io::Result<RootCsr> {
                 }
             }
         }
-        if !diagonal.is_finite() || !off_sum.is_finite() || diagonal <= off_sum {
+        if !diagonal.is_finite() || diagonal <= 0.0 || !off_sum.is_finite() {
+            return Err(invalid(
+                "matrix has invalid/nonpositive diagonal or off-diagonal sum",
+            ));
+        }
+        if policy == MtxPcgPolicy::StrictCertified && diagonal <= off_sum {
             return Err(invalid(
                 "matrix lacks positive strict diagonal dominance: SPD not certified",
             ));
@@ -204,6 +218,17 @@ pub fn distribute_matrix_market(
     mpi: &MpiRuntime,
     path: &Path,
 ) -> io::Result<(ContiguousPartition, OwnedCsrRows, MtxDistributionStats)> {
+    distribute_matrix_market_with_policy(mpi, path, MtxPcgPolicy::StrictCertified)
+}
+
+/// G8-C4 experimental input path. Non-strict candidates are NOT SPD-certified.
+/// Use only with a caller-authorized exploratory PCG run, and inspect status,
+/// curvature and true residual before accepting a solution.
+pub fn distribute_matrix_market_with_policy(
+    mpi: &MpiRuntime,
+    path: &Path,
+    policy: MtxPcgPolicy,
+) -> io::Result<(ContiguousPartition, OwnedCsrRows, MtxDistributionStats)> {
     let size = mpi.size();
     let rank = mpi.rank();
     if size < 1 || rank < 0 {
@@ -211,7 +236,7 @@ pub fn distribute_matrix_market(
     }
     let read_start = Instant::now();
     let loaded = if rank == 0 {
-        Some(File::open(path).and_then(|file| read_root(BufReader::new(file))))
+        Some(File::open(path).and_then(|file| read_root(BufReader::new(file), policy)))
     } else {
         None
     };
@@ -300,7 +325,7 @@ mod tests {
     #[test]
     fn symmetric_and_duplicate_entries_coalesce() {
         let input = "%%MatrixMarket matrix coordinate real symmetric\n% c\n3 3 6\n1 1 4\n1 2 -1\n2 2 5\n2 3 -1\n3 3 4\n1 2 -0.25\n";
-        let a = read_root(Cursor::new(input)).unwrap();
+        let a = read_root(Cursor::new(input), MtxPcgPolicy::StrictCertified).unwrap();
         assert_eq!(a.n, 3);
         assert_eq!(&a.row_ptr[..], &[0, 2, 5, 7]);
         assert_eq!(a.vals[1], -1.25);
@@ -308,11 +333,29 @@ mod tests {
     }
 
     #[test]
+    fn non_strict_spd_can_be_experimentally_loaded_but_is_not_certified() {
+        // Dirichlet 1-D Laplacian is SPD, but the central row is only weakly DD.
+        let mtx = "%%MatrixMarket matrix coordinate real symmetric\n3 3 5\n1 1 2\n2 2 2\n3 3 2\n1 2 -1\n2 3 -1\n";
+        assert!(read_root(Cursor::new(mtx), MtxPcgPolicy::StrictCertified).is_err());
+        assert!(read_root(Cursor::new(mtx), MtxPcgPolicy::ExperimentalUnverified).is_ok());
+    }
+
+    #[test]
+    fn experimental_policy_is_not_an_spd_certificate() {
+        // Positive diagonals and symmetry still admit an INDEFINITE matrix.
+        let indef = "%%MatrixMarket matrix coordinate real symmetric\n2 2 3\n1 1 1\n2 2 1\n1 2 2\n";
+        assert!(read_root(Cursor::new(indef), MtxPcgPolicy::StrictCertified).is_err());
+        assert!(read_root(Cursor::new(indef), MtxPcgPolicy::ExperimentalUnverified).is_ok());
+        let negative = "%%MatrixMarket matrix coordinate real symmetric\n2 2 2\n1 1 -1\n2 2 3\n";
+        assert!(read_root(Cursor::new(negative), MtxPcgPolicy::ExperimentalUnverified).is_err());
+    }
+
+    #[test]
     fn reject_nonsymmetric_general_or_uncertified_spd() {
         let input = "%%MatrixMarket matrix coordinate real general\n2 2 3\n1 1 4\n1 2 -1\n2 2 4\n";
-        assert!(read_root(Cursor::new(input)).is_err());
+        assert!(read_root(Cursor::new(input), MtxPcgPolicy::StrictCertified).is_err());
         let indefinite =
             "%%MatrixMarket matrix coordinate real symmetric\n2 2 3\n1 1 1\n2 2 1\n1 2 -2\n";
-        assert!(read_root(Cursor::new(indefinite)).is_err());
+        assert!(read_root(Cursor::new(indefinite), MtxPcgPolicy::StrictCertified).is_err());
     }
 }
