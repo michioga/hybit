@@ -84,6 +84,7 @@ crates/hybit-distributed/Cargo.toml
 crates/hybit-distributed/examples/distributed_probe.rs
 crates/hybit-distributed/examples/partition_graph_export.rs
 crates/hybit-distributed/examples/partition_quality_probe.rs
+crates/hybit-distributed/examples/schur_interface_probe.rs
 crates/hybit-distributed/examples/scotch_map_to_labels.rs
 crates/hybit-distributed/src/lib.rs
 crates/hybit-distributed/src/multilevel.rs
