@@ -85,6 +85,7 @@ crates/hybit-distributed/examples/distributed_probe.rs
 crates/hybit-distributed/examples/partition_graph_export.rs
 crates/hybit-distributed/examples/partition_quality_probe.rs
 crates/hybit-distributed/examples/schur_interface_probe.rs
+crates/hybit-distributed/examples/schur_nested_profile_probe.rs
 crates/hybit-distributed/examples/schur_reference_probe.rs
 crates/hybit-distributed/examples/schur_sparse_krylov_probe.rs
 crates/hybit-distributed/examples/scotch_map_to_labels.rs
