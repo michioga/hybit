@@ -372,3 +372,28 @@ This is still an experimental policy. It is not an automatic production
 partitioner until real FEM evidence shows that multilevel coarsening closes a
 meaningful part of the METIS/SCOTCH cut and halo-volume gap without damaging
 load balance.
+## G8-A6 F14 production adjacency selection
+
+After F12 and F13 validated the sorted adjacency and ABTM stream-merge paths
+against owner-label FNV64 and the cut/communication/load telemetry on nine
+real-matrix/rank/refinement cases, F14 makes stream merge the default.
+This switches adjacency *extraction* only, not matching, coarsening, growth,
+refinement, or halo behavior.
+
+`HYBIT_A6_F12_MERGE` controls the implementation explicitly:
+
+- unset: merged (production default);
+- `1`: merged (explicit);
+- `0`: original sort/dedup reference (rollback);
+- any other value: configuration error, not a silent choice.
+
+For additional regression evidence, `partition_quality_probe` supports the
+opt-in `HYBIT_A6_F14_OWNER_EXPORT` path. It writes one decimal zero-based owner
+label per line. Compare these files byte for byte in addition to owner FNV64,
+cut/communication, and load telemetry. Neither variable changes the partition
+algorithm; only the adjacency extractor is switched.
+
+The F14 regression harness is kept outside the tracked source allowlist and
+checks real-matrix owner-label equivalence and performance. The production
+selection remains reversible until wider held-out testing justifies removal of
+the reference implementation.

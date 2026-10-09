@@ -214,10 +214,27 @@ fn build_undirected_adjacency_merged(
     Ok(adjacency)
 }
 
+// F14: merged stream extraction is the default. Preserve the reference
+// extractor as an explicit rollback path (HYBIT_A6_F12_MERGE=0).
+fn merged_adjacency_policy(value: Option<&str>) -> Result<bool, DistributedTopologyError> {
+    match value {
+        None | Some("1") => Ok(true),
+        Some("0") => Ok(false),
+        Some(_) => Err(invalid("HYBIT_A6_F12_MERGE must be 0 or 1")),
+    }
+}
+
 fn build_undirected_adjacency(
     matrix: &Csr32Matrix,
 ) -> Result<Vec<Vec<usize>>, DistributedTopologyError> {
-    if std::env::var_os("HYBIT_A6_F12_MERGE").is_some() {
+    let setting = match std::env::var("HYBIT_A6_F12_MERGE") {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(invalid("HYBIT_A6_F12_MERGE must be 0 or 1"));
+        }
+    };
+    if merged_adjacency_policy(setting.as_deref())? {
         build_undirected_adjacency_merged(matrix)
     } else {
         build_undirected_adjacency_sorted(matrix)
@@ -1086,6 +1103,37 @@ mod tests {
         }
 
         matrix_from_adjacency(&adjacency).unwrap()
+    }
+
+    #[test]
+    fn f14_adjacency_default_and_reference_rollback_policy() {
+        assert!(merged_adjacency_policy(None).unwrap());
+        assert!(merged_adjacency_policy(Some("1")).unwrap());
+        assert!(!merged_adjacency_policy(Some("0")).unwrap());
+        for bad in ["", "false", "true", "2", "junk"] {
+            assert!(merged_adjacency_policy(Some(bad)).is_err());
+        }
+    }
+
+    #[test]
+    fn f14_merged_union_diagonal_asymmetric_and_isolated() {
+        let matrix = Csr32Matrix::new(
+            5,
+            5,
+            vec![0, 2, 4, 5, 6, 6],
+            vec![0, 1, 1, 3, 2, 3],
+            vec![1.0; 6],
+        )
+        .unwrap();
+        let expected = vec![vec![1], vec![0, 3], vec![], vec![1], vec![]];
+        assert_eq!(
+            build_undirected_adjacency_sorted(&matrix).unwrap(),
+            expected
+        );
+        assert_eq!(
+            build_undirected_adjacency_merged(&matrix).unwrap(),
+            expected
+        );
     }
 
     #[test]

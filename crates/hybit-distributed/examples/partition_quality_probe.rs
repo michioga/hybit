@@ -7,6 +7,7 @@ use hybit_matrix::read_matrix_market;
 use std::env;
 use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::time::Instant;
 
 fn print_metrics(label: &str, metrics: &PartitionTelemetry) {
@@ -209,6 +210,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let multilevel_metrics_ms = t6.elapsed().as_secs_f64() * 1.0e3;
 
     println!();
+    // F14 diagnostic only: export complete owner labels for byte-exact
+    // comparisons between reference, merged and production-default paths.
+    if let Ok(path) = env::var("HYBIT_A6_F14_OWNER_EXPORT") {
+        let mut writer = std::io::BufWriter::new(fs::File::create(&path)?);
+        for &owner in multilevel_assignment.owners() {
+            writeln!(writer, "{owner}")?;
+        }
+        writer.flush()?;
+        println!("F14 owner dump          : {path}");
+    }
     // F12: stable, cross-run owner-label hash, distinct from cut/halo telemetry.
     let mut owner_hash = 0xcbf29ce484222325u64;
     for &owner in multilevel_assignment.owners() {
