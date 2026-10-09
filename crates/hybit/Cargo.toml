@@ -27,5 +27,8 @@ hybit-auto = { version = "0.9.0", path = "../hybit-auto" }
 [[example]]
 name = "mpi_smoke"
 required-features = ["mpi"]
+[[example]]
+name = "mpi_halo_spmv"
+required-features = ["mpi"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
