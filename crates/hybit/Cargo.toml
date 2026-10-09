@@ -15,9 +15,10 @@ publish = ["crates-io"]
 
 [features]
 default = []
-mpi = ["dep:hybit-distributed", "hybit-distributed/mpi"]
+mpi = ["dep:hybit-distributed", "hybit-distributed/mpi", "dep:mpi"]
 [dependencies]
 hybit-distributed = { version = "0.9.0", path = "../hybit-distributed", optional = true }
+mpi = { version = "=0.8.0", default-features = false, optional = true }
 hybit-core = { version = "0.9.0", path = "../hybit-core" }
 hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
 hybit-precond = { version = "0.9.0", path = "../hybit-precond" }
@@ -38,6 +39,9 @@ name = "mpi_distributed_pcg"
 required-features = ["mpi"]
 [[example]]
 name = "mpi_owned_pcg"
+required-features = ["mpi"]
+[[example]]
+name = "mpi_mtx_pcg"
 required-features = ["mpi"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]

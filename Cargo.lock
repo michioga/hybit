@@ -149,6 +149,7 @@ dependencies = [
  "hybit-krylov",
  "hybit-matrix",
  "hybit-precond",
+ "mpi",
 ]
 
 [[package]]

@@ -3,6 +3,8 @@ pub mod mpi_backend;
 #[cfg(feature = "mpi")]
 pub mod mpi_input;
 #[cfg(feature = "mpi")]
+pub mod mpi_mtx;
+#[cfg(feature = "mpi")]
 pub mod mpi_overlap;
 #[cfg(feature = "mpi")]
 pub mod mpi_pcg;
