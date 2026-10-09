@@ -232,3 +232,5 @@ crates/hybit-distributed/src/mpi_overlap.rs
 crates/hybit/examples/mpi_overlap_spmv.rs
 crates/hybit-distributed/src/mpi_pcg.rs
 crates/hybit/examples/mpi_distributed_pcg.rs
+crates/hybit-distributed/src/mpi_input.rs
+crates/hybit/examples/mpi_owned_pcg.rs

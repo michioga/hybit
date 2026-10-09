@@ -36,5 +36,8 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_distributed_pcg"
 required-features = ["mpi"]
+[[example]]
+name = "mpi_owned_pcg"
+required-features = ["mpi"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
