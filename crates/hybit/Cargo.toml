@@ -57,3 +57,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_block_pcg"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_block_sweep"
+required-features = ["mpi"]

@@ -240,3 +240,4 @@ crates/hybit/examples/mpi_mtx_profile.rs
 crates/hybit/examples/mpi_fem_profile.rs
 crates/hybit-distributed/src/mpi_block_jacobi.rs
 crates/hybit/examples/mpi_block_pcg.rs
+crates/hybit/examples/mpi_block_sweep.rs
