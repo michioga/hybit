@@ -12,6 +12,7 @@ use crate::mpi_backend::MpiRuntime;
 use crate::mpi_block_jacobi::LocalBlockCholesky;
 use crate::mpi_ic0::LocalBlockIc0;
 use crate::mpi_overlap::{OverlapSpmv, OverlapTiming};
+use crate::mpi_two_level::RankConstantTwoLevelJacobi;
 use crate::{HaloPlan, RankLocalCsr};
 use std::io;
 use std::time::Instant;
@@ -55,18 +56,22 @@ pub struct DistributedPcgReport {
     pub true_relative_residual: f64,
     pub spmv_calls: usize,
     pub allreduce_calls: usize,
+    /// Of allreduce_calls, vector reductions for the coarse correction.
+    pub coarse_allreduce_calls: usize,
     pub elapsed_ns: u128,
     /// Sum of durations of all rank-local overlapped SpMV calls (includes MPI halo wait).
     pub spmv_elapsed_ns: u128,
     /// Sum of durations of all global reductions issued inside solve (including validation).
     pub allreduce_elapsed_ns: u128,
+    /// Subset of both allreduce_elapsed_ns and preconditioner_apply_ns.
+    pub coarse_allreduce_elapsed_ns: u128,
     /// Subset of spmv_elapsed_ns spent waiting on MPI nonblocking requests.
     pub halo_wait_ns: u128,
     /// Subset of spmv_elapsed_ns spent computing interior CSR rows.
     pub interior_compute_ns: u128,
     /// Subset of spmv_elapsed_ns spent computing boundary CSR rows.
     pub boundary_compute_ns: u128,
-    /// Exclusive local time for M^-1 r applications (no MPI communication).
+    /// Inclusive time for M^-1 r; two-level includes its MPI reduction.
     pub preconditioner_apply_ns: u128,
 }
 
@@ -84,6 +89,9 @@ pub enum DistributedPcgPreconditioner {
     LocalBlockIc0 {
         block_size: usize,
     },
+    /// G8-C12a: positive Jacobi plus replicated rank-constant Galerkin correction.
+    /// Experimental input SPD remains unverified.
+    RankConstantTwoLevelJacobi,
 }
 
 #[derive(Debug)]
@@ -91,6 +99,7 @@ enum PreparedPreconditioner {
     Jacobi(Vec<f64>),
     LocalBlockCholesky(LocalBlockCholesky),
     LocalBlockIc0(LocalBlockIc0),
+    RankConstantTwoLevelJacobi(RankConstantTwoLevelJacobi),
 }
 
 impl PreparedPreconditioner {
@@ -99,19 +108,32 @@ impl PreparedPreconditioner {
             Self::Jacobi(diag) => diag.len(),
             Self::LocalBlockCholesky(blocks) => blocks.owned_len(),
             Self::LocalBlockIc0(blocks) => blocks.owned_len(),
+            Self::RankConstantTwoLevelJacobi(coarse) => coarse.owned_len(),
         }
     }
 
-    fn apply(&self, r: &[f64], z: &mut [f64]) {
+    /// Returns time spent in the additional coarse MPI reduction (if any).
+    fn apply(&self, r: &[f64], z: &mut [f64]) -> u128 {
         match self {
             Self::Jacobi(diag) => {
                 for ((zi, &ri), &di) in z.iter_mut().zip(r).zip(diag) {
                     *zi = di * ri;
                 }
+                0
             }
-            Self::LocalBlockCholesky(blocks) => blocks.apply(r, z),
-            Self::LocalBlockIc0(blocks) => blocks.apply(r, z),
+            Self::LocalBlockCholesky(blocks) => {
+                blocks.apply(r, z);
+                0
+            }
+            Self::LocalBlockIc0(blocks) => {
+                blocks.apply(r, z);
+                0
+            }
+            Self::RankConstantTwoLevelJacobi(coarse) => coarse.apply(r, z),
         }
+    }
+    fn has_coarse_reduction(&self) -> bool {
+        matches!(self, Self::RankConstantTwoLevelJacobi(_))
     }
 }
 
@@ -206,6 +228,10 @@ impl DistributedPcg {
             DistributedPcgPreconditioner::LocalBlockIc0 { block_size } => {
                 LocalBlockIc0::prepare(local, block_size).map(PreparedPreconditioner::LocalBlockIc0)
             }
+            DistributedPcgPreconditioner::RankConstantTwoLevelJacobi => {
+                RankConstantTwoLevelJacobi::prepare(mpi, plan, local)
+                    .map(PreparedPreconditioner::RankConstantTwoLevelJacobi)
+            }
         };
         let local_bad = u64::from(prepared.is_err() || plan.rank() != mpi.rank() as u32);
         if mpi.all_reduce_sum_u64(local_bad) != 0 {
@@ -234,6 +260,7 @@ impl DistributedPcg {
             PreparedPreconditioner::Jacobi(d) => d.len() * std::mem::size_of::<f64>(),
             PreparedPreconditioner::LocalBlockCholesky(p) => p.factor_bytes(),
             PreparedPreconditioner::LocalBlockIc0(p) => p.factor_bytes(),
+            PreparedPreconditioner::RankConstantTwoLevelJacobi(p) => p.factor_bytes(),
         }
     }
 
@@ -244,6 +271,7 @@ impl DistributedPcg {
             PreparedPreconditioner::Jacobi(d) => d.len(),
             PreparedPreconditioner::LocalBlockCholesky(p) => p.factor_bytes() / 8,
             PreparedPreconditioner::LocalBlockIc0(p) => p.factor_values(),
+            PreparedPreconditioner::RankConstantTwoLevelJacobi(p) => p.factor_values(),
         }
     }
 
@@ -273,6 +301,8 @@ impl DistributedPcg {
         let mut interior_compute_ns = 0u128;
         let mut boundary_compute_ns = 0u128;
         let mut preconditioner_apply_ns = 0u128;
+        let mut coarse_allreduce_elapsed_ns = 0u128;
+        let mut coarse_allreduce_calls = 0usize;
         let n = self.preconditioner.owned_len();
         let local_bad = b.len() != n
             || x.len() != n
@@ -309,8 +339,12 @@ impl DistributedPcg {
             self.r[i] = bi - self.ax[i];
         }
         let t_precond = Instant::now();
-        self.preconditioner.apply(&self.r, &mut self.z);
+        let coarse_ns = self.preconditioner.apply(&self.r, &mut self.z);
         preconditioner_apply_ns += t_precond.elapsed().as_nanos();
+        coarse_allreduce_elapsed_ns += coarse_ns;
+        if self.preconditioner.has_coarse_reduction() {
+            coarse_allreduce_calls += 1;
+        }
         self.p.copy_from_slice(&self.z);
         let b_sq = timed_sum(mpi, local_dot(b, b), &mut allreduce_elapsed_ns);
         let mut r_sq = timed_sum(mpi, local_dot(&self.r, &self.r), &mut allreduce_elapsed_ns);
@@ -370,8 +404,12 @@ impl DistributedPcg {
                         break;
                     }
                     let t_precond = Instant::now();
-                    self.preconditioner.apply(&self.r, &mut self.z);
+                    let coarse_ns = self.preconditioner.apply(&self.r, &mut self.z);
                     preconditioner_apply_ns += t_precond.elapsed().as_nanos();
+                    coarse_allreduce_elapsed_ns += coarse_ns;
+                    if self.preconditioner.has_coarse_reduction() {
+                        coarse_allreduce_calls += 1;
+                    }
                     let next_rz =
                         timed_sum(mpi, local_dot(&self.r, &self.z), &mut allreduce_elapsed_ns);
                     reductions += 1;
@@ -423,10 +461,12 @@ impl DistributedPcg {
                 true_norm
             },
             spmv_calls,
-            allreduce_calls: reductions,
+            allreduce_calls: reductions + coarse_allreduce_calls,
+            coarse_allreduce_calls,
             elapsed_ns: start.elapsed().as_nanos(),
             spmv_elapsed_ns,
-            allreduce_elapsed_ns,
+            allreduce_elapsed_ns: allreduce_elapsed_ns + coarse_allreduce_elapsed_ns,
+            coarse_allreduce_elapsed_ns,
             halo_wait_ns,
             interior_compute_ns,
             boundary_compute_ns,

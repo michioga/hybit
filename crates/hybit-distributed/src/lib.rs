@@ -12,6 +12,8 @@ pub mod mpi_mtx;
 pub mod mpi_overlap;
 #[cfg(feature = "mpi")]
 pub mod mpi_pcg;
+#[cfg(feature = "mpi")]
+pub mod mpi_two_level;
 mod multilevel;
 mod partition;
 

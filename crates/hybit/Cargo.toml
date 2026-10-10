@@ -75,3 +75,7 @@ name = "mtx_fem_spectral"
 [[example]]
 name = "mpi_fem_experiment"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_two_level_experiment"
+required-features = ["mpi"]
