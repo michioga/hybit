@@ -49,3 +49,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [[example]]
 name = "mpi_mtx_profile"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_fem_profile"
+required-features = ["mpi"]

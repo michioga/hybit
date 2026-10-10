@@ -9,7 +9,7 @@
 //! SPD detector, multi-host benchmark or general nonsymmetric solver.
 
 use crate::mpi_backend::MpiRuntime;
-use crate::mpi_overlap::OverlapSpmv;
+use crate::mpi_overlap::{OverlapSpmv, OverlapTiming};
 use crate::{HaloPlan, RankLocalCsr};
 use std::io;
 use std::time::Instant;
@@ -54,6 +54,16 @@ pub struct DistributedPcgReport {
     pub spmv_calls: usize,
     pub allreduce_calls: usize,
     pub elapsed_ns: u128,
+    /// Sum of durations of all rank-local overlapped SpMV calls (includes MPI halo wait).
+    pub spmv_elapsed_ns: u128,
+    /// Sum of durations of all global reductions issued inside solve (including validation).
+    pub allreduce_elapsed_ns: u128,
+    /// Subset of spmv_elapsed_ns spent waiting on MPI nonblocking requests.
+    pub halo_wait_ns: u128,
+    /// Subset of spmv_elapsed_ns spent computing interior CSR rows.
+    pub interior_compute_ns: u128,
+    /// Subset of spmv_elapsed_ns spent computing boundary CSR rows.
+    pub boundary_compute_ns: u128,
 }
 
 /// Reusable rank-local Krylov vectors, Jacobi diagonal and Halo/SpMV buffers.
@@ -101,6 +111,27 @@ fn local_dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(&x, &y)| x * y).sum()
 }
 
+/// Scalar collective timing is inclusive: MPI synchronization and local call overhead.
+fn timed_sum(mpi: &MpiRuntime, value: f64, elapsed: &mut u128) -> f64 {
+    let started = Instant::now();
+    let result = mpi.all_reduce_sum_f64(value);
+    *elapsed += started.elapsed().as_nanos();
+    result
+}
+
+fn accumulate_spmv(
+    elapsed: OverlapTiming,
+    total: &mut u128,
+    wait: &mut u128,
+    interior: &mut u128,
+    boundary: &mut u128,
+) {
+    *total += elapsed.elapsed_ns;
+    *wait += elapsed.wait_ns;
+    *interior += elapsed.interior_ns;
+    *boundary += elapsed.boundary_ns;
+}
+
 impl DistributedPcg {
     /// Collective prepare. Invalid local diagonal is propagated to ALL ranks
     /// before entering OverlapSpmv's collective setup.
@@ -146,6 +177,11 @@ impl DistributedPcg {
         options: DistributedPcgOptions,
     ) -> io::Result<DistributedPcgReport> {
         let start = Instant::now();
+        let mut spmv_elapsed_ns = 0u128;
+        let mut allreduce_elapsed_ns = 0u128;
+        let mut halo_wait_ns = 0u128;
+        let mut interior_compute_ns = 0u128;
+        let mut boundary_compute_ns = 0u128;
         let n = self.diag_inverse.len();
         let local_bad = b.len() != n
             || x.len() != n
@@ -159,22 +195,32 @@ impl DistributedPcg {
             || b.iter().any(|v| !v.is_finite())
             || x.iter().any(|v| !v.is_finite());
         // The count collective ensures bad local inputs do not strand peers.
-        if mpi.all_reduce_sum_u64(u64::from(local_bad)) != 0 {
+        let t_validation = Instant::now();
+        let global_bad = mpi.all_reduce_sum_u64(u64::from(local_bad));
+        allreduce_elapsed_ns += t_validation.elapsed().as_nanos();
+        if global_bad != 0 {
             return Err(invalid(
                 "invalid distributed PCG vector dimensions, options or values",
             ));
         }
         let mut reductions = 1usize;
         let mut spmv_calls = 0usize;
-        self.overlap.spmv_overlap(mpi, local, x, &mut self.ax)?;
+        let timing = self.overlap.spmv_overlap(mpi, local, x, &mut self.ax)?;
+        accumulate_spmv(
+            timing,
+            &mut spmv_elapsed_ns,
+            &mut halo_wait_ns,
+            &mut interior_compute_ns,
+            &mut boundary_compute_ns,
+        );
         spmv_calls += 1;
         for (i, &bi) in b.iter().enumerate() {
             self.r[i] = bi - self.ax[i];
             self.z[i] = self.diag_inverse[i] * self.r[i];
             self.p[i] = self.z[i];
         }
-        let b_sq = mpi.all_reduce_sum_f64(local_dot(b, b));
-        let mut r_sq = mpi.all_reduce_sum_f64(local_dot(&self.r, &self.r));
+        let b_sq = timed_sum(mpi, local_dot(b, b), &mut allreduce_elapsed_ns);
+        let mut r_sq = timed_sum(mpi, local_dot(&self.r, &self.r), &mut allreduce_elapsed_ns);
         reductions += 2;
         let norm_b = b_sq.sqrt();
         let initial_norm = r_sq.sqrt();
@@ -186,16 +232,25 @@ impl DistributedPcg {
         if initial_norm <= threshold {
             status = DistributedPcgStatus::Converged;
         } else {
-            let mut rz = mpi.all_reduce_sum_f64(local_dot(&self.r, &self.z));
+            let mut rz = timed_sum(mpi, local_dot(&self.r, &self.z), &mut allreduce_elapsed_ns);
             reductions += 1;
             if !rz.is_finite() || rz <= 0.0 {
                 status = DistributedPcgStatus::Breakdown;
             } else {
                 for step in 1..=options.max_iterations {
-                    self.overlap
+                    let timing = self
+                        .overlap
                         .spmv_overlap(mpi, local, &self.p, &mut self.ap)?;
+                    accumulate_spmv(
+                        timing,
+                        &mut spmv_elapsed_ns,
+                        &mut halo_wait_ns,
+                        &mut interior_compute_ns,
+                        &mut boundary_compute_ns,
+                    );
                     spmv_calls += 1;
-                    let p_ap = mpi.all_reduce_sum_f64(local_dot(&self.p, &self.ap));
+                    let p_ap =
+                        timed_sum(mpi, local_dot(&self.p, &self.ap), &mut allreduce_elapsed_ns);
                     reductions += 1;
                     if !p_ap.is_finite() || p_ap <= 0.0 {
                         status = DistributedPcgStatus::Breakdown;
@@ -211,7 +266,7 @@ impl DistributedPcg {
                         self.r[i] -= alpha * self.ap[i];
                     }
                     iterations = step;
-                    r_sq = mpi.all_reduce_sum_f64(local_dot(&self.r, &self.r));
+                    r_sq = timed_sum(mpi, local_dot(&self.r, &self.r), &mut allreduce_elapsed_ns);
                     reductions += 1;
                     if !r_sq.is_finite() || r_sq < 0.0 {
                         status = DistributedPcgStatus::Breakdown;
@@ -224,7 +279,8 @@ impl DistributedPcg {
                     for (i, zi) in self.z.iter_mut().enumerate() {
                         *zi = self.diag_inverse[i] * self.r[i];
                     }
-                    let next_rz = mpi.all_reduce_sum_f64(local_dot(&self.r, &self.z));
+                    let next_rz =
+                        timed_sum(mpi, local_dot(&self.r, &self.z), &mut allreduce_elapsed_ns);
                     reductions += 1;
                     if !next_rz.is_finite() || next_rz <= 0.0 {
                         status = DistributedPcgStatus::Breakdown;
@@ -243,14 +299,21 @@ impl DistributedPcg {
             }
         }
         // True-residual verification is independent of recursive residual.
-        self.overlap.spmv_overlap(mpi, local, x, &mut self.ax)?;
+        let timing = self.overlap.spmv_overlap(mpi, local, x, &mut self.ax)?;
+        accumulate_spmv(
+            timing,
+            &mut spmv_elapsed_ns,
+            &mut halo_wait_ns,
+            &mut interior_compute_ns,
+            &mut boundary_compute_ns,
+        );
         spmv_calls += 1;
         let true_local_sq: f64 = b
             .iter()
             .zip(&self.ax)
             .map(|(&bi, &axi)| (bi - axi) * (bi - axi))
             .sum();
-        let true_norm = mpi.all_reduce_sum_f64(true_local_sq).sqrt();
+        let true_norm = timed_sum(mpi, true_local_sq, &mut allreduce_elapsed_ns).sqrt();
         reductions += 1;
         if status == DistributedPcgStatus::Converged && true_norm > threshold {
             status = DistributedPcgStatus::MaxIterations;
@@ -269,6 +332,11 @@ impl DistributedPcg {
             spmv_calls,
             allreduce_calls: reductions,
             elapsed_ns: start.elapsed().as_nanos(),
+            spmv_elapsed_ns,
+            allreduce_elapsed_ns,
+            halo_wait_ns,
+            interior_compute_ns,
+            boundary_compute_ns,
         })
     }
 }
