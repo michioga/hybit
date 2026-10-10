@@ -1,4 +1,4 @@
-//! G8-C1: MPI rank-local Jacobi PCG for real symmetric positive-definite CSR.
+//! G8-C6: MPI rank-local PCG with SPD-preserving selectable local preconditioners.
 //!
 //! The numerical iteration holds only rank-owned vectors. Halo values are
 //! acquired by the G8-B3 overlapped SpMV. Global scalar products use MPI
@@ -9,6 +9,7 @@
 //! SPD detector, multi-host benchmark or general nonsymmetric solver.
 
 use crate::mpi_backend::MpiRuntime;
+use crate::mpi_block_jacobi::LocalBlockCholesky;
 use crate::mpi_overlap::{OverlapSpmv, OverlapTiming};
 use crate::{HaloPlan, RankLocalCsr};
 use std::io;
@@ -64,16 +65,55 @@ pub struct DistributedPcgReport {
     pub interior_compute_ns: u128,
     /// Subset of spmv_elapsed_ns spent computing boundary CSR rows.
     pub boundary_compute_ns: u128,
+    /// Exclusive local time for M^-1 r applications (no MPI communication).
+    pub preconditioner_apply_ns: u128,
 }
 
-/// Reusable rank-local Krylov vectors, Jacobi diagonal and Halo/SpMV buffers.
+/// Select a fixed SPD-compatible preconditioner during collective preparation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DistributedPcgPreconditioner {
+    Jacobi,
+    /// Non-overlapping Cholesky-factored contiguous principal diagonal blocks.
+    /// A positive local factorization does not certify global SPD.
+    LocalBlockCholesky {
+        block_size: usize,
+    },
+}
+
+#[derive(Debug)]
+enum PreparedPreconditioner {
+    Jacobi(Vec<f64>),
+    LocalBlockCholesky(LocalBlockCholesky),
+}
+
+impl PreparedPreconditioner {
+    fn owned_len(&self) -> usize {
+        match self {
+            Self::Jacobi(diag) => diag.len(),
+            Self::LocalBlockCholesky(blocks) => blocks.owned_len(),
+        }
+    }
+
+    fn apply(&self, r: &[f64], z: &mut [f64]) {
+        match self {
+            Self::Jacobi(diag) => {
+                for ((zi, &ri), &di) in z.iter_mut().zip(r).zip(diag) {
+                    *zi = di * ri;
+                }
+            }
+            Self::LocalBlockCholesky(blocks) => blocks.apply(r, z),
+        }
+    }
+}
+
+/// Reusable rank-local Krylov vectors, fixed preconditioner and Halo/SpMV buffers.
 ///
 /// Each rank prepares once, then calls solve in the same order on every rank.
 /// `local` must remain the exact same matrix as at preparation.
 #[derive(Debug)]
 pub struct DistributedPcg {
     overlap: OverlapSpmv,
-    diag_inverse: Vec<f64>,
+    preconditioner: PreparedPreconditioner,
     ax: Vec<f64>,
     r: Vec<f64>,
     z: Vec<f64>,
@@ -133,22 +173,40 @@ fn accumulate_spmv(
 }
 
 impl DistributedPcg {
-    /// Collective prepare. Invalid local diagonal is propagated to ALL ranks
-    /// before entering OverlapSpmv's collective setup.
+    /// Backward-compatible G8-C1 Jacobi constructor.
     pub fn prepare(mpi: &MpiRuntime, plan: &HaloPlan, local: &RankLocalCsr) -> io::Result<Self> {
-        let diag = inverse_diagonal(local);
-        let local_bad = u64::from(diag.is_err() || plan.rank() != mpi.rank() as u32);
+        Self::prepare_with_preconditioner(mpi, plan, local, DistributedPcgPreconditioner::Jacobi)
+    }
+
+    /// Collective preparation. Reject a factorization error on *all* ranks
+    /// before any rank enters OverlapSpmv's collective setup.
+    pub fn prepare_with_preconditioner(
+        mpi: &MpiRuntime,
+        plan: &HaloPlan,
+        local: &RankLocalCsr,
+        choice: DistributedPcgPreconditioner,
+    ) -> io::Result<Self> {
+        let prepared = match choice {
+            DistributedPcgPreconditioner::Jacobi => {
+                inverse_diagonal(local).map(PreparedPreconditioner::Jacobi)
+            }
+            DistributedPcgPreconditioner::LocalBlockCholesky { block_size } => {
+                LocalBlockCholesky::prepare(local, block_size)
+                    .map(PreparedPreconditioner::LocalBlockCholesky)
+            }
+        };
+        let local_bad = u64::from(prepared.is_err() || plan.rank() != mpi.rank() as u32);
         if mpi.all_reduce_sum_u64(local_bad) != 0 {
             return Err(invalid(
-                "at least one MPI rank has an invalid local Jacobi diagonal or rank",
+                "at least one MPI rank has an invalid local PCG preconditioner",
             ));
         }
-        let diag_inverse = diag?;
+        let preconditioner = prepared?;
         let overlap = OverlapSpmv::prepare(mpi, plan, local)?;
         let n = local.owned_len();
         Ok(Self {
             overlap,
-            diag_inverse,
+            preconditioner,
             ax: vec![0.0; n],
             r: vec![0.0; n],
             z: vec![0.0; n],
@@ -165,7 +223,7 @@ impl DistributedPcg {
         self.overlap.boundary_len()
     }
 
-    /// Solve `Ax=b` using a fixed Jacobi-preconditioned distributed PCG.
+    /// Solve `Ax=b` using a fixed SPD-compatible preconditioned distributed PCG.
     /// Convergence is ALWAYS checked against a fresh, true `b-Ax` SpMV.
     /// Non-positive curvature is returned as Breakdown, not convergence.
     pub fn solve(
@@ -182,7 +240,8 @@ impl DistributedPcg {
         let mut halo_wait_ns = 0u128;
         let mut interior_compute_ns = 0u128;
         let mut boundary_compute_ns = 0u128;
-        let n = self.diag_inverse.len();
+        let mut preconditioner_apply_ns = 0u128;
+        let n = self.preconditioner.owned_len();
         let local_bad = b.len() != n
             || x.len() != n
             || local.owned_len() != n
@@ -216,9 +275,11 @@ impl DistributedPcg {
         spmv_calls += 1;
         for (i, &bi) in b.iter().enumerate() {
             self.r[i] = bi - self.ax[i];
-            self.z[i] = self.diag_inverse[i] * self.r[i];
-            self.p[i] = self.z[i];
         }
+        let t_precond = Instant::now();
+        self.preconditioner.apply(&self.r, &mut self.z);
+        preconditioner_apply_ns += t_precond.elapsed().as_nanos();
+        self.p.copy_from_slice(&self.z);
         let b_sq = timed_sum(mpi, local_dot(b, b), &mut allreduce_elapsed_ns);
         let mut r_sq = timed_sum(mpi, local_dot(&self.r, &self.r), &mut allreduce_elapsed_ns);
         reductions += 2;
@@ -276,9 +337,9 @@ impl DistributedPcg {
                         status = DistributedPcgStatus::Converged;
                         break;
                     }
-                    for (i, zi) in self.z.iter_mut().enumerate() {
-                        *zi = self.diag_inverse[i] * self.r[i];
-                    }
+                    let t_precond = Instant::now();
+                    self.preconditioner.apply(&self.r, &mut self.z);
+                    preconditioner_apply_ns += t_precond.elapsed().as_nanos();
                     let next_rz =
                         timed_sum(mpi, local_dot(&self.r, &self.z), &mut allreduce_elapsed_ns);
                     reductions += 1;
@@ -337,6 +398,7 @@ impl DistributedPcg {
             halo_wait_ns,
             interior_compute_ns,
             boundary_compute_ns,
+            preconditioner_apply_ns,
         })
     }
 }

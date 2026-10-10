@@ -1,6 +1,8 @@
 #[cfg(feature = "mpi")]
 pub mod mpi_backend;
 #[cfg(feature = "mpi")]
+pub mod mpi_block_jacobi;
+#[cfg(feature = "mpi")]
 pub mod mpi_input;
 #[cfg(feature = "mpi")]
 pub mod mpi_mtx;

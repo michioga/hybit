@@ -53,3 +53,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_fem_profile"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_block_pcg"
+required-features = ["mpi"]
