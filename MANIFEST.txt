@@ -244,3 +244,5 @@ crates/hybit/examples/mpi_block_sweep.rs
 crates/hybit-distributed/src/mpi_ic0.rs
 crates/hybit/examples/mpi_ic0_sweep.rs
 crates/hybit/examples/mtx_fem_audit.rs
+crates/hybit/examples/mtx_fem_spectral.rs
+crates/hybit/examples/mpi_fem_experiment.rs

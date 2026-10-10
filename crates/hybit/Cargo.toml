@@ -68,3 +68,10 @@ required-features = ["mpi"]
 
 [[example]]
 name = "mtx_fem_audit"
+
+[[example]]
+name = "mtx_fem_spectral"
+
+[[example]]
+name = "mpi_fem_experiment"
+required-features = ["mpi"]
