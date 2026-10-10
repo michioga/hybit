@@ -65,3 +65,6 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_ic0_sweep"
 required-features = ["mpi"]
+
+[[example]]
+name = "mtx_fem_audit"
