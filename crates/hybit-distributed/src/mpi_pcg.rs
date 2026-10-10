@@ -1,4 +1,4 @@
-//! G8-C6: MPI rank-local PCG with SPD-preserving selectable local preconditioners.
+//! G8-C8: MPI rank-local PCG with fixed SPD-compatible local preconditioners.
 //!
 //! The numerical iteration holds only rank-owned vectors. Halo values are
 //! acquired by the G8-B3 overlapped SpMV. Global scalar products use MPI
@@ -10,6 +10,7 @@
 
 use crate::mpi_backend::MpiRuntime;
 use crate::mpi_block_jacobi::LocalBlockCholesky;
+use crate::mpi_ic0::LocalBlockIc0;
 use crate::mpi_overlap::{OverlapSpmv, OverlapTiming};
 use crate::{HaloPlan, RankLocalCsr};
 use std::io;
@@ -78,12 +79,18 @@ pub enum DistributedPcgPreconditioner {
     LocalBlockCholesky {
         block_size: usize,
     },
+    /// No-fill incomplete Cholesky in each contiguous locally owned principal block.
+    /// A positive IC(0) factor is an SPD preconditioner, not a certificate for A.
+    LocalBlockIc0 {
+        block_size: usize,
+    },
 }
 
 #[derive(Debug)]
 enum PreparedPreconditioner {
     Jacobi(Vec<f64>),
     LocalBlockCholesky(LocalBlockCholesky),
+    LocalBlockIc0(LocalBlockIc0),
 }
 
 impl PreparedPreconditioner {
@@ -91,6 +98,7 @@ impl PreparedPreconditioner {
         match self {
             Self::Jacobi(diag) => diag.len(),
             Self::LocalBlockCholesky(blocks) => blocks.owned_len(),
+            Self::LocalBlockIc0(blocks) => blocks.owned_len(),
         }
     }
 
@@ -102,6 +110,7 @@ impl PreparedPreconditioner {
                 }
             }
             Self::LocalBlockCholesky(blocks) => blocks.apply(r, z),
+            Self::LocalBlockIc0(blocks) => blocks.apply(r, z),
         }
     }
 }
@@ -194,6 +203,9 @@ impl DistributedPcg {
                 LocalBlockCholesky::prepare(local, block_size)
                     .map(PreparedPreconditioner::LocalBlockCholesky)
             }
+            DistributedPcgPreconditioner::LocalBlockIc0 { block_size } => {
+                LocalBlockIc0::prepare(local, block_size).map(PreparedPreconditioner::LocalBlockIc0)
+            }
         };
         let local_bad = u64::from(prepared.is_err() || plan.rank() != mpi.rank() as u32);
         if mpi.all_reduce_sum_u64(local_bad) != 0 {
@@ -213,6 +225,26 @@ impl DistributedPcg {
             p: vec![0.0; n],
             ap: vec![0.0; n],
         })
+    }
+
+    /// Rank-local factor storage payload only (not allocator/Vec overhead).
+    /// Use MPI max/sum reductions in benchmark code to report across ranks.
+    pub fn preconditioner_factor_bytes(&self) -> usize {
+        match &self.preconditioner {
+            PreparedPreconditioner::Jacobi(d) => d.len() * std::mem::size_of::<f64>(),
+            PreparedPreconditioner::LocalBlockCholesky(p) => p.factor_bytes(),
+            PreparedPreconditioner::LocalBlockIc0(p) => p.factor_bytes(),
+        }
+    }
+
+    /// f64 factor entries. For dense blocks this counts stored n*n entries,
+    /// including the unused upper triangle; IC(0) includes the diagonal.
+    pub fn preconditioner_factor_values(&self) -> usize {
+        match &self.preconditioner {
+            PreparedPreconditioner::Jacobi(d) => d.len(),
+            PreparedPreconditioner::LocalBlockCholesky(p) => p.factor_bytes() / 8,
+            PreparedPreconditioner::LocalBlockIc0(p) => p.factor_values(),
+        }
     }
 
     pub fn interior_rows(&self) -> usize {

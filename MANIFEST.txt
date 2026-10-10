@@ -241,3 +241,5 @@ crates/hybit/examples/mpi_fem_profile.rs
 crates/hybit-distributed/src/mpi_block_jacobi.rs
 crates/hybit/examples/mpi_block_pcg.rs
 crates/hybit/examples/mpi_block_sweep.rs
+crates/hybit-distributed/src/mpi_ic0.rs
+crates/hybit/examples/mpi_ic0_sweep.rs
