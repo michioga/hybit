@@ -205,6 +205,15 @@ impl RankConstantTwoLevelJacobi {
         for ((zi, &ri), &di) in z.iter_mut().zip(r).zip(&self.inv_diag) {
             *zi = ri * di;
         }
+        self.add_coarse_correction(r, z)
+    }
+
+    /// Add the positive-semidefinite rank-constant Galerkin correction to z.
+    /// Used with a separate, positive-definite local Cholesky block solve.
+    /// All MPI ranks must call this exactly once per preconditioner application.
+    pub fn add_coarse_correction(&self, r: &[f64], z: &mut [f64]) -> u128 {
+        debug_assert_eq!(r.len(), self.inv_diag.len());
+        debug_assert_eq!(z.len(), r.len());
         let mut local = [0.0_f64; 8];
         let mut global = [0.0_f64; 8];
         local[self.rank] = self.inv_sqrt_owned * r.iter().sum::<f64>();

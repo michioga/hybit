@@ -472,3 +472,206 @@ universal restart from one matrix family.
 
 For every path, independently recompute the true residual from the original
 matrix and RHS before treating solver convergence as validated.
+
+## G8-C12d-3: experimental MPI adaptive direct/Krylov hybrid (0.9)
+
+The goal remains a memory-bounded **iterative + selective direct** solver, not
+merely minimizing Krylov iteration counts. In this first MPI controller pilot,
+rank-constant two-level Jacobi PCG begins with a fixed inexpensive SPD-compatible
+preconditioner. Every configured iteration window, the globally reduced residual ratio is
+measured relative to the **previous** checkpoint. A healthy early window is
+not treated as evidence of indefinite future convergence: subsequent windows
+are checked until convergence or one promotion occurs. The original PCG
+recurrence continues unchanged while the light preconditioner is retained.
+When a window stalls, every rank collectively prepares exact local
+block-Cholesky factors (a specified uniform block size, max 512) and retains the
+rank-constant Galerkin correction. **Only when the preconditioner changes** does
+PCG restart, using a freshly recomputed `b - A*x` residual. Factorization is
+performed once for this RHS, not on each iteration.
+
+The promoted *fixed* additive preconditioner is
+`M^-1 = sum_k R_k^T (A_kk)^-1 R_k + Z (Z^T A Z)^-1 Z^T`, subject to SPD assumptions
+for the original operator and local/coarse factors. Positive pivots and PCG
+convergence do not certify global SPD. Promotion rejects local Cholesky failures
+collectively; there is no silent numerical fallback or claim of indefinite
+support. `nd3k.mtx` remains **experimental, SPD unverified**.
+
+This is a **guarded pilot**, not full serial `HybridOptions` parity. Local blocks
+are contiguous, not dynamically selected from ABTM/residual risk. The controller
+supports one promotion per RHS; no multi-stage adaptive region growth, general
+MPI FGMRES, factor cache across RHS, or autonomous block-size selector is
+claimed. Measurements must distinguish factor preparation cost, convergence
+status, true residual, manufactured-solution error, communication, and memory.
+
+## G8-C12d-6C4A: ABTM-style packed masks and globally pooled direct-factor budget
+
+Experimental selector `replayg:HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH`
+uses the same eight rank-local bitmasks as `replay:` but validates the **sum of
+selected direct Cholesky bytes** across all eight MPI ranks, not an equal
+per-rank quota. The total is checked with an MPI Allreduce **before** any
+selected local Cholesky factorization. The existing `residual`, `boundary`,
+`swap`, `replay`, and `replaync` selectors retain their original behavior.
+
+An internal ABTM-inspired packed representation stores all 144 block flags in
+three `u64` words and supports bitwise union/intersection/symmetric difference
+and POPCNT. This is **not** the ABTM sparse matrix tile/value representation.
+The numerical preconditioner is unchanged; only replay mask decoding and the
+budget gate differ. The public result reports direct factor bytes separately
+from the Jacobi fallback, rank-constant coarse factor payload, and process RSS.
+
+G8-C12d-6C3 supplied a smooth-RHS mask at requested 4.250 MiB with exactly
+4,303,736 selected direct bytes and 3,421 PCG iterations. These bytes fit a
+4.125 MiB globally pooled cap of 4,325,376, although the final rank violates
+4,325,376/8=540,672 bytes. Use the 4.250 MiB reference mask with `replayg`
+under 4.125 MiB and verify identical iterations, factor bytes and true residual.
+This does not constitute a globally optimized automatic block selector.
+`nd3k` remains uncertified SPD; manufactured-solution convergence is not proof.
+
+## G8-C12d-6C2: controlled rank-constant coarse ablation (experimental)
+
+`replaync:HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH` is
+identical to G8-C12d-6C1 `replay:` in its selected local Cholesky blocks,
+rank-local mask validation, global direct-factor cap, and PCG restart.
+During promotion only, `replaync:` installs `LocalBlockCholesky` (with the
+same Jacobi fallback on unselected DOFs) **without** the additive
+rank-constant Galerkin correction. The initial rank-constant Jacobi coarse
+preconditioner is unchanged until promotion; the experiment forces
+promotion at iteration 1 to minimize that common initial phase.
+
+Compare the two early-promotion modes under the same manufactured RHS and
+reference mask, never an automatic mask for another RHS. Both preserve the
+same selected Cholesky factor bytes. Expected total factor payload differs:
+with coarse it contains the selected Jacobi fallback plus replicated coarse
+state; without coarse it contains only the local selected Cholesky / Jacobi
+fallback. These are payload accounting figures, NOT process RSS. Coarse
+Allreduce counts still include the common pre-promotion phase. Failed
+convergence is a valid outcome for the experimental uncertified nd3k matrix.
+
+This test isolates the existing eight rank-constant correction; it does
+not establish the effectiveness of a richer GenEO/AMG coarse space.
+The input nd3k remains unverified SPD, and no production selector is changed.
+
+## G8-C12d-6C1: replayed block mask and promotion timing (experimental)
+
+`replay:HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH,HHHHH` accepts
+exactly eight hexadecimal masks, one per MPI rank. Bit `i` selects that
+rank's local contiguous block `i`. The caller must obtain masks from the
+already-verified G8-C12d-6B block traces; this mode is for controlled
+experiments and is not a learned/general-purpose selector. Each rank
+collectively validates nonempty selections and its **dense-Cholesky-only**
+factor quota before factorizing. A malformed or overspending mask fails on
+all ranks. The replayed preconditioner remains fixed after promotion, and
+PCG performs the existing full restart. A production solver should not
+accept external replay masks as an adaptive selection strategy.
+
+For a fixed RHS, compare ordinary Residual at normal promotion with Replay
+at normal promotion (validation of identical selected flags and numerical
+results), then Replay with probe 1 and poor-progress ratio 0.01 to promote
+near the first iteration. This isolates the timing effect subject to the
+observed promotion iteration. All comparisons must account for the 4 MiB
+payload bound *only for direct factors*, not full memory use.
+
+Full Block and full Hybrid baselines can also indicate the benefit of the
+rank-constant coarse correction with all blocks selected, but they do not
+isolate a coarse correction effect for the selective replayed mask. That
+requires a separate controlled experiment. nd3k remains uncertified SPD.
+
+## G8-C12d-6B: recursive residual timeline and manufactured RHS families (experimental)
+
+The existing 9/10/12/13/14-argument experiment calls remain unchanged.
+A fixed-method 11-argument call appends one of `smooth`, `mixed`, or
+`localized` after the relative tolerance. An adaptive 15-argument call
+appends the same RHS kind after `residual|boundary|swap:R:FROM:TO`.
+The exact solution `x_true` is generated by index; the distributed RHS is
+`b=A*x_true`. `localized` refers to an index-localized exact solution,
+NOT a physical concentrated force or certified FEM loading configuration.
+The new calls opt into collecting the already global recursive residual
+once per 64 iterations. The rank-zero `<run>.residual.csv` includes a
+true-residual value at iteration 0, immediately after a promotion restart,
+and at the terminal verification only. Intermediate samples have a blank
+true-residual cell; these are NOT fresh SpMV verification values.
+The 4 MiB selection budget covers dense Cholesky factor payload alone;
+initial/coarse/Jacobi payload is reported separately and may push the total
+above 4 MiB. Neither figure represents peak RSS or trace allocations.
+Different RHS may select different block masks. Therefore the experimental
+single-RHS `swap:1:13:10` must not be generalized to other RHS without
+checking whether the swap remains valid. `nd3k` has no global SPD certificate.
+
+## G8-C12d-6A: controlled single-block substitution (experimental)
+
+`swap:R:FROM:TO` is an intervention for identifying which block mask decisions
+materially influence the convergence of a given fixed test problem. It uses
+exactly the G8-C12d-4 residual ranking on all MPI ranks before replacing one
+selected block (`FROM`) with one previously unselected block (`TO`) on rank
+`R`. It rejects invalid indices and swaps exceeding that rank's direct-factor
+quota *collectively*. The prepared SPD-compatible preconditioner remains
+constant after promotion, followed by a full PCG restart as in D3.
+
+The selected mask is emitted to the ordinary rank trace CSV (mode `swap`).
+One-factor pairwise swaps do **not** prove an automatically selected algorithm
+or a universally better preconditioner. A different mask can converge more
+slowly, fail to converge within the budget, or encounter invalid local factors;
+all these are experimental outcomes, not reasons to loosen the accuracy gate.
+No global SPD certificate exists for the `nd3k` experimental input.
+
+## G8-C12d-5: diagnosable budgeted block selection (experimental)
+
+G8-C12d-5 preserves the original `residual` selection mask and adds an opt-in
+`boundary` ranking mode. Its score is the residual-energy-per-dense-factor-byte
+scaled by `1/(1 + exterior_L1/(interior_L1 + exterior_L1))`, where interior and
+exterior denote entries of the rank-owned CSR row block relative to that
+contiguous block. Ghost columns count as exterior. This is a *heuristic*:
+there is no proof it reduces the preconditioned condition number or iteration
+count. The block mask is fixed after the collective adaptive escalation;
+PCG is restarted as in G8-C12d-3, maintaining a fixed SPD-compatible
+preconditioner for subsequent iterations under the declared SPD contract.
+
+Each promoted MPI rank writes its own experiment-scoped `.rankN.blocks.csv`
+containing rank/block ID, global first DOF, block size, dense factor bytes,
+residual energy, interior/exterior coupling norms, score and selection flag.
+Nonpromoted runs produce no block trace; downstream reports must explicitly
+record this rather than interpreting a missing trace as a failure. Trace files
+are created separately on each rank and I/O errors are reduced collectively
+before the next MPI collective. Diagnostics are emitted *after* the solve and
+are excluded from `report.elapsed_ns`; this avoids distorting the solver
+comparison, but wall-clock experiment time includes diagnostic writing.
+
+Neither ranking policy redistributes unused quotas between ranks, grows
+ABTM regions or guarantees convergence for a prescribed budget. Both use the
+same bounded dense-factor policy and same fixed additive coarse correction.
+`nd3k` remains experimental and **not globally SPD-certified**. Compare the
+masks first; treat any speedup as provisional until repeated, controlled runs.
+
+## G8-C12d-4: bounded selective direct factors (pilot)
+
+The MPI adaptive preconditioner uses a **strict global dense-factor byte cap**.
+The cap is divided equally across MPI ranks; each rank ranks contiguous
+principal blocks by residual squared energy per stored dense-factor byte,
+with stable block-index ties, and factors only blocks fitting its quota.
+Unselected DOFs retain positive Jacobi inverse-diagonal weights, while selected
+DOFs receive exact principal-block Cholesky inverse; every DOF is covered
+exactly once by the local base. The rank-constant Galerkin coarse correction
+is additive and positive semidefinite when the global operator is SPD.
+The overall preconditioner is therefore fixed SPD **after** promotion, provided
+all global mathematical SPD assumptions are satisfied. PCG is restarted only
+when direct factors actually change the preconditioner. An uncertified matrix
+remains uncertified even if Cholesky preparation and manufactured-solution
+residual checks pass.
+
+This first budget allocator is rank-balanced, *not* globally optimal; unused
+budget cannot be transferred from one rank to another. Memory telemetry must
+separate dense-factor bytes from Jacobi/coarse storage; selection does not yet
+use ABTM graph expansion or arbitrary disjoint region sets.
+
+The G8-C12d-3 Fix4 controller specifically addresses the nd3k false negative:
+the first 64 iterations reduced the residual to 0.0749759 times its initial
+norm (below a 0.5 promotion threshold), yet convergence stalled later.
+Only the last evaluated window ratio is reported by `adaptive_probe_ratio`.
+No extra global reduction is introduced by the window check; the PCG norm is
+already a global reduction. No additional preconditioner allocations occur
+unless a window actually triggers promotion.
+
+The new `DistributedPcg::solve_adaptive` and example `mpi_two_level_experiment`
+`adaptive:<blocksize>` path are explicit opt-ins. Existing fixed solvers and
+previous experiment CLI forms remain unchanged. See G8-C12d-3 package README
+for validation protocol and command examples.
