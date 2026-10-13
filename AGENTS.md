@@ -40,3 +40,7 @@ HyBIT (Autonomous Hybrid Sparse Solver) provides a **simple, stable API to spars
 - `crates/hybit-auto`, `crates/hybit-matrix`, `crates/hybit-distributed` — implementation ground truth.
 
 Avoid adding features merely because they are on a roadmap if a suitable implementation or measurement already exists.
+
+## 2026-10-13 mandatory architecture and session-resume documents
+<!-- HYBIT_2026_10_13_ARCHITECTURE_HANDOFF -->
+After reading `docs/PROJECT_CHARTER.md`, read `docs/HYBIT_LONG_TERM_ARCHITECTURE.md` and `docs/SESSION_RESUME_PROTOCOL.md` before code changes. Also read `docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md` and `docs/HYBIT_DECISION_LOG.md`. Preserve the user's two nonnegotiable goals: iterative solver first plus hard-region local direct reinforcement; minimal public API with autonomous internal choices. New mandatory scope: variable-DOF thermal/beam/shell/solid, mixed fields, and robust frictional-contact architecture. Older session-handoff snapshots are not the current numerical status.

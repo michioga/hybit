@@ -96,3 +96,7 @@
 5. **Rayon/MPIを通じて実アプリケーションの総処理時間を改善**し、勝った処理だけを段階的に統合。
 
 採用・昇格の判断は実験結果に基づいて行い、「現行済み」と「長期目標」の境界を常に記録する。
+
+## 9. 2026-10-13: binding architecture extension
+<!-- HYBIT_2026_10_13_ARCHITECTURE_HANDOFF -->
+The agreed long-term architecture is documented in **`docs/HYBIT_LONG_TERM_ARCHITECTURE.md`** and maintained through `docs/HYBIT_DECISION_LOG.md` and `docs/SESSION_RESUME_PROTOCOL.md`. It preserves: (1) lightweight Krylov iteration wherever practical with difficult subregions reinforced using mathematically valid local direct methods, (2) minimal stable public API with autonomous internal decisions, (3) exact metadata-first ABTM pruning and adaptive prepared numeric layouts, (4) minimized Rayon memory movement and MPI halo/collective traffic, and (5) eventual mixed thermal/beam/shell/solid DOFs, variable field blocks, nonsymmetric/indefinite systems and frictional contact with separate nonlinear control. These are requirements, **not claims of completed implementation**. The last user-supplied MPI/C5 numerical results are in `docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md`.

@@ -51,3 +51,14 @@ FAIL gates とログへのリンク/パス:
 未解決の技術課題:
 次の1作業:
 ```
+
+## 2026-10-13 update — supersedes older environment/C5 notes above
+<!-- HYBIT_2026_10_13_ARCHITECTURE_HANDOFF -->
+**Authoritative design:** `docs/HYBIT_LONG_TERM_ARCHITECTURE.md` and `docs/HYBIT_DECISION_LOG.md`. **Resume workflow:** `docs/SESSION_RESUME_PROTOCOL.md`. **Current user-supplied test evidence:** `docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md`.
+
+- Windows MS-MPI / MSVC native build and MPI 2/8-rank smoke PASS with explicit `CLANG_PATH=C:\Program Files\LLVM\bin\clang.exe` and `LIBCLANG_PATH=C:\Program Files\LLVM\bin`. Earlier C5 `mpi-sys`/`bindgen` failure is **not an active blocker** in that tested environment.
+- MPI-owned C2 8-rank PCG: **20/20 numerical PASS**. B3 4-rank overlap SpMV: **4/4 PASS**, errors zero; the tiny microbenchmark does not guarantee FEM scaling.
+- MPI C5 `nd3k.mtx` native 1/2/4/8 ranks: **numerical PASS** (CSR-vs-ABTM rel_error about `3e-14`–`9e-14`). 8 ranks: CSR SpMV `0.301870 ms`, ABTM SpMV `0.523540 ms`; storage CSR `39,392,312` bytes vs ABTM `31,390,616` bytes; ghosts `44,213` (sum of receives). Separate ABTM conversion max `19.731600 ms`; ordinary ABTM numeric SpMV is **slower**. No claim of full-PCG ABTM speedup.
+- At end of latest user-run C5 the reported `git status --short` was **empty**, and the temporary example was removed. Current HEAD/branch/dirty state **must be rechecked**, not inferred from 2026-10-12 snapshot.
+- New nonnegotiables: iterative-first plus local-direct reinforcement, simple public API, metadata-first ABTM, reduced MPI/Rayon data movement, mixed-field variable DOFs, long-term frictional contact and nonsymmetric/indefinite systems. Do **not** claim these new requirements are implemented.
+- **Next one action:** inspect current local code/API and specify the smallest testable `FieldAwareDofLayout` + constraint/topology/versioning contract, keeping CSR execution unchanged. Define exact reference cross-checks and rollback before any Rust code changes.

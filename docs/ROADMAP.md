@@ -115,3 +115,7 @@ package, ABI/language, and numerical regression gates.
 HyBIT does not claim universal sparse-solver coverage or universal performance
 improvement. Automatic policy changes require evidence across representative
 matrices.
+
+## 2026-10-13 long-term architecture milestones (extension)
+<!-- HYBIT_2026_10_13_ARCHITECTURE_HANDOFF -->
+The binding decisions and stage gates are in `docs/HYBIT_LONG_TERM_ARCHITECTURE.md`. Priority: 1) mathematical-class / autonomous-escalation / data-lifetime contracts; 2) mixed-field variable-DOF symbolic layouts and exact CSR baseline checks; 3) ABTM metadata-first pruning for local/constraint/symbolic workloads; 4) mathematically appropriate non-SPD local direct/Schur support; 5) lower MPI halo/collective volume plus Rayon cache/memory movement; 6) frictionless then frictional contact through an explicitly separate nonlinear/controller interface; 7) automatic policy promotion only after full numerical/memory/end-to-end gates. Keep user API simple and current CSR numeric paths where faster. Refer to `docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md` for current user-supplied C2/B3/C5 evidence. The feature set above is a **future roadmap**, not implemented production behavior.
