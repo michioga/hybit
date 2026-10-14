@@ -77,3 +77,11 @@ FAIL gates とログへのリンク/パス:
 - H1-C1 proposal: cached ABTM dual topology and field-aware region + G3 local numeric-address plans, reuse with unchanged CSR structure, Rust-only opt-in; no MPI exchange or numerical solver routing modifications. C/C++/Fortran existing ABI preserved; new prepared ABI is future work.
 - **H1-C1 gates PENDING** Windows Rust test/Clippy/source-integrity. Do not mark passed based on patch installation.
 - Next one action: validate H1-C1 package on exact `10b6eec`, then separately design real MS-MPI owner/ghost/Halo integration H1-C2.
+
+## 2026-10-14 H1-C2 — block-aligned owned/ghost + native MPI smoke (candidate)
+
+- Canonical developer-side baseline: **`bbfafc2`**, pushed to `develop/0.9.0`, clean working tree; H1-C1 52 hybit-matrix unit tests and 5 FFI tests PASS, strict Clippy and source integrity PASS. Existing C/C++/Fortran ABI unchanged.
+- Patch adds `field_halo.rs`: deterministic whole-block-aligned contiguous rank partition, existing arbitrary `PartitionAssignment` field-ownership validation, and adapter to already-implemented unique-ghost reciprocal HaloPlan / rank-local CSR / telemetry. No new MPI transport; no new automatic repartitioning policy.
+- Real MS-MPI smoke `mpi_field_aware_halo` compares the actual rank-owned CSR/Halo to global-reference plans and executes native MPI SpMV at 1/2/4/8 ranks. Global fixture replication is testing-only. Does not establish performance speedups.
+- **Validation pending**: developer-machine Preflight/Apply, Rust + strict Clippy, Source Integrity, native MS-MPI 1/2/4/8 rank execution; do not mark PASS until logs arrive.
+- Next prioritized action: execute H1-C2 validation gates on Windows, correct any concrete failing gate, then checkpoint commit/push with the new results.

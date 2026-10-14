@@ -18,6 +18,10 @@ mpi = ["dep:mpi"]
 [dependencies]
 mpi = { version = "=0.8.0", default-features = false, optional = true }
 hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
+[[example]]
+name = "mpi_field_aware_halo"
+required-features = ["mpi"]
+
 [dev-dependencies]
 hybit-core = { version = '0.9.0', path = '../hybit-core' }
 hybit-krylov = { version = '0.9.0', path = '../hybit-krylov' }

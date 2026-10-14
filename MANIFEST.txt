@@ -267,3 +267,6 @@ examples/cpp/field_region.cpp
 examples/fortran/field_region.f90
 crates/hybit-matrix/src/prepared_field_region.rs
 docs/H1C1_PREPARED_FIELD_REGION.md
+crates/hybit-distributed/src/field_halo.rs
+crates/hybit-distributed/examples/mpi_field_aware_halo.rs
+docs/H1C2_FIELD_AWARE_OWNED_HALO.md
