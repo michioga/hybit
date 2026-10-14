@@ -62,10 +62,11 @@ pub use hybit_krylov::{
 pub use hybit_matrix::{
     analyze_csr32, read_matrix_market, read_matrix_market_from_reader, write_matrix_market_general,
     AbtmConfig, AbtmMatrix, AbtmStats, AbtmTopology, AbtmTopologyRow, AbtmTopologyStats,
-    AbtmTopologyWord, Csr32Matrix, DenseBlockCsrOperator, DenseBlockSize, DofMask,
-    MatrixMarketError, MatrixMarketInfo, MatrixMarketSymmetry, MatrixProfile,
-    ParallelCsr32Operator, PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator, TileDesc,
-    TileKind, ABTM_TOPOLOGY_WORD_BITS, TILE_WIDTH,
+    AbtmTopologyWord, Csr32Matrix, DenseBlockCsrOperator, DenseBlockSize, DofAddress, DofBlock,
+    DofEntityKind, DofMask, FieldAwareDofLayout, MatrixMarketError, MatrixMarketInfo,
+    MatrixMarketSymmetry, MatrixProfile, ParallelCsr32Operator,
+    PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator, TileDesc, TileKind,
+    ABTM_TOPOLOGY_WORD_BITS, TILE_WIDTH,
 };
 pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,

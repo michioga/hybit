@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 use hybit_auto::{BackendPolicy, HybitPreparedSystem, HybitSolver};
 use hybit_core::{MatrixBackend, PreconditionerKind, SolveStatus, SolverKind};
-use hybit_matrix::Csr32Matrix;
+use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 
 const HYBIT_OK: c_int = 0;
 const HYBIT_INVALID_ARGUMENT: c_int = 1;
@@ -125,6 +125,22 @@ pub struct HybitMatrixHandle {
 
 pub struct HybitPreparedHandle {
     prepared: HybitPreparedSystem,
+}
+
+/// Distinct ABI-safe handle for future mixed-field preprocessing.
+/// It does not alter the existing matrix/solver ABI or currently affect solve().
+pub struct HybitDofLayoutHandle {
+    layout: FieldAwareDofLayout,
+}
+
+/// C-compatible block specification (no Rust enum in the ABI).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HybitDofBlock {
+    pub entity_kind: u32,
+    pub entity_id: u64,
+    pub field_id: u32,
+    pub components: u32,
 }
 
 #[repr(C)]
@@ -557,6 +573,140 @@ pub unsafe extern "C" fn hybit_matrix_destroy(matrix: *mut HybitMatrixHandle) {
     }
 }
 
+/// Create a copied, immutable mixed-field DOF layout.
+///
+/// # Safety
+/// `out_layout` must point to one writable pointer and must not alias `blocks`.
+/// `blocks` must point to `nblocks` readable elements. `nblocks==0` is rejected.
+/// The caller must not concurrently mutate the input or access a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_create(
+    blocks: *const HybitDofBlock,
+    nblocks: usize,
+    out_layout: *mut *mut HybitDofLayoutHandle,
+) -> c_int {
+    if out_layout.is_null() {
+        set_last_error("null output pointer passed to hybit_dof_layout_create");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    *out_layout = ptr::null_mut();
+    if blocks.is_null()
+        || nblocks == 0
+        || nblocks > isize::MAX as usize / std::mem::size_of::<HybitDofBlock>()
+    {
+        set_last_error("invalid DOF block pointer or count");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        let src = slice::from_raw_parts(blocks, nblocks);
+        let mut validated = Vec::with_capacity(nblocks);
+        for item in src {
+            validated.push(DofBlock {
+                entity_kind: DofEntityKind::from_code(item.entity_kind)?,
+                entity_id: item.entity_id,
+                field_id: item.field_id,
+                components: item.components,
+            });
+        }
+        let layout = FieldAwareDofLayout::new(validated)?;
+        *out_layout = Box::into_raw(Box::new(HybitDofLayoutHandle { layout }));
+        Ok(())
+    })
+}
+
+/// # Safety
+/// `layout` must be null or a live, exclusively owned pointer from
+/// `hybit_dof_layout_create`. Do not destroy it more than once.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_destroy(layout: *mut HybitDofLayoutHandle) {
+    if !layout.is_null() {
+        drop(Box::from_raw(layout));
+    }
+}
+
+/// # Safety
+/// `layout` must refer to a live handle; `out_dofs` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_num_dofs(
+    layout: *const HybitDofLayoutHandle,
+    out_dofs: *mut u64,
+) -> c_int {
+    if layout.is_null() || out_dofs.is_null() {
+        set_last_error("null pointer in hybit_dof_layout_num_dofs");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        *out_dofs = (*layout).layout.total_dofs();
+        Ok(())
+    })
+}
+
+/// # Safety
+/// `layout` must be live, and all three output locations must be writable,
+/// nonoverlapping and not alias the handle.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_block(
+    layout: *const HybitDofLayoutHandle,
+    index: usize,
+    out_block: *mut HybitDofBlock,
+    out_start: *mut u64,
+    out_end: *mut u64,
+) -> c_int {
+    if layout.is_null() || out_block.is_null() || out_start.is_null() || out_end.is_null() {
+        set_last_error("null pointer in hybit_dof_layout_block");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        let l = &(*layout).layout;
+        let block = l
+            .blocks()
+            .get(index)
+            .ok_or(hybit_core::HybitError::InvalidArgument(
+                "DOF block index out of range",
+            ))?;
+        let range = l.block_range(index).expect("validated block index");
+        *out_block = HybitDofBlock {
+            entity_kind: block.entity_kind as u32,
+            entity_id: block.entity_id,
+            field_id: block.field_id,
+            components: block.components,
+        };
+        *out_start = range.start;
+        *out_end = range.end;
+        Ok(())
+    })
+}
+
+/// Locate a global DOF's block and local component (both zero-based).
+///
+/// # Safety
+/// `layout` must be live; output pointers must refer to writable,
+/// nonoverlapping storage and must not alias the handle.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_locate(
+    layout: *const HybitDofLayoutHandle,
+    dof: u64,
+    out_block_index: *mut usize,
+    out_component: *mut u32,
+) -> c_int {
+    if layout.is_null() || out_block_index.is_null() || out_component.is_null() {
+        set_last_error("null pointer in hybit_dof_layout_locate");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        let address =
+            (*layout)
+                .layout
+                .locate(dof)
+                .ok_or(hybit_core::HybitError::InvalidArgument(
+                    "global DOF out of range",
+                ))?;
+        *out_block_index = address.block_index;
+        *out_component = address.component;
+        Ok(())
+    })
+}
+
 /// Prepares reusable solver state for a matrix.
 ///
 /// # Safety
@@ -704,6 +854,73 @@ mod tests {
             hybit_version_patch(),
             env!("CARGO_PKG_VERSION_PATCH").parse::<u32>().unwrap()
         );
+    }
+
+    #[test]
+    fn ffi_mixed_dof_layout_interoperability() {
+        unsafe {
+            let blocks = [
+                HybitDofBlock {
+                    entity_kind: 1,
+                    entity_id: 10,
+                    field_id: 1,
+                    components: 3,
+                },
+                HybitDofBlock {
+                    entity_kind: 1,
+                    entity_id: 10,
+                    field_id: 2,
+                    components: 2,
+                },
+                HybitDofBlock {
+                    entity_kind: 5,
+                    entity_id: 20,
+                    field_id: 3,
+                    components: 3,
+                },
+            ];
+            let mut handle: *mut HybitDofLayoutHandle = ptr::null_mut();
+            assert_eq!(
+                hybit_dof_layout_create(blocks.as_ptr(), blocks.len(), &mut handle),
+                HYBIT_OK
+            );
+            assert!(!handle.is_null());
+            let mut n = 0u64;
+            assert_eq!(hybit_dof_layout_num_dofs(handle, &mut n), HYBIT_OK);
+            assert_eq!(n, 8);
+            let mut block = blocks[0];
+            let (mut start, mut end) = (0u64, 0u64);
+            assert_eq!(
+                hybit_dof_layout_block(handle, 1, &mut block, &mut start, &mut end),
+                HYBIT_OK
+            );
+            assert_eq!(block, blocks[1]);
+            assert_eq!((start, end), (3, 5));
+            let (mut index, mut component) = (0usize, 0u32);
+            assert_eq!(
+                hybit_dof_layout_locate(handle, 7, &mut index, &mut component),
+                HYBIT_OK
+            );
+            assert_eq!((index, component), (2, 2));
+            assert_eq!(
+                hybit_dof_layout_locate(handle, 8, &mut index, &mut component),
+                HYBIT_INVALID_ARGUMENT
+            );
+            hybit_dof_layout_destroy(handle);
+            handle = ptr::null_mut();
+            let mut invalid = blocks;
+            invalid[1].entity_kind = 9;
+            assert_eq!(
+                hybit_dof_layout_create(invalid.as_ptr(), invalid.len(), &mut handle),
+                HYBIT_INVALID_ARGUMENT
+            );
+            assert!(handle.is_null());
+            assert_eq!(
+                hybit_dof_layout_create(blocks.as_ptr(), 0, &mut handle),
+                HYBIT_INVALID_ARGUMENT
+            );
+            assert!(handle.is_null());
+        }
     }
 
     #[test]

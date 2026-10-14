@@ -255,3 +255,8 @@ docs/HYBIT_LONG_TERM_ARCHITECTURE.md
 docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md
 docs/SESSION_RESUME_PROTOCOL.md
 docs/HYBIT_DECISION_LOG.md
+crates/hybit-matrix/src/dof_layout.rs
+docs/H1_FIELD_AWARE_DOF.md
+examples/c/field_layout.c
+examples/cpp/field_layout.cpp
+examples/fortran/field_layout.f90

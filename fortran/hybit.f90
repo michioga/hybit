@@ -8,6 +8,23 @@ module hybit
     integer(c_int), parameter, public :: HYBIT_BACKEND_CSR32 = 1
     integer(c_int), parameter, public :: HYBIT_BACKEND_ABTM = 2
 
+    ! Entity-kind codes and field IDs are independent of the existing solver ABI.
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_NODE = 1
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_EDGE = 2
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_FACE = 3
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_ELEMENT = 4
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_MULTIPLIER = 5
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_CONSTRAINT = 6
+    integer(c_int32_t), parameter, public :: HYBIT_ENTITY_OTHER = 255
+
+    ! BIND(C) matches the padding/alignment of hybit_dof_block_t.
+    type, bind(C), public :: hybit_dof_block
+        integer(c_int32_t) :: entity_kind
+        integer(c_int64_t) :: entity_id
+        integer(c_int32_t) :: field_id
+        integer(c_int32_t) :: components
+    end type
+
     type, bind(C), public :: hybit_solve_report
         integer(c_int) :: status
         integer(c_int) :: solver_kind
@@ -46,6 +63,8 @@ module hybit
     public :: hybit_solver_set_hybrid_enabled, hybit_solver_set_overlap_layers
     public :: hybit_matrix_create_csr_f64, hybit_matrix_destroy, hybit_solve
     public :: hybit_prepare, hybit_prepared_destroy, hybit_solve_prepared
+    public :: hybit_dof_layout_create, hybit_dof_layout_destroy
+    public :: hybit_dof_layout_num_dofs, hybit_dof_layout_block, hybit_dof_layout_locate
 
     interface
         integer(c_int) function hybit_set_num_threads(threads) bind(C, name="hybit_set_num_threads")
@@ -114,6 +133,45 @@ module hybit
             type(c_ptr), value :: matrix
         end subroutine
 
+
+        ! Block indices, components and DOF ranges are zero-based, also here.
+        integer(c_int) function hybit_dof_layout_create(blocks, nblocks, out_layout) &
+            bind(C, name="hybit_dof_layout_create")
+            import :: c_int, c_size_t, c_ptr, hybit_dof_block
+            type(hybit_dof_block), intent(in) :: blocks(*)
+            integer(c_size_t), value :: nblocks
+            type(c_ptr), intent(out) :: out_layout
+        end function
+
+        subroutine hybit_dof_layout_destroy(layout) bind(C, name="hybit_dof_layout_destroy")
+            import :: c_ptr
+            type(c_ptr), value :: layout
+        end subroutine
+
+        integer(c_int) function hybit_dof_layout_num_dofs(layout, out_dofs) &
+            bind(C, name="hybit_dof_layout_num_dofs")
+            import :: c_int, c_ptr, c_int64_t
+            type(c_ptr), value :: layout
+            integer(c_int64_t), intent(out) :: out_dofs
+        end function
+
+        integer(c_int) function hybit_dof_layout_block(layout, index, out_block, out_start, out_end) &
+            bind(C, name="hybit_dof_layout_block")
+            import :: c_int, c_ptr, c_size_t, c_int64_t, hybit_dof_block
+            type(c_ptr), value :: layout
+            integer(c_size_t), value :: index
+            type(hybit_dof_block), intent(out) :: out_block
+            integer(c_int64_t), intent(out) :: out_start, out_end
+        end function
+
+        integer(c_int) function hybit_dof_layout_locate(layout, dof, block_index, component) &
+            bind(C, name="hybit_dof_layout_locate")
+            import :: c_int, c_ptr, c_size_t, c_int64_t, c_int32_t
+            type(c_ptr), value :: layout
+            integer(c_int64_t), value :: dof
+            integer(c_size_t), intent(out) :: block_index
+            integer(c_int32_t), intent(out) :: component
+        end function
 
         integer(c_int) function hybit_prepare(solver, matrix, out_prepared) bind(C, name="hybit_prepare")
             import :: c_int, c_ptr

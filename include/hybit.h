@@ -25,6 +25,30 @@ extern "C" {
 typedef struct HybitSolverHandle hybit_solver_t;
 typedef struct HybitMatrixHandle hybit_matrix_t;
 typedef struct HybitPreparedHandle hybit_prepared_t;
+typedef struct HybitDofLayoutHandle hybit_dof_layout_t;
+
+/* H1: variable-size mixed-field metadata. Identifiers are application-defined.
+ * Indices/ranges/lookup components are ZERO-BASED, including Fortran calls.
+ * Existing solver and matrix handles remain unchanged: this initial metadata
+ * handle does NOT yet alter solve routing or attach to a matrix.
+ */
+enum {
+    HYBIT_ENTITY_NODE = 1,
+    HYBIT_ENTITY_EDGE = 2,
+    HYBIT_ENTITY_FACE = 3,
+    HYBIT_ENTITY_ELEMENT = 4,
+    HYBIT_ENTITY_MULTIPLIER = 5,
+    HYBIT_ENTITY_CONSTRAINT = 6,
+    HYBIT_ENTITY_OTHER = 255
+};
+
+typedef struct hybit_dof_block {
+    uint32_t entity_kind;
+    uint64_t entity_id;
+    uint32_t field_id;
+    uint32_t components;
+} hybit_dof_block_t;
+
 
 enum {
     HYBIT_OK = 0,
@@ -110,6 +134,22 @@ HYBIT_API int32_t hybit_matrix_create_csr_f64(
     int32_t index_base,
     hybit_matrix_t **out_matrix);
 HYBIT_API void hybit_matrix_destroy(hybit_matrix_t *matrix);
+
+/* Input is copied; duplicate (entity_kind,entity_id,field_id) or zero
+ * components are errors. The output handle is owned by the caller.
+ * Never share a live handle with a concurrent destroy operation.
+ */
+HYBIT_API int32_t hybit_dof_layout_create(
+    const hybit_dof_block_t *blocks, size_t nblocks, hybit_dof_layout_t **out_layout);
+HYBIT_API void hybit_dof_layout_destroy(hybit_dof_layout_t *layout);
+HYBIT_API int32_t hybit_dof_layout_num_dofs(
+    const hybit_dof_layout_t *layout, uint64_t *out_dofs);
+HYBIT_API int32_t hybit_dof_layout_block(
+    const hybit_dof_layout_t *layout, size_t index,
+    hybit_dof_block_t *out_block, uint64_t *out_start, uint64_t *out_end);
+HYBIT_API int32_t hybit_dof_layout_locate(
+    const hybit_dof_layout_t *layout, uint64_t dof,
+    size_t *out_block_index, uint32_t *out_component);
 
 /* Build reusable matrix-dependent setup for repeated RHS solves. The prepared
  * handle does not own matrix; pass the same unchanged matrix to solve_prepared. */

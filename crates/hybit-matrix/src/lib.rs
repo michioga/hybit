@@ -1,6 +1,7 @@
 mod abtm;
 mod csr32;
 mod dense_block;
+mod dof_layout;
 mod dual_topology;
 mod mask;
 mod matrix_market;
@@ -13,6 +14,7 @@ mod topology;
 pub use abtm::{AbtmConfig, AbtmMatrix, AbtmStats, TileDesc, TileKind, TILE_WIDTH};
 pub use csr32::{Csr32Matrix, ParallelCsr32Operator};
 pub use dense_block::{DenseBlockCsrOperator, DenseBlockSize};
+pub use dof_layout::{DofAddress, DofBlock, DofEntityKind, FieldAwareDofLayout};
 pub use dual_topology::{AbtmDualTopology, AbtmDualTopologyStats};
 pub use mask::DofMask;
 pub use matrix_market::{

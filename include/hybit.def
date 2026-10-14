@@ -19,3 +19,8 @@ EXPORTS
     hybit_prepared_destroy
     hybit_solve_prepared
     hybit_solve
+    hybit_dof_layout_create
+    hybit_dof_layout_destroy
+    hybit_dof_layout_num_dofs
+    hybit_dof_layout_block
+    hybit_dof_layout_locate

@@ -61,6 +61,47 @@ private:
     hybit_matrix_t* ptr_ = nullptr;
 };
 
+/// RAII wrapper for field-aware DOF metadata (no changes to solver defaults).
+class DofLayout {
+public:
+    explicit DofLayout(const std::vector<hybit_dof_block_t>& blocks) {
+        check(hybit_dof_layout_create(blocks.data(), blocks.size(), &ptr_));
+    }
+    DofLayout(const DofLayout&) = delete;
+    DofLayout& operator=(const DofLayout&) = delete;
+    DofLayout(DofLayout&& other) noexcept : ptr_(std::exchange(other.ptr_, nullptr)) {}
+    DofLayout& operator=(DofLayout&& other) noexcept {
+        if (this != &other) {
+            reset();
+            ptr_ = std::exchange(other.ptr_, nullptr);
+        }
+        return *this;
+    }
+    ~DofLayout() { reset(); }
+
+    std::uint64_t num_dofs() const {
+        std::uint64_t n = 0;
+        check(hybit_dof_layout_num_dofs(ptr_, &n));
+        return n;
+    }
+    std::pair<std::uint64_t, std::uint64_t> block_range(std::size_t index) const {
+        hybit_dof_block_t block{};
+        std::uint64_t start = 0, end = 0;
+        check(hybit_dof_layout_block(ptr_, index, &block, &start, &end));
+        return {start, end};
+    }
+    std::pair<std::size_t, std::uint32_t> locate(std::uint64_t dof) const {
+        std::size_t block_index = 0;
+        std::uint32_t component = 0;
+        check(hybit_dof_layout_locate(ptr_, dof, &block_index, &component));
+        return {block_index, component};
+    }
+
+private:
+    void reset() noexcept { if (ptr_) hybit_dof_layout_destroy(ptr_); ptr_ = nullptr; }
+    hybit_dof_layout_t* ptr_ = nullptr;
+};
+
 class Prepared {
 public:
     Prepared() = default;
