@@ -273,3 +273,5 @@ docs/H1C2_FIELD_AWARE_OWNED_HALO.md
 crates/hybit-distributed/src/field_partition.rs
 crates/hybit-distributed/examples/mpi_field_partition_compare.rs
 docs/H1C3_GRAPH_FIELD_PARTITION.md
+crates/hybit-distributed/examples/mpi_field_mtx_bench.rs
+docs/H1C3B_REAL_MTX_BENCH.md

@@ -92,3 +92,22 @@ FAIL gates とログへのリンク/パス:
 - H1-C3 proposed: `field_graph_contiguous_partition` traverses ABTM deduplicated symbolic edges, proposes nearby *whole-field-block* contiguous rank cuts, then accepts only if the existing HaloPlan CSR reference reports non-regression for ghost count, cut nnz, and peer relations. Also adds `PreparedFieldGraphHalo`, reference unit tests and a native 1/2/4/8-rank MS-MPI smoke. No solver/ABI change; no arbitrary noncontiguous ownership support.
 - H1-C3 **Rust, Clippy and native MS-MPI verification pending on developer Windows machine**. No performance or speedup claim; no commit/push until gate review.
 - NEXT: H1-C3 preflight/apply and Rust correctness gates, then native MS-MPI smoke; review comparisons and any regressions before checkpoint commit.
+
+## 2026-10-14 H1-C3B — Matrix Market partition benchmark (candidate, tests pending)
+
+- Developer-provided canonical baseline: `224b129` (`develop/0.9.0`, pushed, clean); H1-C3 Windows Rust/Clippy and native MS-MPI 1/2/4/8 synthetic fixture PASS. H1-C3 @ 8 ranks: Ghost 22 -> 20, cut 242 -> 188, peer 12 -> 8, max DOF imbalance 1.160; no proven end-to-end speedup.
+- Proposed H1-C3B adds **one opt-in example**, `mpi_field_mtx_bench`, to compare equal/field/graph contiguous partitions using real `.mtx`, actual MS-MPI halo SpMV, max-rank time medians, exact traffic and CSR numerical cross-checks.
+- Matrix Market lacks physical field metadata. The benchmark uses synthetic scalar one-DOF field blocks ONLY, not a genuine heterogeneous FEM DOF layout. Global CSR is replicated per rank ONLY within conservative corpus limits.
+- All Windows Rust/MPI and actual `.mtx` tests **PENDING**. No solver routing or published C ABI changes.
+- Next one action: apply only after preflight, run native 1/2/4/8-rank MS-MPI benchmarks starting with Goodwin_010 and sherman5; review numerical/traffic/time/imbalance logs before committing.
+
+## 2026-10-14 H1-C3B validation completed — supersedes the H1-C3B candidate/pending entry above
+
+- **Baseline:** `224b129`, branch `develop/0.9.0`. H1-C3B patch was staged but not committed at the time of these tests. The earlier “tests PENDING” note is historical and is superseded by this entry.
+- **Gates PASS:** H1-C3B Preflight/Apply; `cargo fmt --all -- --check`; Rust release tests (`hybit-distributed` 32, `hybit-matrix` 52, `hybit-ffi` 5, existing public suites and doc-test); non-MPI and MPI-example Clippy `-D warnings`; MS-MPI release build; Source Integrity 277 / 275. Initial `libclang error` cleared by explicitly setting `CLANG_PATH`, `LIBCLANG_PATH`, `MSMPI_INC`, `MSMPI_LIB64` (LLVM 23.1.3); no HyBIT source correction needed.
+- **Native MS-MPI numerical PASS:** Goodwin_010 (1/2/4/8 ranks), sherman5 / nd3k / thermal1 (2/4/8 ranks); for the confirmation, four matrices at 4 and 8 ranks × three policies, 5 warmups + 20 measured calls per policy; all reported `rel_err=0`.
+- **Confirmed median of max-rank SpMV (Equal / Field / Graph, ms):** Goodwin_010 4r 0.00800/0.00790/0.00760, 8r 0.00940/0.01045/0.00955; sherman5 4r 0.00955/0.00920/0.00980, 8r 0.01875/0.01955/0.01895; nd3k 4r 0.71745/0.66320/0.74120, 8r 0.78075/0.77120/0.78110; thermal1 4r 0.18760/0.17525/0.18350, 8r 0.18760/0.17155/0.20305.
+- **Graph selected as fastest in only 1/8 conditions** (Goodwin_010 4 ranks). Examples of structural improvements: Goodwin_010 8r Ghost 1,244 -> 1,163 (nnz max imbalance 1.126 -> 1.300); sherman5 8r Ghost 2,505 -> 2,456 and peers 36 -> 32; thermal1 8r Ghost 23,083 -> 22,905 but Field had lower measured SpMV time.
+- **Graph rejected by its structural selector on nd3k 4/8r**; selected partition was identical to Field but graph preparation still cost 124.3916 / 195.9729 ms versus Field 0.0504 / 0.1968 ms. Differences in observed SpMV timing on those rejected cases must not be interpreted as a partition-policy effect.
+- **Limits:** `.mtx` lacks real field-block semantics; 1 scalar DOF per synthetic block. Global CSR replicated on all ranks solely for bounded benchmarks. No full PCG/FGMRES speedup, physical-field correctness, production memory advantage or automatic solver adoption is claimed. Exact 8-case tables and discussion: `docs/H1C3B_REAL_MTX_BENCH.md`.
+- **Next single task:** checkpoint/commit H1-C3B after doc/SHA gates; then design **H1-C3C cost-aware early reject and selection**, retaining Equal/Field fallback and no production auto-route until measured performance justifies it. Do not create release/tag or publish crates.io without user approval.
