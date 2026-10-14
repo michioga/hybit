@@ -65,6 +65,7 @@ module hybit
     public :: hybit_prepare, hybit_prepared_destroy, hybit_solve_prepared
     public :: hybit_dof_layout_create, hybit_dof_layout_destroy
     public :: hybit_dof_layout_num_dofs, hybit_dof_layout_block, hybit_dof_layout_locate
+    public :: hybit_dof_layout_expand_blocks, hybit_dof_layout_grow_region
 
     interface
         integer(c_int) function hybit_set_num_threads(threads) bind(C, name="hybit_set_num_threads")
@@ -171,6 +172,27 @@ module hybit
             integer(c_int64_t), value :: dof
             integer(c_size_t), intent(out) :: block_index
             integer(c_int32_t), intent(out) :: component
+        end function
+
+        ! Packed output bit k represents zero-based DOF k (use BTEST).
+        ! For empty seeds, caller may provide a dummy array with seed_count=0.
+        integer(c_int) function hybit_dof_layout_expand_blocks(layout, seeds, seed_count, words, word_count) &
+            bind(C, name="hybit_dof_layout_expand_blocks")
+            import :: c_int, c_ptr, c_int64_t, c_size_t
+            type(c_ptr), value :: layout
+            integer(c_int64_t), intent(in) :: seeds(*)
+            integer(c_size_t), value :: seed_count, word_count
+            integer(c_int64_t), intent(out) :: words(*)
+        end function
+
+        integer(c_int) function hybit_dof_layout_grow_region( &
+            layout, matrix, seeds, seed_count, hops, words, word_count) &
+            bind(C, name="hybit_dof_layout_grow_region")
+            import :: c_int, c_ptr, c_int64_t, c_size_t
+            type(c_ptr), value :: layout, matrix
+            integer(c_int64_t), intent(in) :: seeds(*)
+            integer(c_size_t), value :: seed_count, hops, word_count
+            integer(c_int64_t), intent(out) :: words(*)
         end function
 
         integer(c_int) function hybit_prepare(solver, matrix, out_prepared) bind(C, name="hybit_prepare")

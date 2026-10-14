@@ -62,3 +62,10 @@ FAIL gates とログへのリンク/パス:
 - At end of latest user-run C5 the reported `git status --short` was **empty**, and the temporary example was removed. Current HEAD/branch/dirty state **must be rechecked**, not inferred from 2026-10-12 snapshot.
 - New nonnegotiables: iterative-first plus local-direct reinforcement, simple public API, metadata-first ABTM, reduced MPI/Rayon data movement, mixed-field variable DOFs, long-term frictional contact and nonsymmetric/indefinite systems. Do **not** claim these new requirements are implemented.
 - **Next one action:** inspect current local code/API and specify the smallest testable `FieldAwareDofLayout` + constraint/topology/versioning contract, keeping CSR execution unchanged. Define exact reference cross-checks and rollback before any Rust code changes.
+
+## 2026-10-14 H1-B — Field-aware ABTM symbolic region (validation pending)
+
+- Starting point: **H1 `81f653d`** pushed to `develop/0.9.0`, worktree clean; H1 Rust tests 46 matrix / 4 FFI passed, independent C/C++/Fortran DLL ABI smoke passed after WinLibs-first PATH precedence.
+- Added checkpoint proposal: `field_region.rs` block-closed undirected ABTM growth, reuse of G3 `A[R,R]` symbolic extraction, ownership continuity validation, optional C/C++/Fortran packed-mask API. **Not yet adopted as an automatic solver/Schwarz/MPI path.**
+- H1-B gate status: **PENDING** native Windows cargo/Clippy/source-integrity/C/C++/Fortran runtimes. Run and record actual PASS/FAIL before commit/push.
+- Next *one* priority: run `APPLY_HYBIT_H1B.ps1 -PreflightOnly`, then `-Apply` and the H1-B acceptance gate; send logs. Preserve simple `hybit::solve` and C ABI compatibility.

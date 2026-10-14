@@ -24,3 +24,5 @@ EXPORTS
     hybit_dof_layout_num_dofs
     hybit_dof_layout_block
     hybit_dof_layout_locate
+    hybit_dof_layout_expand_blocks
+    hybit_dof_layout_grow_region

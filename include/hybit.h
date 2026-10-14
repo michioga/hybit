@@ -151,6 +151,21 @@ HYBIT_API int32_t hybit_dof_layout_locate(
     const hybit_dof_layout_t *layout, uint64_t dof,
     size_t *out_block_index, uint32_t *out_component);
 
+/* H1-B experimental metadata APIs. All indices zero-based.
+ * `seed_dofs` is an array of global physical DOF indices; may be NULL iff
+ * nseeds==0. `out_words` points to exactly ceil(total_dofs/64) writable u64s.
+ * Bit k of out_words[k/64] corresponds to physical DOF k. No buffer overlap.
+ * Region growth uses A union A^T and closes every newly reached field block.
+ * The CSR->ABTM dual topology is rebuilt per call (not a prepared hot path).
+ */
+HYBIT_API int32_t hybit_dof_layout_expand_blocks(
+    const hybit_dof_layout_t *layout, const uint64_t *seed_dofs, size_t nseeds,
+    uint64_t *out_words, size_t word_count);
+HYBIT_API int32_t hybit_dof_layout_grow_region(
+    const hybit_dof_layout_t *layout, const hybit_matrix_t *matrix,
+    const uint64_t *seed_dofs, size_t nseeds, size_t hops,
+    uint64_t *out_words, size_t word_count);
+
 /* Build reusable matrix-dependent setup for repeated RHS solves. The prepared
  * handle does not own matrix; pass the same unchanged matrix to solve_prepared. */
 HYBIT_API int32_t hybit_prepare(

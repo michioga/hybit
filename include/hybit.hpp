@@ -97,6 +97,26 @@ public:
         return {block_index, component};
     }
 
+    /// Packed physical DOF mask. No numeric solve is performed.
+    std::vector<std::uint64_t> expand_blocks(const std::vector<std::uint64_t>& seeds) const {
+        const std::size_t words = static_cast<std::size_t>((num_dofs() + 63) / 64);
+        std::vector<std::uint64_t> bits(words);
+        check(hybit_dof_layout_expand_blocks(ptr_, seeds.empty() ? nullptr : seeds.data(),
+                                              seeds.size(), bits.data(), bits.size()));
+        return bits;
+    }
+    /// Structural ABTM hops plus field-block closure. Preparation is per call.
+    std::vector<std::uint64_t> grow_region(
+        const Matrix& matrix, const std::vector<std::uint64_t>& seeds,
+        std::size_t hops) const {
+        const std::size_t words = static_cast<std::size_t>((num_dofs() + 63) / 64);
+        std::vector<std::uint64_t> bits(words);
+        check(hybit_dof_layout_grow_region(ptr_, matrix.get(),
+                                           seeds.empty() ? nullptr : seeds.data(),
+                                           seeds.size(), hops, bits.data(), bits.size()));
+        return bits;
+    }
+
 private:
     void reset() noexcept { if (ptr_) hybit_dof_layout_destroy(ptr_); ptr_ = nullptr; }
     hybit_dof_layout_t* ptr_ = nullptr;

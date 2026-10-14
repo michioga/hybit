@@ -9,7 +9,10 @@ use std::sync::OnceLock;
 
 use hybit_auto::{BackendPolicy, HybitPreparedSystem, HybitSolver};
 use hybit_core::{MatrixBackend, PreconditionerKind, SolveStatus, SolverKind};
-use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
+use hybit_matrix::{
+    close_to_field_blocks, grow_field_aware_region, AbtmDualTopology, Csr32Matrix, DofBlock,
+    DofEntityKind, DofMask, FieldAwareDofLayout,
+};
 
 const HYBIT_OK: c_int = 0;
 const HYBIT_INVALID_ARGUMENT: c_int = 1;
@@ -707,6 +710,120 @@ pub unsafe extern "C" fn hybit_dof_layout_locate(
     })
 }
 
+/// H1-B: expand selected zero-based DOFs to complete physical field blocks.
+/// Output has exactly ceil(total_dofs/64) words. No solver state is changed.
+///
+/// # Safety
+/// All handles must remain live. `seed_dofs` must point to `nseeds` readable
+/// u64s when nonempty; `out_words` must point to `word_count` writable u64s.
+/// Input and output buffers must not overlap or alias handles. Caller must
+/// ensure pointers are valid and properly aligned for the full call.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_expand_blocks(
+    layout: *const HybitDofLayoutHandle,
+    seed_dofs: *const u64,
+    nseeds: usize,
+    out_words: *mut u64,
+    word_count: usize,
+) -> c_int {
+    if layout.is_null()
+        || out_words.is_null()
+        || (nseeds > 0 && seed_dofs.is_null())
+        || nseeds > isize::MAX as usize / std::mem::size_of::<u64>()
+    {
+        set_last_error("invalid pointer or seed count in hybit_dof_layout_expand_blocks");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        let l = &(*layout).layout;
+        let n =
+            usize::try_from(l.total_dofs()).map_err(|_| hybit_core::HybitError::SizeOverflow)?;
+        if word_count != n.div_ceil(64) {
+            return Err(hybit_core::HybitError::InvalidArgument(
+                "output word count does not match DOF layout",
+            ));
+        }
+        let seeds = if nseeds == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(seed_dofs, nseeds)
+        };
+        let indices: Vec<usize> = seeds
+            .iter()
+            .map(|&dof| {
+                usize::try_from(dof).map_err(|_| {
+                    hybit_core::HybitError::InvalidArgument("seed DOF index out of range")
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        let selected = DofMask::from_indices(n, &indices)?;
+        let mask = close_to_field_blocks(l, &selected)?;
+        ptr::copy_nonoverlapping(mask.words().as_ptr(), out_words, word_count);
+        Ok(())
+    })
+}
+
+/// H1-B: one or more undirected ABTM structural hops with block closure.
+///
+/// This diagnostic ABI builds an ABTM dual topology **per call** from the
+/// already-owned CSR matrix; it is not yet a prepared/hot-loop interface.
+/// `hops=0` closes seed blocks only. Output is a packed 64-bit DOF bitset.
+/// No contact or nonlinear solver behavior is implied by this function.
+///
+/// # Safety
+/// `layout` and `matrix` must be live, and the array/pointer contracts of
+/// `hybit_dof_layout_expand_blocks` apply. Never destroy handles concurrently.
+#[no_mangle]
+pub unsafe extern "C" fn hybit_dof_layout_grow_region(
+    layout: *const HybitDofLayoutHandle,
+    matrix: *const HybitMatrixHandle,
+    seed_dofs: *const u64,
+    nseeds: usize,
+    hops: usize,
+    out_words: *mut u64,
+    word_count: usize,
+) -> c_int {
+    if layout.is_null()
+        || matrix.is_null()
+        || out_words.is_null()
+        || (nseeds > 0 && seed_dofs.is_null())
+        || nseeds > isize::MAX as usize / std::mem::size_of::<u64>()
+    {
+        set_last_error("invalid pointer or seed count in hybit_dof_layout_grow_region");
+        return HYBIT_INVALID_ARGUMENT;
+    }
+    ffi_guard(|| {
+        let l = &(*layout).layout;
+        let matrix = &(*matrix).matrix;
+        l.validate_square_matrix_size(matrix.nrows(), matrix.ncols())?;
+        let n =
+            usize::try_from(l.total_dofs()).map_err(|_| hybit_core::HybitError::SizeOverflow)?;
+        if word_count != n.div_ceil(64) {
+            return Err(hybit_core::HybitError::InvalidArgument(
+                "output word count does not match DOF layout",
+            ));
+        }
+        let seeds = if nseeds == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(seed_dofs, nseeds)
+        };
+        let indices: Vec<usize> = seeds
+            .iter()
+            .map(|&dof| {
+                usize::try_from(dof).map_err(|_| {
+                    hybit_core::HybitError::InvalidArgument("seed DOF index out of range")
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        let selected = DofMask::from_indices(n, &indices)?;
+        let topo = AbtmDualTopology::from_csr32(matrix)?;
+        let growth = grow_field_aware_region(&topo, l, &selected, hops)?;
+        ptr::copy_nonoverlapping(growth.region().words().as_ptr(), out_words, word_count);
+        Ok(())
+    })
+}
+
 /// Prepares reusable solver state for a matrix.
 ///
 /// # Safety
@@ -920,6 +1037,98 @@ mod tests {
                 HYBIT_INVALID_ARGUMENT
             );
             assert!(handle.is_null());
+        }
+    }
+
+    #[test]
+    fn ffi_field_aware_region_and_errors() {
+        unsafe {
+            let blocks = [
+                HybitDofBlock {
+                    entity_kind: 1,
+                    entity_id: 1,
+                    field_id: 1,
+                    components: 3,
+                },
+                HybitDofBlock {
+                    entity_kind: 1,
+                    entity_id: 1,
+                    field_id: 2,
+                    components: 1,
+                },
+                HybitDofBlock {
+                    entity_kind: 5,
+                    entity_id: 9,
+                    field_id: 3,
+                    components: 3,
+                },
+            ];
+            let mut layout = ptr::null_mut();
+            assert_eq!(
+                hybit_dof_layout_create(blocks.as_ptr(), blocks.len(), &mut layout),
+                HYBIT_OK
+            );
+            let mut words = [0u64; 1];
+            let seed = [0u64];
+            assert_eq!(
+                hybit_dof_layout_expand_blocks(layout, seed.as_ptr(), 1, words.as_mut_ptr(), 1),
+                HYBIT_OK
+            );
+            assert_eq!(words, [0b000_0111]);
+            let row_ptr = vec![0u32, 2, 3, 4, 5, 6, 7, 8];
+            let col_idx = vec![0u32, 4, 1, 2, 3, 4, 5, 6];
+            let matrix = HybitMatrixHandle {
+                matrix: Csr32Matrix::new(7, 7, row_ptr, col_idx, vec![1.0; 8]).unwrap(),
+            };
+            assert_eq!(
+                hybit_dof_layout_grow_region(
+                    layout,
+                    &matrix,
+                    seed.as_ptr(),
+                    1,
+                    1,
+                    words.as_mut_ptr(),
+                    1
+                ),
+                HYBIT_OK
+            );
+            assert_eq!(words, [0b111_0111]); // same-node temperature DOF 3 is not implied
+            assert_eq!(
+                hybit_dof_layout_grow_region(
+                    layout,
+                    &matrix,
+                    seed.as_ptr(),
+                    1,
+                    0,
+                    words.as_mut_ptr(),
+                    1
+                ),
+                HYBIT_OK
+            );
+            assert_eq!(words, [0b000_0111]);
+            assert_eq!(
+                hybit_dof_layout_grow_region(
+                    layout,
+                    &matrix,
+                    seed.as_ptr(),
+                    1,
+                    1,
+                    words.as_mut_ptr(),
+                    0
+                ),
+                HYBIT_INVALID_ARGUMENT
+            );
+            let bad_seed = [7u64];
+            assert_eq!(
+                hybit_dof_layout_expand_blocks(layout, bad_seed.as_ptr(), 1, words.as_mut_ptr(), 1),
+                HYBIT_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                hybit_dof_layout_expand_blocks(layout, ptr::null(), 0, words.as_mut_ptr(), 1),
+                HYBIT_OK
+            );
+            assert_eq!(words, [0u64]);
+            hybit_dof_layout_destroy(layout);
         }
     }
 

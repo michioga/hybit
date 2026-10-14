@@ -68,6 +68,10 @@ pub use hybit_matrix::{
     PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator, TileDesc, TileKind,
     ABTM_TOPOLOGY_WORD_BITS, TILE_WIDTH,
 };
+pub use hybit_matrix::{
+    close_to_field_blocks, field_block_owners, grow_field_aware_region, FieldAwareRegionGrowth,
+    FieldAwareRegionStats,
+};
 pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,
     BlockJacobiPreconditioner, HybridPreconditioner, IdentityPreconditioner, Ilu0Preconditioner,
