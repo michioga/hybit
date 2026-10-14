@@ -22,6 +22,10 @@ hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
 name = "mpi_field_aware_halo"
 required-features = ["mpi"]
 
+[[example]]
+name = "mpi_field_partition_compare"
+required-features = ["mpi"]
+
 [dev-dependencies]
 hybit-core = { version = '0.9.0', path = '../hybit-core' }
 hybit-krylov = { version = '0.9.0', path = '../hybit-krylov' }

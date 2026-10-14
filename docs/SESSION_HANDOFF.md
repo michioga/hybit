@@ -85,3 +85,10 @@ FAIL gates とログへのリンク/パス:
 - Real MS-MPI smoke `mpi_field_aware_halo` compares the actual rank-owned CSR/Halo to global-reference plans and executes native MPI SpMV at 1/2/4/8 ranks. Global fixture replication is testing-only. Does not establish performance speedups.
 - **Validation pending**: developer-machine Preflight/Apply, Rust + strict Clippy, Source Integrity, native MS-MPI 1/2/4/8 rank execution; do not mark PASS until logs arrive.
 - Next prioritized action: execute H1-C2 validation gates on Windows, correct any concrete failing gate, then checkpoint commit/push with the new results.
+
+## 2026-10-14 H1-C3 graph-aware field partition (patch pending validation)
+
+- Baseline `bbe5cef` on `develop/0.9.0`; H1-C2 Windows Rust 29 distributed /52 matrix /5 FFI and native MS-MPI 1/2/4/8 ranks all PASS. H1-C2 push confirmed and worktree clean.
+- H1-C3 proposed: `field_graph_contiguous_partition` traverses ABTM deduplicated symbolic edges, proposes nearby *whole-field-block* contiguous rank cuts, then accepts only if the existing HaloPlan CSR reference reports non-regression for ghost count, cut nnz, and peer relations. Also adds `PreparedFieldGraphHalo`, reference unit tests and a native 1/2/4/8-rank MS-MPI smoke. No solver/ABI change; no arbitrary noncontiguous ownership support.
+- H1-C3 **Rust, Clippy and native MS-MPI verification pending on developer Windows machine**. No performance or speedup claim; no commit/push until gate review.
+- NEXT: H1-C3 preflight/apply and Rust correctness gates, then native MS-MPI smoke; review comparisons and any regressions before checkpoint commit.

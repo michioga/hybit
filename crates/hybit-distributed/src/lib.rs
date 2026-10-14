@@ -1,4 +1,5 @@
 mod field_halo;
+mod field_partition;
 #[cfg(feature = "mpi")]
 pub mod mpi_backend;
 #[cfg(feature = "mpi")]
@@ -21,6 +22,9 @@ mod partition;
 pub use field_halo::{
     field_aligned_contiguous_partition, validate_field_assignment,
     validate_field_contiguous_partition, PreparedFieldAwareHalo,
+};
+pub use field_partition::{
+    field_graph_contiguous_partition, FieldGraphPartitionComparison, PreparedFieldGraphHalo,
 };
 use hybit_matrix::Csr32Matrix;
 pub use multilevel::{abtm_multilevel_partition, AbtmMultilevelOptions, AbtmMultilevelStats};

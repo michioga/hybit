@@ -270,3 +270,6 @@ docs/H1C1_PREPARED_FIELD_REGION.md
 crates/hybit-distributed/src/field_halo.rs
 crates/hybit-distributed/examples/mpi_field_aware_halo.rs
 docs/H1C2_FIELD_AWARE_OWNED_HALO.md
+crates/hybit-distributed/src/field_partition.rs
+crates/hybit-distributed/examples/mpi_field_partition_compare.rs
+docs/H1C3_GRAPH_FIELD_PARTITION.md
