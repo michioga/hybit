@@ -69,3 +69,11 @@ FAIL gates とログへのリンク/パス:
 - Added checkpoint proposal: `field_region.rs` block-closed undirected ABTM growth, reuse of G3 `A[R,R]` symbolic extraction, ownership continuity validation, optional C/C++/Fortran packed-mask API. **Not yet adopted as an automatic solver/Schwarz/MPI path.**
 - H1-B gate status: **PENDING** native Windows cargo/Clippy/source-integrity/C/C++/Fortran runtimes. Run and record actual PASS/FAIL before commit/push.
 - Next *one* priority: run `APPLY_HYBIT_H1B.ps1 -PreflightOnly`, then `-Apply` and the H1-B acceptance gate; send logs. Preserve simple `hybit::solve` and C ABI compatibility.
+
+## 2026-10-14 H1-B accepted and pushed; H1-C1 preparation proposed
+
+- H1-B validated on Windows 11 native MSVC Rust toolchain: `hybit-matrix` 50/50 PASS, `hybit-ffi` 5/5 PASS, old `hybit` public tests PASS; Clippy `-D warnings` PASS after `field_region.rs` iterator fix, source integrity 267 manifest / 265 verified PASS, C/C++/Fortran executable ABI smoke PASS (`0x77` / `119` / `119`).
+- H1-B `develop/0.9.0` HEAD `10b6eec`, pushed to `origin/develop/0.9.0`, clean worktree per user-provided log.
+- H1-C1 proposal: cached ABTM dual topology and field-aware region + G3 local numeric-address plans, reuse with unchanged CSR structure, Rust-only opt-in; no MPI exchange or numerical solver routing modifications. C/C++/Fortran existing ABI preserved; new prepared ABI is future work.
+- **H1-C1 gates PENDING** Windows Rust test/Clippy/source-integrity. Do not mark passed based on patch installation.
+- Next one action: validate H1-C1 package on exact `10b6eec`, then separately design real MS-MPI owner/ghost/Halo integration H1-C2.

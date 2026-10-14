@@ -7,6 +7,7 @@ mod field_region;
 mod mask;
 mod matrix_market;
 mod metadata_first;
+mod prepared_field_region;
 mod profile;
 mod region;
 mod restricted;
@@ -29,6 +30,7 @@ pub use matrix_market::{
 pub use metadata_first::{
     AbtmMetadataFirstMatrix, AbtmMetadataFirstStats, AbtmProductPruningStats,
 };
+pub use prepared_field_region::{PreparedFieldAwareLocalRegion, PreparedFieldAwareTopology};
 pub use profile::{analyze_csr32, MatrixProfile};
 pub use region::{
     extract_local_submatrix_pattern, grow_undirected_region, prepare_local_numeric_plan,

@@ -70,7 +70,7 @@ pub use hybit_matrix::{
 };
 pub use hybit_matrix::{
     close_to_field_blocks, field_block_owners, grow_field_aware_region, FieldAwareRegionGrowth,
-    FieldAwareRegionStats,
+    FieldAwareRegionStats, PreparedFieldAwareLocalRegion, PreparedFieldAwareTopology,
 };
 pub use hybit_precond::{
     recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,
