@@ -282,3 +282,6 @@ crates/hybit-distributed/src/cost_guard.rs
 crates/hybit-distributed/src/cost_consensus.rs
 crates/hybit-distributed/examples/mpi_cost_guard_smoke.rs
 docs/H1C3D_CALIBRATION_MPI_GUARD.md
+crates/hybit-distributed/src/cost_distribution.rs
+crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
+docs/H1C3E_ROOT_COORDINATED_PARTITION.md

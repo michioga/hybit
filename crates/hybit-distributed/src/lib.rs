@@ -1,5 +1,7 @@
 #[cfg(feature = "mpi")]
 mod cost_consensus;
+#[cfg(feature = "mpi")]
+mod cost_distribution;
 mod cost_guard;
 mod cost_partition;
 mod field_halo;
@@ -25,6 +27,11 @@ mod partition;
 
 #[cfg(feature = "mpi")]
 pub use cost_consensus::verify_cost_partition_mpi_consensus;
+#[cfg(feature = "mpi")]
+pub use cost_distribution::{
+    broadcast_root_cost_selection_mpi, select_and_broadcast_cost_partition_mpi,
+    RootMpiCostSelection,
+};
 pub use cost_guard::{
     capture_partition_calibration, cost_aware_contiguous_partition_scoped,
     CalibrationGuardDecision, PartitionCalibrationIdentity, ScopedCostPartitionResult,
