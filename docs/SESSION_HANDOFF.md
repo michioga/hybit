@@ -193,3 +193,18 @@ FAIL gates とログへのリンク/パス:
   SOURCE_SHA256, run final integrity/diff and (preferably) full release Rust
   regression tests, then commit/push only once all checks pass. No tag,
   release, crates.io publish, or automatic solver policy change.
+
+## 2026-10-15 H1-C3G candidate — native measured calibration, economic gate (pending)
+
+- Exact source checkpoint **`a118565`**, branch `develop/0.9.0`, H1-C3F has been committed/pushed and the user confirmed `HEAD == origin/develop/0.9.0`, clean worktree.
+- New **example only** `mpi_root_measured_calibration_bench.rs`: rank-0-only Graph proposal, native MPI baseline/candidate calibration with 5 warmups + 40 samples of maximum-rank SpMV, scoped capture of **measured** timing evidence (not H1-C3F illustrative numbers), existing root-broadcast selector, and 5 warmups + 20 held-out samples. Numeric and traffic checks include no full CSR on workers.
+- Modeled break-even accounts for root Graph preparation + positive native setup delta; calibration **probe cost excluded**, repeated independent runs not yet done. This is still a tiny synthetic matrix, not real FEM nor production solver routing. No promise of GraphSelected: measured slow / unamortized candidates should fail closed to baseline.
+- **PENDING** Windows Preflight/Apply, rustfmt, strict MPI Clippy, release build, native 1/2/4/8 MPI at N=10000 and 2/4/8 at N=1, release regression and Source Integrity. No commit/push/release/tag/publication until user shares PASS logs.
+## 2026-10-15 H1-C3G Windows/MS-MPI measured-calibration validation — supersedes pending
+
+- Base `a118565`, `develop/0.9.0`; H1-C3G staged, **not committed or pushed** at validation time. Preflight/Apply, rustfmt, MPI-enabled strict Clippy, release example, complete non-MPI release regressions (distributed 45/45, matrix 52/52, FFI 5/5, HyBIT public APIs), Source Integrity **291/289**, staged diff: **PASS**.
+- Native MS-MPI **7/7 PASS**: N=10000 at 1/2/4/8 ranks and N=1 at 2/4/8 ranks; all numeric reference errors zero, guard `Matched`, `workers_global_csr=0`.
+- At N=10000, rank 1 `SingleRank/Equal`; 2/4/8 `GraphSelected`. Baseline/Graph calibrated max-rank SpMV medians (us): 2r **4.10/4.00**, 4r **12.20/11.40**, 8r **10.15/8.80**. Root proposal preparation (ms) **0.0887/0.0878/0.1706**, modeled break-even **887/110/127** calls; ghosts **24->2 / 68->4 / 156->8**.
+- At N=1, 2/4/8 ranks return `UnamortizedPreparation` and choose Equal/Equal/Field. The printed **modeled** total can nevertheless favor Graph on 4/8 ranks because the conservative selection gate does not credit native Halo setup savings. `modeled_*_total_ms` is a cost calculation, not full-N measured wall time.
+- IMPORTANT: independent holdout selected SpMV medians (2/4/8 ranks, us) **2.25/2.80/5.20** differ substantially from Graph calibration medians **4.00/11.40/8.80**; repeat paired trials and examine jitter/variance. Holdout does not separately benchmark unselected baseline. The example excludes 40-sample calibration/probe overhead and a second Graph preparation performed by the guarded final selector. Thus printed break-even numbers likely understate full end-to-end break-even.
+- **Next action:** apply H1-C3G native validation documentation update, run Source Integrity **291/289**, `git diff --cached --check`, staged stat/status; commit/push checkpoint only after Windows PASS. H1-C3H should quantify measured total setup + calibration cost, independent-run confidence intervals and real mixed-field FEM/PCG. No release/tag/publish or production automatic routing.

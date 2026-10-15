@@ -287,3 +287,5 @@ crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
 docs/H1C3E_ROOT_COORDINATED_PARTITION.md
 crates/hybit-distributed/examples/mpi_root_graph_selection_bench.rs
 docs/H1C3F_GRAPH_ROOT_BENCH.md
+crates/hybit-distributed/examples/mpi_root_measured_calibration_bench.rs
+docs/H1C3G_MEASURED_CALIBRATION.md

@@ -48,3 +48,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_root_graph_selection_bench"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_root_measured_calibration_bench"
+required-features = ["mpi"]
