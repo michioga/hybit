@@ -278,3 +278,7 @@ docs/H1C3B_REAL_MTX_BENCH.md
 crates/hybit-distributed/src/cost_partition.rs
 crates/hybit-distributed/examples/cost_field_partition_probe.rs
 docs/H1C3C_COST_AWARE_PARTITION.md
+crates/hybit-distributed/src/cost_guard.rs
+crates/hybit-distributed/src/cost_consensus.rs
+crates/hybit-distributed/examples/mpi_cost_guard_smoke.rs
+docs/H1C3D_CALIBRATION_MPI_GUARD.md

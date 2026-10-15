@@ -1,3 +1,6 @@
+#[cfg(feature = "mpi")]
+mod cost_consensus;
+mod cost_guard;
 mod cost_partition;
 mod field_halo;
 mod field_partition;
@@ -20,6 +23,13 @@ pub mod mpi_two_level;
 mod multilevel;
 mod partition;
 
+#[cfg(feature = "mpi")]
+pub use cost_consensus::verify_cost_partition_mpi_consensus;
+pub use cost_guard::{
+    capture_partition_calibration, cost_aware_contiguous_partition_scoped,
+    CalibrationGuardDecision, PartitionCalibrationIdentity, ScopedCostPartitionResult,
+    ScopedPartitionCostCalibration,
+};
 pub use cost_partition::{
     cost_aware_contiguous_partition, CostAwarePartitionDecision, CostAwarePartitionKind,
     CostAwarePartitionOptions, CostAwarePartitionReport, PartitionCostCalibration,

@@ -36,3 +36,7 @@ hybit-krylov = { version = '0.9.0', path = '../hybit-krylov' }
 
 [[example]]
 name = "cost_field_partition_probe"
+
+[[example]]
+name = "mpi_cost_guard_smoke"
+required-features = ["mpi"]
