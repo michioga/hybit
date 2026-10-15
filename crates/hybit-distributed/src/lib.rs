@@ -1,3 +1,4 @@
+mod cost_partition;
 mod field_halo;
 mod field_partition;
 #[cfg(feature = "mpi")]
@@ -19,6 +20,10 @@ pub mod mpi_two_level;
 mod multilevel;
 mod partition;
 
+pub use cost_partition::{
+    cost_aware_contiguous_partition, CostAwarePartitionDecision, CostAwarePartitionKind,
+    CostAwarePartitionOptions, CostAwarePartitionReport, PartitionCostCalibration,
+};
 pub use field_halo::{
     field_aligned_contiguous_partition, validate_field_assignment,
     validate_field_contiguous_partition, PreparedFieldAwareHalo,

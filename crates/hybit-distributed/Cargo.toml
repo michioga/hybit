@@ -33,3 +33,6 @@ required-features = ["mpi"]
 [dev-dependencies]
 hybit-core = { version = '0.9.0', path = '../hybit-core' }
 hybit-krylov = { version = '0.9.0', path = '../hybit-krylov' }
+
+[[example]]
+name = "cost_field_partition_probe"

@@ -111,3 +111,19 @@ FAIL gates とログへのリンク/パス:
 - **Graph rejected by its structural selector on nd3k 4/8r**; selected partition was identical to Field but graph preparation still cost 124.3916 / 195.9729 ms versus Field 0.0504 / 0.1968 ms. Differences in observed SpMV timing on those rejected cases must not be interpreted as a partition-policy effect.
 - **Limits:** `.mtx` lacks real field-block semantics; 1 scalar DOF per synthetic block. Global CSR replicated on all ranks solely for bounded benchmarks. No full PCG/FGMRES speedup, physical-field correctness, production memory advantage or automatic solver adoption is claimed. Exact 8-case tables and discussion: `docs/H1C3B_REAL_MTX_BENCH.md`.
 - **Next single task:** checkpoint/commit H1-C3B after doc/SHA gates; then design **H1-C3C cost-aware early reject and selection**, retaining Equal/Field fallback and no production auto-route until measured performance justifies it. Do not create release/tag or publish crates.io without user approval.
+
+## 2026-10-15 H1-C3C — conservative cost-aware partition candidate (not yet validated)
+
+- Starting checkpoint: `5d0e919` pushed to `develop/0.9.0`, clean worktree per user log. H1-C3B MTX benchmark and docs accepted; single-machine `Goodwin_010`/`sherman5`/`nd3k`/`thermal1`, 4/8 ranks, 20 repeated SpMVs, accurate within reported error zero. Graph fastest in just 1/8 cases; `nd3k` 4/8 graph proposal was rejected but incurred symbolic preparation. Do NOT claim Graph is generally faster.
+- New candidate H1-C3C explicit `cost_aware_contiguous_partition`: field-safe Equal/Field baseline, *pre-ABTM* economic rejection without representative SpMV timing evidence, opt-in Graph with exact Halo and load caps. Shared calibration only; local measured preparation is diagnostic and never controls rank-dependent MPI decisions. No auto routing, no ABI change, no transport change.
+- **Validation pending**: Rust unit tests (7 new), `cargo fmt`, Clippy `-D warnings`, Source Integrity, and example probes on `Goodwin_010` and `nd3k`. Native MS-MPI example is deliberately unchanged; this new probe is non-MPI. Do not commit until Windows logs confirm gates.
+- Next: apply H1-C3C package on exact `5d0e919`; inspect test/probe logs. Correct any defects, document actual results, then commit/push checkpoint only. Then design MPI agreement and real mixed FEM field layouts.
+
+## 2026-10-15 H1-C3C native Windows Rust and MTX policy probes — validated, commit pending
+
+- Replaces the earlier H1-C3C "validation pending" note above, **for the explicit non-MPI selector only**. Starting HEAD `5d0e919`, staged modifications not yet committed/pushed.
+- Windows `cargo fmt --check`, `cargo test --release --locked` (39 distributed, 52 matrix, 5 ffi, existing public tests), strict Clippy, source integrity (280 manifest / 278 SHA), staged diff gate: **PASS**.
+- `Goodwin_010` ranks=4 radius=5: expected 1,000 calls -> `UnamortizedPreparation`, no ABTM; 10,000 calls -> `GraphSelected`, ghosts 542→513, cut nnz 5091→4930, local nnz imbalance 1.1090. `nd3k` ranks=4 radius=5 -> `NoCalibratedSpeedup`, no ABTM. `Goodwin_010` radius=32 -> `LoadImbalanceLimit`, Graph attempted, Field retained, 1.0385 ms local graph prep wasted.
+- **Calibration mismatch:** Goodwin's supplied baseline 8000 ns is the former **Equal** timing, but selector chose **Field** (measured 7900 ns in H1-C3B). Radius=5 Graph time is unmeasured, while supplied Graph 7600 ns was from radius=32. Current `GraphSelected` is illustrative model behavior only, **not validated MPI speedup**. Do not deploy automatic selection without matching calibration provenance.
+- No native MPI consensus, MPI PCG/FGMRES, mixed physical field FEM, or end-to-end performance validation of H1-C3C. Existing MPI transport and solver defaults unchanged.
+- Next: commit/push H1-C3C after documentation+Source Integrity gate; then design calibration-identity guard and root-coordinated MPI selection. No release/tag/publish.
