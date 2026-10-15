@@ -44,3 +44,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_root_cost_partition_smoke"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_root_graph_selection_bench"
+required-features = ["mpi"]

@@ -158,3 +158,38 @@ FAIL gates とログへのリンク/パス:
 - **MPI-feature unit tests:** `cargo test --release --locked -p hybit-distributed --features mpi --lib` **72/72 PASS**, including the 2 new H1-C3E digest tests. The initial `mpi-sys`/`bindgen` `libclang` error on a new PowerShell environment was resolved using explicit `CLANG_PATH`, `LIBCLANG_PATH`, `MSMPI_INC`, and `MSMPI_LIB64`; no source modifications were required.
 - **Still not exercised:** Graph-selected MPI path, production distributed matrix ingest, real mixed-field FEM files, full MPI-PCG/FGMRES timings, memory scaling and arbitrary MPI failure handling. No speedup claim.
 - **Next action:** apply the corrected H1-C3E validation-document patch and refresh SHA-256; verify Source Integrity/staged diff; then commit/push the development checkpoint on `develop/0.9.0` (no tag/release/crates.io publish). Future H1-C3F: test Graph-selected root broadcast with matching measured calibration and perform true owned-row FEM input and whole-solver comparisons.
+
+## 2026-10-15 H1-C3F — Graph-selected root MPI comparison (candidate, native validation pending)
+
+- Baseline `8601e93`, pushed to `develop/0.9.0`, clean worktree according to user's actual commit/push output; H1-C3E 45 non-MPI distributed / 72 MPI-enabled distributed Rust tests plus 1/2/4/8-rank native positive and 15 injected-negative MPI cases PASS, with H1-C3E root broadcast selecting Equal.
+- New **example only** `mpi_root_graph_selection_bench` on synthetic 84 two-component field blocks/168 DOFs in eight dense regions with a directed inter-region connection. Expected `GraphSelected` at 2/4/8 ranks, SingleRank at rank 1; root alone holds global CSR and runs ABTM refinement, nonroots generate only owned-row CSR. Existing Halo/SpMV numerical equivalence and reciprocal traffic are checked.
+- Compare baseline and Graph with 5 warmups + 20 medians of maximum-rank native MPI SpMV; collect Rank 0 selector and native setup time. Cost calibration values are **invented fixture values solely to exercise the selected-Graph code path**, not evidence of a speedup, accurate ROI, or comparable live production workload. No production auto-route or solver change.
+- **PENDING:** Windows package Preflight/Apply, `cargo fmt`, MPI example Clippy/build, MS-MPI 1/2/4/8 PASS, source integrity and staged diff. Do not commit/push H1-C3F until actual user logs are reviewed. No release/tag/publish.
+
+## 2026-10-15 H1-C3F actual Windows/MS-MPI validation — supersedes PENDING
+
+- H1-C3F based on clean/pushed `8601e93` (develop/0.9.0); staged, not committed
+  at this validation checkpoint. Preflight/Apply and FIX2 MSRV correction
+  passed Source Integrity **289 / 287**. Initial strict Clippy failed on two
+  `is_multiple_of` calls requiring Rust 1.87 > project MSRV 1.73; FIX2 used
+  `% 7 == 0` / `% 2 == 0`. FIX1 SHA mismatch was a packaging guard error,
+  not a compiler bug. A transient libclang/bindgen failure was resolved by
+  setting CLANG_PATH/LIBCLANG_PATH/MSMPI_INC/MSMPI_LIB64 in the active shell.
+- Final strict **MPI-enabled Clippy PASS**, release example build **PASS**,
+  native MS-MPI 1/2/4/8 ranks **PASS**; numeric CSR reference error **0** for
+  both baseline and chosen policy; `workers_global_csr=0`.
+- Ranks 1: Equal/SingleRank, 0 ghosts, max-rank SpMV 1.900/1.900 us.
+  Ranks 2: GraphSelected, ghosts **24->2**, SpMV **5.400->5.250 us** (2.8%).
+  Ranks 4: GraphSelected, ghosts **68->4**, SpMV **4.900->4.250 us** (13.3%).
+  Ranks 8: GraphSelected, ghosts **156->8**, SpMV **7.900->6.300 us** (20.3%).
+  All times = 20-sample median of maximum-rank native MPI SpMV, 5 warmups;
+  rank-0 selector took 0.2372/0.2914/0.3336 ms at 2/4/8 ranks.
+- These are **tiny synthetic benchmark results**, not an end-to-end solver
+  speedup or proof of general scalability. The calibration numbers supplied
+  to force Graph selection are synthetic; the selector guard only verifies
+  scoped identity, not calibration provenance. No real FEM, solver convergence,
+  production matrix distribution, or repeated independent calibration tested.
+- **Next:** append these validated observations to H1-C3F docs, update
+  SOURCE_SHA256, run final integrity/diff and (preferably) full release Rust
+  regression tests, then commit/push only once all checks pass. No tag,
+  release, crates.io publish, or automatic solver policy change.
