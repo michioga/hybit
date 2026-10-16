@@ -52,3 +52,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_root_measured_calibration_bench"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_root_cost_ledger_bench"
+required-features = ["mpi"]
