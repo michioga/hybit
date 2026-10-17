@@ -24,6 +24,7 @@ pub mod mpi_pcg;
 pub mod mpi_two_level;
 mod multilevel;
 mod partition;
+mod robust_cost;
 
 #[cfg(feature = "mpi")]
 pub use cost_consensus::verify_cost_partition_mpi_consensus;
@@ -53,6 +54,9 @@ pub use multilevel::{abtm_multilevel_partition, AbtmMultilevelOptions, AbtmMulti
 pub use partition::{
     abtm_balanced_multisource_partition, abtm_region_grow_partition,
     partition_telemetry_assignment, AbtmMultisourceStats, AbtmPartitionStats, PartitionAssignment,
+};
+pub use robust_cost::{
+    evaluate_robust_cost, RobustCostDecision, RobustCostInputs, RobustCostReport,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;

@@ -291,3 +291,6 @@ crates/hybit-distributed/examples/mpi_root_measured_calibration_bench.rs
 docs/H1C3G_MEASURED_CALIBRATION.md
 crates/hybit-distributed/examples/mpi_root_cost_ledger_bench.rs
 docs/H1C3H_TOTAL_COST_AUDIT.md
+crates/hybit-distributed/src/robust_cost.rs
+crates/hybit-distributed/examples/mpi_robust_partition_bench.rs
+docs/H1C3I_ROBUST_CALIBRATION.md

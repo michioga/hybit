@@ -56,3 +56,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_root_cost_ledger_bench"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_robust_partition_bench"
+required-features = ["mpi"]
