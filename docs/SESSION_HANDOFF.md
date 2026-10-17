@@ -319,3 +319,28 @@ FAIL gates とログへのリンク/パス:
   commit/push. Then H1-C3K2 real-matrix Equal/Field/ABTM Graph comparisons,
   preserving exact RHS, rtol, Jacobi, MPI and total-cost accounting.
   No tag/release/crates.io publish; no production auto selection.
+
+## 2026-10-17 H1-C3K1 committed / Windows MSVC + Clang + MS-MPI invariant
+
+- H1-C3K1 **committed and pushed**, `develop/0.9.0` HEAD **`cbbcdfa`**,
+  clean local/remote, Source Integrity **301/299 PASS** at K1 checkpoint.
+  Rustfmt, Clippy, non-MPI Release regression, 81/81 MPI-feature lib tests,
+  and real `thermal1.mtx` strict numerical gate (12 FEM + 4 certified
+  control) PASS. No release/tag/crates.io publication.
+- **Before ALL future MPI Cargo build/test commands**, in **each new
+  PowerShell session** run:
+  `. .\tools\env\Enter-HybitMsMpi.ps1` from `D:\Work\hybit\hybit`.
+  Reference: `docs/WINDOWS_MSVC_MSMPI_ENV.md`.
+- **Fixed:** Visual Studio 2026 Community Developer PowerShell 18,
+  `cl.exe` MSVC x64, LLVM/Clang 23.1.3 `C:\Program Files\LLVM\bin`,
+  `CLANG_PATH=C:\Program Files\LLVM\bin\clang.exe`,
+  `LIBCLANG_PATH=C:\Program Files\LLVM\bin`; `LIBCLANG_PATH` is not
+  `PATH`. MS-MPI executable **`C:\Program Files\Microsoft MPI\Bin\mpiexec.exe`**,
+  SDK `MSMPI_INC=C:\Program Files (x86)\Microsoft SDKs\MPI\Include\`,
+  `MSMPI_LIB64=C:\Program Files (x86)\Microsoft SDKs\MPI\Lib\x64\`.
+  **Do not substitute MinGW or Open MPI.** An uninitialized MSVC shell
+  causes `mpi-sys`/`bindgen` `libclang error` and missing `VCINSTALLDIR`,
+  `INCLUDE`, `LIB`; this was an environment failure, not a source regression.
+- Next H1-C3K2: compare real-FEM Equal baseline vs ABTM Graph; physical
+  Field-aware DOF metadata must be supplied separately (Matrix Market does
+  not encode it). Do not enable production auto Graph selection by default.
