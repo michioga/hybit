@@ -297,3 +297,5 @@ docs/H1C3I_ROBUST_CALIBRATION.md
 crates/hybit-distributed/examples/mpi_root_graph_reuse_bench.rs
 crates/hybit-distributed/tests/graph_candidate_reuse.rs
 docs/H1C3J_GRAPH_REUSE.md
+benchmarks/scripts/bench-h1c3k1-real-fem-mpi.ps1
+docs/H1C3K1_REAL_FEM_MPI_PCG_BASELINE.md

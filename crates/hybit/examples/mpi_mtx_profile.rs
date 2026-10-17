@@ -34,8 +34,8 @@ fn truth(global: u64) -> f64 {
 }
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.len() != 8 {
-        return Err("usage: mpi_mtx_profile <ranks> <csv> <matrix.mtx> <label> <certified|experimental> <warmups> <repeats> <max_iters>".into());
+    if args.len() != 8 && args.len() != 9 {
+        return Err("usage: mpi_mtx_profile <ranks> <csv> <matrix.mtx> <label> <certified|experimental> <warmups> <repeats> <max_iters> [relative_tolerance]".into());
     }
     let expected: i32 = args[0].parse()?;
     let csv = Path::new(&args[1]);
@@ -52,6 +52,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let warmups: usize = args[5].parse()?;
     let repeats: usize = args[6].parse()?;
     let max_iters: usize = args[7].parse()?;
+    let relative_tolerance: f64 = if args.len() == 9 {
+        args[8].parse()?
+    } else {
+        1.0e-9
+    };
+    if !relative_tolerance.is_finite() || !(1.0e-13..=1.0e-8).contains(&relative_tolerance) {
+        return Err("relative_tolerance must be finite and in 1e-13..=1e-8".into());
+    }
     if repeats == 0 || repeats > 100 || warmups > 100 || max_iters == 0 || max_iters > 100_000 {
         return Err("invalid benchmark warmup/repeats/max_iters".into());
     }
@@ -88,16 +96,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     let options = DistributedPcgOptions {
-        relative_tolerance: 1e-9,
+        relative_tolerance,
         absolute_tolerance: 1e-13,
         max_iterations: max_iters,
     };
     let mut times = Vec::with_capacity(repeats);
     let mut imbalance = Vec::with_capacity(repeats);
     let mut iterations = 0;
-    let mut residual = f64::INFINITY;
-    let mut absolute_error = f64::INFINITY;
-    let mut status = DistributedPcgStatus::MaxIterations;
+    let mut residual = 0.0_f64;
+    let mut absolute_error = 0.0_f64;
+    let mut status = DistributedPcgStatus::Converged;
+    let mut all_measured_accurate = true;
     let mut spmv_calls = 0;
     let mut reductions = 0;
     for run in 0..(warmups + repeats) {
@@ -116,10 +125,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         if run >= warmups {
             times.push(max_ms);
             imbalance.push(if mean_ms > 0.0 { max_ms / mean_ms } else { 1.0 });
-            iterations = report.iterations;
-            residual = report.true_relative_residual;
-            absolute_error = error;
-            status = report.status;
+            iterations = iterations.max(report.iterations);
+            residual = residual.max(if report.true_relative_residual.is_finite() {
+                report.true_relative_residual
+            } else {
+                f64::INFINITY
+            });
+            absolute_error = absolute_error.max(if error.is_finite() {
+                error
+            } else {
+                f64::INFINITY
+            });
+            if report.status != DistributedPcgStatus::Converged {
+                status = report.status;
+            }
+            all_measured_accurate &= report.status == DistributedPcgStatus::Converged
+                && report.true_relative_residual.is_finite()
+                && report.true_relative_residual <= 1.1 * relative_tolerance
+                && error.is_finite()
+                && error <= 2e-7;
             spmv_calls = report.spmv_calls;
             reductions = report.allreduce_calls;
         }
@@ -129,9 +153,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let median_ms = median(&mut times);
     let median_imbalance = median(&mut imbalance);
     // All ranks see the same global status/residual. Do not mislabel failures.
-    let is_converged = status == DistributedPcgStatus::Converged
+    let is_converged = all_measured_accurate
+        && status == DistributedPcgStatus::Converged
         && residual.is_finite()
-        && residual <= 1.1e-9
+        && residual <= 1.1 * relative_tolerance
         && absolute_error.is_finite()
         && absolute_error <= 2e-7;
     mpi.barrier();
@@ -139,11 +164,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut f = OpenOptions::new().append(true).open(csv)?;
         writeln!(f, "{label},{policy_name},{expected},{},{},{warmups},{repeats},{iterations},{status:?},{residual:.12e},{absolute_error:.12e},{ghosts},{read_ms:.6},{scatter_ms:.6},{halo_ms:.6},{prepare_ms:.6},{median_ms:.6},{min_ms:.6},{max_ms:.6},{median_imbalance:.6},{spmv_calls},{reductions}", partition.global_dofs(), ingest.global_nnz)?;
         let verdict = if is_converged {
-            "CONVERGED"
+            "CONVERGED_ACCURATE"
+        } else if status == DistributedPcgStatus::Converged
+            && residual.is_finite()
+            && residual <= 1.1 * relative_tolerance
+        {
+            "CONVERGED_RESIDUAL_ONLY"
         } else {
             "NOT_CONVERGED"
         };
-        println!("G8-C4 {verdict} {label} policy={policy_name} ranks={expected} n={} iters={iterations} true_rel={residual:.3e} error={absolute_error:.3e} median_max_ms={median_ms:.4} imbalance={median_imbalance:.3}", partition.global_dofs());
+        println!("G8-C4 {verdict} {label} policy={policy_name} ranks={expected} rtol={relative_tolerance:.1e} n={} iters={iterations} true_rel={residual:.3e} error={absolute_error:.3e} median_max_ms={median_ms:.4} imbalance={median_imbalance:.3}", partition.global_dofs());
         if policy == MtxPcgPolicy::ExperimentalUnverified {
             println!(
                 "G8-C4 WARNING: experimental policy does not certify SPD, even if PCG converged"

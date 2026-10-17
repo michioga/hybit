@@ -269,3 +269,53 @@ FAIL gates とログへのリンク/パス:
 - **Next:** review this validation documentation, rehash, run source gate and
   check stage; then user-approved commit/push of H1-C3J. Continue with real
   FEM/MPI-PCG + ABTM reuse overhead investigation. No release/tag/publish.
+
+## 2026-10-17 H1-C3K1 candidate — real FEM MPI-PCG baseline (validation pending)
+
+- Starting checkpoint: `b28dd0c` on clean `develop/0.9.0`, pushed and
+  user-confirmed; Source Integrity 299/297.
+- K1 reuses `mpi_mtx_profile` to avoid duplicating MPI-PCG logic, changes
+  only its measured-run numerical gate to cover ALL measured runs and keep
+  worst true residual / solution max-error, preserves CSV schema.
+- New `benchmarks/scripts/bench-h1c3k1-real-fem-mpi.ps1` validates .mtx
+  dimensions/NNZ cap, runs 24-DOF certified identity control 1/2/4/8 ranks,
+  then a user-selected real FEM Matrix Market matrix with independent MPI
+  launches 1/2/4/8 and rank-local CSR/halo PCG. Results in CSV/log.
+- Explicit `ExperimentalUnverified` plus `-PermitUnverifiedSpd` is *not* SPD
+  certification. No graph/field partition, physical field metadata, ABTM
+  speedup or peak memory claims at K1.
+- **Windows native Rust, Clippy, real FEM MPI runs PENDING**. Do not commit
+  until results are reviewed and numerical gates PASS. Expected 301/299
+  Source Integrity. Next: gate K1, then K2 Equal/Field/Graph ownership bridge.
+
+## 2026-10-17 H1-C3K1-F2 precision diagnostic (uncommitted)
+
+- Base HEAD remains `b28dd0c`; original H1-C3K1 staged, Source Integrity 301/299.
+- Native `thermal1` 82,654 DOF, 574,458 nnz, PCG status Converged at 1304 iterations with true rel residual about 1e-9, but max manufactured error about 7.9e-7 FAIL versus unchanged 2e-7 cutoff in every 1/2/4/8 x3 run. Certified 24-DOF smoke 4/4 PASS.
+- K1-F2 adds opt-in PCG relative tolerance to the experiment and launcher; default remains 1e-9. Diagnostic label clarifies residual-only success. Numerical acceptance still requires both correct true residual and original manufactured absolute error, now across all measured repetitions. `ExperimentalUnverified` never certifies SPD.
+- **Pending Windows validation**: F2 preflight/apply, fmt/clippy, MPI tests, actual `thermal1` at rtol 1e-11, status/errors and steady-state 1/2/4/8 timing. Do not commit or push until reviewed.
+
+## 2026-10-17 H1-C3K1-F2 strict real-FEM baseline — numerical validation completed
+
+- Supersedes earlier H1-C3K1-F2 **pending** status. Still uncommitted on clean
+  baseline HEAD `b28dd0c` plus exactly six staged K1 files. Source Integrity
+  **301/299 PASS**. MSVC+MS-MPI / Clang 23.1.3 environment restored,
+  strict Clippy PASS; earlier non-MPI regressions and 81/81 MPI tests PASS.
+- `thermal1.mtx`: 82,654 DOF, expanded nnz 574,458, Equal-owned CSR,
+  Jacobi MPI-PCG, experimental SPD **unverified**. At rtol=1e-9,
+  12/12 real-matrix runs status Converged but max error about 7.9e-7
+  exceeded unmodified 2e-7 gate: valid FAIL.
+- K1-F2 rtol=1e-11, max_iters=5000: 1/2/4/8 ×3 independent MPI runs,
+  warmups=3, measured=5 per launch: **12/12 actual FEM NUMERICAL_PASS**,
+  plus certified control 4/4 PASS. Max manufactured error about 5.7e-9,
+  true relative residual about 9.8e-12. No SPD proof implied.
+- Median of independent launch solve medians (ms), 1/2/4/8:
+  **1485.4827 / 834.7466 / 448.6422 / 297.4493**, giving 8r speedup
+  **4.9941x**, 62.4% parallel efficiency. PCG iterations 1564/1564/1563/1563.
+  These are solver-only timings; peak RSS not measured. Raw results:
+  `D:\Work\h1c3k1_results\k1_summary_20261017T100505439Z.csv` and
+  `k1_runs_20261017T100505439Z.log`.
+- **Next:** H1-C3K1 final source/test/stage gates and user-controlled
+  commit/push. Then H1-C3K2 real-matrix Equal/Field/ABTM Graph comparisons,
+  preserving exact RHS, rtol, Jacobi, MPI and total-cost accounting.
+  No tag/release/crates.io publish; no production auto selection.
