@@ -238,3 +238,34 @@ FAIL gates とログへのリンク/パス:
 - N=10,000 robust Graph admitted/selected: **0/5 2r**, **0/5 4r**, **4/5 8r**. In admitted 8-rank cases, all four selected Graph and had lower probe-inclusive **modeled** total than within-run baseline. Rank-8 fifth run conservatively vetoed at required 12,109 calls > 10,000; modeled fallback cost was worse due to probing. All 4-rank held-out epochs favored Graph in **5/5** launches despite gate veto: high potential for false-negative/over-conservative selection.
 - N=1,000,000 is **only an expected-call extrapolation**, not full-N MPI SpMV or PCG execution. 2/4 ranks still fail a paired epoch; 8 ranks selects Graph with guard `Matched` and numerical PASS.
 - IMPORTANT remaining gate before commit/push: full non-MPI Release regression for distributed/matrix/hybit/ffi, final Source Integrity **296/294** and staged diff. Do not promote production auto-routing, tag, release or publish. Next priority H1-C3J **reuse ABTM Graph candidate to eliminate double exploration**, then real mixed-field FEM MPI-PCG and memory/time-to-solution comparison. Details in `docs/H1C3I_ROBUST_CALIBRATION.md`.
+
+## 2026-10-17 H1-C3J proposal reuse candidate (Windows validation PENDING)
+
+- **Required baseline:** clean `develop/0.9.0` HEAD `a129ee7` (H1-C3I push verified); Source Integrity 296/294.
+- Candidate H1-C3J adds opt-in typed `PreparedCostGraphCandidate` with matching CSR numerical/structural, field-layout, rank/radius, baseline-kind, and environment identity. The guarded selector has an optional already-prepared graph input; it otherwise retains its previous implementation and auto selection remains unchanged.
+- Root-only native MPI comparison example `mpi_root_graph_reuse_bench` reuses one ABTM Graph proposal across calibration and final guarded selection; unit tests cover legacy equality and fail-closed reuse.
+- **Windows/MS-MPI gates NOT YET RUN.** Verify graph/legacy partition equality, 1/2/4/8-rank MPI numeric/traffic correctness and second selector wall time before commit/push or performance claims. Expected Source Integrity 298/296.
+- Next one action: run `APPLY_HYBIT_H1C3J.ps1 -PreflightOnly` and `-Apply`, then strict Windows build/tests and native MPI runs; report logs for review.
+## 2026-10-17 H1-C3J Windows/MS-MPI validation — supersedes PENDING
+
+- Baseline `a129ee7` on `develop/0.9.0`; H1-C3J staged changes were
+  validated but were **not** committed at the time of the supplied logs.
+- Preflight/Apply, `cargo fmt`, strict MPI-feature Clippy, MPI lib unit tests
+  **81/81**, prepared reusable-Graph integration **5/5**, initial native
+  MPI **10/10**, interleaved C3I/C3J native A/B **30/30**, and non-MPI
+  release regressions (`hybit-distributed` 54, matrix 52, FFI 5, public
+  API and doctests) PASS. All native reported CSR-reference errors zero;
+  all workers had no replicated global CSR; Source Integrity **299/297**,
+  staged diff gate PASS. Ten expected files staged, no commit/push yet.
+- N=10000 A/B Graph selected C3I vs C3J: 2r **0/5 vs 0/5**;
+  4r **0/5 vs 0/5**; 8r **3/5 vs 5/5**. For 8r runs 2/4/5 where both
+  selected Graph, second-selector wall reductions **0.1605/0.1704/0.1405
+  ms**, median **0.1605 ms**. Reuse code-path equivalence PASS; fixed
+  `graph_searches=1` diagnostic is not independent instrumentation.
+- Initial Graph preparation medians 2/4/8: C3I **0.0769/0.1204/0.1374 ms**,
+  C3J **0.1448/0.2085/0.1992 ms**: caching does **not** establish faster
+  overall wall time. Synthetic 168-DOF data, modeled N only; no real-FEM
+  end-to-end speedup, full MPI-PCG solve, memory peak, or default adoption.
+- **Next:** review this validation documentation, rehash, run source gate and
+  check stage; then user-approved commit/push of H1-C3J. Continue with real
+  FEM/MPI-PCG + ABTM reuse overhead investigation. No release/tag/publish.

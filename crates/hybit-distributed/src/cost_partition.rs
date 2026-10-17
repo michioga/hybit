@@ -108,12 +108,29 @@ fn structurally_dominates(a: &PartitionTelemetry, b: &PartitionTelemetry) -> boo
 /// provide identical options on every rank; do not use rank-local timings as
 /// calibration. The current API assumes global CSR is available in this
 /// *experimental* preparation step and does not redistribute MPI-owned rows.
-#[allow(clippy::too_many_lines)]
+/// Shared legacy selector; an opt-in H1-C3J caller may reuse a prepared Graph
+/// proposal after a matching scoped guard has checked its provenance.
+/// No production or default selection policy is modified.
 pub fn cost_aware_contiguous_partition(
     matrix: &Csr32Matrix,
     layout: &FieldAwareDofLayout,
     ranks: RankId,
     options: CostAwarePartitionOptions,
+) -> Result<(ContiguousPartition, CostAwarePartitionReport), DistributedTopologyError> {
+    cost_aware_contiguous_partition_with_graph(matrix, layout, ranks, options, None)
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn cost_aware_contiguous_partition_with_graph(
+    matrix: &Csr32Matrix,
+    layout: &FieldAwareDofLayout,
+    ranks: RankId,
+    options: CostAwarePartitionOptions,
+    prepared: Option<(
+        &ContiguousPartition,
+        &crate::FieldGraphPartitionComparison,
+        u128,
+    )>,
 ) -> Result<(ContiguousPartition, CostAwarePartitionReport), DistributedTopologyError> {
     if matrix.nrows() != matrix.ncols() {
         return Err(DistributedTopologyError::MatrixMustBeSquare {
@@ -219,11 +236,23 @@ pub fn cost_aware_contiguous_partition(
         ));
     }
 
-    // Explicit expensive H1-C3 refinement only after economic preflight.
-    let started = Instant::now();
-    let (graph, graph_report) =
-        field_graph_contiguous_partition(matrix, layout, ranks, options.search_radius_blocks)?;
-    let measured_ns = started.elapsed().as_nanos();
+    // The only consumer of `prepared` is the scoped, identity-checked H1-C3J
+    // path. Exact structural and load-cap admission below remains identical.
+    let (graph, graph_report, measured_ns) = if let Some((partition, comparison, prior_ns)) =
+        prepared
+    {
+        if comparison.search_radius_blocks != options.search_radius_blocks {
+            return Err(DistributedTopologyError::InvalidPartition(
+                "prepared Graph search radius does not match options",
+            ));
+        }
+        (partition.clone(), comparison.clone(), prior_ns)
+    } else {
+        let started = Instant::now();
+        let (graph, comparison) =
+            field_graph_contiguous_partition(matrix, layout, ranks, options.search_radius_blocks)?;
+        (graph, comparison, started.elapsed().as_nanos())
+    };
     let candidate = Some(graph_report.candidate.clone());
     if !graph_report.candidate_accepted {
         return Ok((

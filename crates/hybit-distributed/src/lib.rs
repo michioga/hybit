@@ -35,8 +35,9 @@ pub use cost_distribution::{
 };
 pub use cost_guard::{
     capture_partition_calibration, cost_aware_contiguous_partition_scoped,
-    CalibrationGuardDecision, PartitionCalibrationIdentity, ScopedCostPartitionResult,
-    ScopedPartitionCostCalibration,
+    cost_aware_contiguous_partition_scoped_prepared, prepare_cost_graph_candidate_scoped,
+    CalibrationGuardDecision, PartitionCalibrationIdentity, PreparedCostGraphCandidate,
+    ScopedCostPartitionResult, ScopedPartitionCostCalibration,
 };
 pub use cost_partition::{
     cost_aware_contiguous_partition, CostAwarePartitionDecision, CostAwarePartitionKind,

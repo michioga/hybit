@@ -195,6 +195,27 @@ pub fn cost_aware_contiguous_partition_scoped(
     environment_tag: &str,
     scoped: Option<&ScopedPartitionCostCalibration>,
 ) -> Result<ScopedCostPartitionResult, DistributedTopologyError> {
+    cost_aware_contiguous_partition_scoped_impl(
+        matrix,
+        layout,
+        ranks,
+        options,
+        environment_tag,
+        scoped,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cost_aware_contiguous_partition_scoped_impl(
+    matrix: &Csr32Matrix,
+    layout: &FieldAwareDofLayout,
+    ranks: RankId,
+    options: CostAwarePartitionOptions,
+    environment_tag: &str,
+    scoped: Option<&ScopedPartitionCostCalibration>,
+    prepared: Option<&PreparedCostGraphCandidate>,
+) -> Result<ScopedCostPartitionResult, DistributedTopologyError> {
     let (fallback, mut report) = baseline_snapshot(matrix, layout, ranks, options)?;
     let expected = identity(
         matrix,
@@ -204,10 +225,20 @@ pub fn cost_aware_contiguous_partition_scoped(
         report.baseline_kind,
         environment_tag,
     )?;
-    let guard = match scoped {
-        None => CalibrationGuardDecision::Missing,
-        Some(value) if value.identity == expected => CalibrationGuardDecision::Matched,
-        Some(_) => CalibrationGuardDecision::ScopeMismatch,
+    // A stale Graph candidate must never be admitted, even when the timing
+    // evidence is otherwise matched. Recompute scope from the live inputs.
+    let prepared_matches = match prepared {
+        Some(candidate) => candidate.identity == expected,
+        None => true,
+    };
+    let guard = if !prepared_matches {
+        CalibrationGuardDecision::ScopeMismatch
+    } else {
+        match scoped {
+            None => CalibrationGuardDecision::Missing,
+            Some(value) if value.identity == expected => CalibrationGuardDecision::Matched,
+            Some(_) => CalibrationGuardDecision::ScopeMismatch,
+        }
     };
     if guard != CalibrationGuardDecision::Matched {
         // The baseline snapshot already has a NoCalibration/early-exit report;
@@ -221,8 +252,21 @@ pub fn cost_aware_contiguous_partition_scoped(
     }
     let mut calibrated_options = options;
     calibrated_options.calibration = Some(scoped.expect("matched scope").timings);
+    let graph_data = prepared.map(|candidate| {
+        (
+            &candidate.partition,
+            &candidate.comparison,
+            candidate.preparation_ns,
+        )
+    });
     let (chosen, calibrated_report) =
-        cost_aware_contiguous_partition(matrix, layout, ranks, calibrated_options)?;
+        crate::cost_partition::cost_aware_contiguous_partition_with_graph(
+            matrix,
+            layout,
+            ranks,
+            calibrated_options,
+            graph_data,
+        )?;
     report = calibrated_report;
     Ok(ScopedCostPartitionResult {
         partition: chosen,
@@ -230,6 +274,89 @@ pub fn cost_aware_contiguous_partition_scoped(
         guard,
         identity: expected,
     })
+}
+
+/// Opt-in H1-C3J root-owned Graph proposal, bound to the exact CSR numeric
+/// values, structure, physical field layout, ranks, radius and environment tag.
+/// Prepared proposal metadata is private: callers cannot forge an accepted
+/// candidate or modify its scope by constructing the type.
+#[derive(Clone, Debug)]
+pub struct PreparedCostGraphCandidate {
+    identity: PartitionCalibrationIdentity,
+    partition: ContiguousPartition,
+    comparison: crate::FieldGraphPartitionComparison,
+    /// The *first* proposal preparation cost, incurred during calibration.
+    preparation_ns: u128,
+}
+
+impl PreparedCostGraphCandidate {
+    /// The same partition whose native Halo/SpMV must be calibrated.
+    pub fn partition(&self) -> &ContiguousPartition {
+        &self.partition
+    }
+
+    pub fn preparation_ns(&self) -> u128 {
+        self.preparation_ns
+    }
+}
+
+/// Construct and retain exactly one ABTM Graph proposal on MPI rank 0.
+/// Do not assume this is a valid selection until both robust cost admission
+/// and the scoped H1-C3D identity/structural gates have independently passed.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_cost_graph_candidate_scoped(
+    matrix: &Csr32Matrix,
+    layout: &FieldAwareDofLayout,
+    ranks: RankId,
+    options: CostAwarePartitionOptions,
+    environment_tag: &str,
+) -> Result<PreparedCostGraphCandidate, DistributedTopologyError> {
+    // The baseline is recomputed from CSR; no unscoped caller timings are used.
+    let (_, report) = baseline_snapshot(matrix, layout, ranks, options)?;
+    let identity = identity(
+        matrix,
+        layout,
+        ranks,
+        options.search_radius_blocks,
+        report.baseline_kind,
+        environment_tag,
+    )?;
+    let started = std::time::Instant::now();
+    let (partition, comparison) = crate::field_graph_contiguous_partition(
+        matrix,
+        layout,
+        ranks,
+        options.search_radius_blocks,
+    )?;
+    Ok(PreparedCostGraphCandidate {
+        identity,
+        partition,
+        comparison,
+        preparation_ns: started.elapsed().as_nanos(),
+    })
+}
+
+/// The old, non-reused scoped selection remains the compatibility baseline.
+/// Prepared identity mismatch fails closed to the exact Equal/Field baseline.
+#[allow(clippy::too_many_arguments)]
+pub fn cost_aware_contiguous_partition_scoped_prepared(
+    matrix: &Csr32Matrix,
+    layout: &FieldAwareDofLayout,
+    ranks: RankId,
+    options: CostAwarePartitionOptions,
+    environment_tag: &str,
+    scoped: Option<&ScopedPartitionCostCalibration>,
+    prepared: &PreparedCostGraphCandidate,
+) -> Result<ScopedCostPartitionResult, DistributedTopologyError> {
+    cost_aware_contiguous_partition_scoped_impl(
+        matrix,
+        layout,
+        ranks,
+        options,
+        environment_tag,
+        scoped,
+        Some(prepared),
+    )
 }
 
 #[cfg(test)]

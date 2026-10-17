@@ -60,3 +60,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_robust_partition_bench"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_root_graph_reuse_bench"
+required-features = ["mpi"]
