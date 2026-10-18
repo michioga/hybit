@@ -301,3 +301,5 @@ benchmarks/scripts/bench-h1c3k1-real-fem-mpi.ps1
 docs/H1C3K1_REAL_FEM_MPI_PCG_BASELINE.md
 tools/env/Enter-HybitMsMpi.ps1
 docs/WINDOWS_MSVC_MSMPI_ENV.md
+crates/hybit-distributed/examples/abtm_affinity_ab.rs
+docs/H1C3K2_ABTM_AFFINITY_RESEARCH.md
