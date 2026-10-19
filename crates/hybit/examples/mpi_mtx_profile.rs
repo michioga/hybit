@@ -3,7 +3,9 @@
 //! not a successful solver validation. Never use an unverified result silently.
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_input::prepare_owned_rows;
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_mtx::{
+    distribute_matrix_market_with_partition_policy, MtxPartitionPolicy, MtxPcgPolicy,
+};
 use hybit::distributed::mpi_pcg::{DistributedPcg, DistributedPcgOptions, DistributedPcgStatus};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
@@ -34,8 +36,8 @@ fn truth(global: u64) -> f64 {
 }
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.len() != 8 && args.len() != 9 {
-        return Err("usage: mpi_mtx_profile <ranks> <csv> <matrix.mtx> <label> <certified|experimental> <warmups> <repeats> <max_iters> [relative_tolerance]".into());
+    if args.len() != 8 && args.len() != 9 && args.len() != 10 {
+        return Err("usage: mpi_mtx_profile <ranks> <csv> <matrix.mtx> <label> <certified|experimental> <warmups> <repeats> <max_iters> [relative_tolerance] [equal|graph:<radius>]".into());
     }
     let expected: i32 = args[0].parse()?;
     let csv = Path::new(&args[1]);
@@ -52,10 +54,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     let warmups: usize = args[5].parse()?;
     let repeats: usize = args[6].parse()?;
     let max_iters: usize = args[7].parse()?;
-    let relative_tolerance: f64 = if args.len() == 9 {
+    let relative_tolerance: f64 = if args.len() >= 9 {
         args[8].parse()?
     } else {
         1.0e-9
+    };
+    let (partition_policy, partition_label) = if args.len() == 10 {
+        if args[9] == "equal" {
+            (MtxPartitionPolicy::Equal, String::from("equal"))
+        } else if let Some(radius) = args[9].strip_prefix("graph:") {
+            let radius: usize = radius.parse()?;
+            if !(1..=4096).contains(&radius) {
+                return Err("graph radius must be in 1..=4096".into());
+            }
+            (
+                MtxPartitionPolicy::ScalarGraph {
+                    search_radius_blocks: radius,
+                },
+                format!("graph:{radius}"),
+            )
+        } else {
+            return Err("partition must be equal or graph:<radius>".into());
+        }
+    } else {
+        (MtxPartitionPolicy::Equal, String::from("equal"))
     };
     if !relative_tolerance.is_finite() || !(1.0e-13..=1.0e-8).contains(&relative_tolerance) {
         return Err("relative_tolerance must be finite and in 1e-13..=1e-8".into());
@@ -71,11 +93,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         let needs_header = !csv.exists() || std::fs::metadata(csv)?.len() == 0;
         if needs_header {
             let mut f = OpenOptions::new().create(true).append(true).open(csv)?;
-            writeln!(f, "case,policy,ranks,n,nnz,warmups,repeats,iterations,status,true_relative_residual,max_abs_error,global_ghosts,root_read_ms,max_distribute_ms,max_halo_ms,max_pcg_prepare_ms,median_max_solve_ms,min_max_solve_ms,max_max_solve_ms,median_max_over_mean,spmv_calls,allreduce_calls")?;
+            writeln!(f, "case,policy,ranks,n,nnz,warmups,repeats,iterations,status,true_relative_residual,max_abs_error,global_ghosts,root_read_ms,max_distribute_ms,max_halo_ms,max_pcg_prepare_ms,median_max_solve_ms,min_max_solve_ms,max_max_solve_ms,median_max_over_mean,spmv_calls,allreduce_calls,partition_mode,graph_candidate_accepted,root_graph_ms,ownership_offsets")?;
         }
     }
     mpi.barrier();
-    let (partition, owned, ingest) = distribute_matrix_market_with_policy(&mpi, matrix, policy)?;
+    let (partition, owned, ingest) =
+        distribute_matrix_market_with_partition_policy(&mpi, matrix, policy, partition_policy)?;
     let start_halo = Instant::now();
     let (plan, local, stats) = prepare_owned_rows(&mpi, &partition, &owned)?;
     let halo_ms = max_f64(start_halo.elapsed().as_secs_f64() * 1e3);
@@ -162,7 +185,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     mpi.barrier();
     if mpi.rank() == 0 {
         let mut f = OpenOptions::new().append(true).open(csv)?;
-        writeln!(f, "{label},{policy_name},{expected},{},{},{warmups},{repeats},{iterations},{status:?},{residual:.12e},{absolute_error:.12e},{ghosts},{read_ms:.6},{scatter_ms:.6},{halo_ms:.6},{prepare_ms:.6},{median_ms:.6},{min_ms:.6},{max_ms:.6},{median_imbalance:.6},{spmv_calls},{reductions}", partition.global_dofs(), ingest.global_nnz)?;
+        let offsets = partition
+            .offsets()
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join("|");
+        let graph_ms = ingest.graph_partition_ns as f64 * 1e-6;
+        writeln!(f, "{label},{policy_name},{expected},{},{},{warmups},{repeats},{iterations},{status:?},{residual:.12e},{absolute_error:.12e},{ghosts},{read_ms:.6},{scatter_ms:.6},{halo_ms:.6},{prepare_ms:.6},{median_ms:.6},{min_ms:.6},{max_ms:.6},{median_imbalance:.6},{spmv_calls},{reductions},{partition_label},{},{graph_ms:.6},{offsets}", partition.global_dofs(), ingest.global_nnz, ingest.graph_candidate_accepted)?;
         let verdict = if is_converged {
             "CONVERGED_ACCURATE"
         } else if status == DistributedPcgStatus::Converged
@@ -173,7 +203,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             "NOT_CONVERGED"
         };
-        println!("G8-C4 {verdict} {label} policy={policy_name} ranks={expected} rtol={relative_tolerance:.1e} n={} iters={iterations} true_rel={residual:.3e} error={absolute_error:.3e} median_max_ms={median_ms:.4} imbalance={median_imbalance:.3}", partition.global_dofs());
+        println!("G8-C4 {verdict} {label} policy={policy_name} ranks={expected} rtol={relative_tolerance:.1e} n={} iters={iterations} true_rel={residual:.3e} error={absolute_error:.3e} median_max_ms={median_ms:.4} imbalance={median_imbalance:.3} partition={partition_label} graph_accepted={} graph_ms={graph_ms:.3}", partition.global_dofs(), ingest.graph_candidate_accepted);
         if policy == MtxPcgPolicy::ExperimentalUnverified {
             println!(
                 "G8-C4 WARNING: experimental policy does not certify SPD, even if PCG converged"

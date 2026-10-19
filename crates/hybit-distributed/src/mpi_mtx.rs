@@ -9,9 +9,11 @@
 //! strictly row diagonally dominant. G8-C4 adds an explicitly experimental
 //! acceptance policy that is NOT a mathematical SPD certificate.
 
+use crate::field_partition::field_graph_contiguous_partition;
 use crate::mpi_backend::MpiRuntime;
 use crate::mpi_input::OwnedCsrRows;
 use crate::ContiguousPartition;
+use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use mpi::traits::*;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -30,6 +32,15 @@ fn invalid(message: impl Into<String>) -> io::Error {
 pub enum MtxPcgPolicy {
     StrictCertified,
     ExperimentalUnverified,
+}
+
+/// Experimental, contiguous root partition selection. Existing callers stay Equal.
+/// ScalarGraph constructs synthetic one-DOF blocks ONLY for graph search;
+/// these are not physical FEM field metadata and do not certify SPD.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MtxPartitionPolicy {
+    Equal,
+    ScalarGraph { search_radius_blocks: usize },
 }
 
 #[derive(Debug)]
@@ -175,6 +186,41 @@ fn read_root<R: BufRead>(reader: R, policy: MtxPcgPolicy) -> io::Result<RootCsr>
 }
 
 impl RootCsr {
+    fn graph_partition(
+        &self,
+        ranks: u32,
+        search_radius_blocks: usize,
+    ) -> io::Result<(ContiguousPartition, bool)> {
+        let columns = self
+            .cols
+            .iter()
+            .copied()
+            .map(|col| u32::try_from(col).map_err(|_| invalid("graph CSR column overflow")))
+            .collect::<io::Result<Vec<_>>>()?;
+        let matrix = Csr32Matrix::new(
+            self.n as usize,
+            self.n as usize,
+            self.row_ptr.clone(),
+            columns,
+            self.vals.clone(),
+        )
+        .map_err(|err| invalid(err.to_string()))?;
+        let blocks = (0..self.n)
+            .map(|id| DofBlock {
+                entity_kind: DofEntityKind::Node,
+                entity_id: id,
+                field_id: 0,
+                components: 1,
+            })
+            .collect();
+        let scalar_layout =
+            FieldAwareDofLayout::new(blocks).map_err(|err| invalid(err.to_string()))?;
+        let (partition, comparison) =
+            field_graph_contiguous_partition(&matrix, &scalar_layout, ranks, search_radius_blocks)
+                .map_err(|err| invalid(err.to_string()))?;
+        Ok((partition, comparison.candidate_accepted))
+    }
+
     fn owned(&self, partition: &ContiguousPartition, rank: u32) -> io::Result<OwnedCsrRows> {
         let owned = partition
             .owned_range(rank)
@@ -205,6 +251,10 @@ pub struct MtxDistributionStats {
     pub distribution_ns: u128,
     /// Rank-local owned CSR payload estimate (excludes the temporary root copy).
     pub owned_bytes: usize,
+    /// Root-only graph preparation time; excludes Matrix Market read and scatter.
+    pub graph_partition_ns: u128,
+    /// Global opt-in graph candidate acceptance; false for Equal.
+    pub graph_candidate_accepted: bool,
 }
 
 /// Rank 0 parses and SPD-certifies the file, then sends one owned CSR portion
@@ -229,10 +279,44 @@ pub fn distribute_matrix_market_with_policy(
     path: &Path,
     policy: MtxPcgPolicy,
 ) -> io::Result<(ContiguousPartition, OwnedCsrRows, MtxDistributionStats)> {
+    distribute_matrix_market_with_partition_policy(mpi, path, policy, MtxPartitionPolicy::Equal)
+}
+
+/// Opt-in K2 experiment. Only rank 0 builds the graph proposal; ranks agree
+/// on the selection contract and receive validated identical ownership offsets
+/// before any point-to-point owned-CSR distribution. No production auto routing.
+pub fn distribute_matrix_market_with_partition_policy(
+    mpi: &MpiRuntime,
+    path: &Path,
+    policy: MtxPcgPolicy,
+    partition_policy: MtxPartitionPolicy,
+) -> io::Result<(ContiguousPartition, OwnedCsrRows, MtxDistributionStats)> {
     let size = mpi.size();
     let rank = mpi.rank();
     if size < 1 || rank < 0 {
         return Err(invalid("invalid MPI communicator"));
+    }
+    let world = mpi::topology::SimpleCommunicator::world();
+    // All ranks must choose an identical mode/radius. Validate collectively.
+    let invalid_radius = matches!(
+        partition_policy,
+        MtxPartitionPolicy::ScalarGraph {
+            search_radius_blocks: 0 | 4097..
+        }
+    );
+    if mpi.all_reduce_sum_u64(u64::from(invalid_radius)) != 0 {
+        return Err(invalid("graph search radius must be in 1..=4096"));
+    }
+    let mode_code = match partition_policy {
+        MtxPartitionPolicy::Equal => 0u64,
+        MtxPartitionPolicy::ScalarGraph {
+            search_radius_blocks,
+        } => search_radius_blocks as u64,
+    };
+    let mut all_modes = vec![0u64; size as usize];
+    world.all_gather_into(&mode_code, &mut all_modes[..]);
+    if all_modes.iter().any(|&value| value != mode_code) {
+        return Err(invalid("MPI ranks disagree on graph partition mode/radius"));
     }
     let read_start = Instant::now();
     let loaded = if rank == 0 {
@@ -254,11 +338,56 @@ pub fn distribute_matrix_market_with_policy(
     let root = loaded.transpose()?;
     let global_n = mpi.all_reduce_sum_u64(root.as_ref().map_or(0, |m| m.n));
     let global_nnz = mpi.all_reduce_sum_u64(root.as_ref().map_or(0, |m| m.vals.len() as u64));
-    let partition = ContiguousPartition::balanced(global_n, size as u32)
-        .map_err(|err| invalid(err.to_string()))?;
+    let graph_start = Instant::now();
+    let root_proposal = if rank == 0 {
+        Some(match partition_policy {
+            MtxPartitionPolicy::Equal => ContiguousPartition::balanced(global_n, size as u32)
+                .map(|selected| (selected, false))
+                .map_err(|err| invalid(err.to_string())),
+            MtxPartitionPolicy::ScalarGraph {
+                search_radius_blocks,
+            } => root
+                .as_ref()
+                .ok_or_else(|| invalid("root CSR unavailable for graph selection"))
+                .and_then(|matrix| matrix.graph_partition(size as u32, search_radius_blocks)),
+        })
+    } else {
+        None
+    };
+    let graph_partition_ns = if rank == 0 && mode_code != 0 {
+        graph_start.elapsed().as_nanos()
+    } else {
+        0
+    };
+    let proposal_failed = root_proposal.as_ref().is_some_and(Result::is_err);
+    if mpi.all_reduce_sum_u64(u64::from(proposal_failed)) != 0 {
+        if let Some(Err(err)) = &root_proposal {
+            eprintln!("K2 root graph partition rejected: {err}");
+        }
+        return Err(invalid("root graph partition selection failed"));
+    }
+    let root_proposal = root_proposal.transpose()?;
+    let local_accepted = root_proposal
+        .as_ref()
+        .is_some_and(|(_, accepted)| *accepted);
+    let graph_candidate_accepted = mpi.all_reduce_sum_u64(u64::from(local_accepted)) != 0;
+    let mut offsets = vec![0u64; size as usize + 1];
+    if let Some((selected, _)) = root_proposal {
+        offsets.copy_from_slice(selected.offsets());
+    }
+    world.process_at_rank(0).broadcast_into(&mut offsets[..]);
+    let checked_partition =
+        ContiguousPartition::from_offsets(offsets).map_err(|err| invalid(err.to_string()));
+    let invalid_partition = match &checked_partition {
+        Ok(selected) => selected.global_dofs() != global_n || selected.rank_count() != size as u32,
+        Err(_) => true,
+    };
+    if mpi.all_reduce_sum_u64(u64::from(invalid_partition)) != 0 {
+        return Err(invalid("graph partition offsets invalid on MPI rank"));
+    }
+    let partition = checked_partition?;
     mpi.barrier();
     let start = Instant::now();
-    let world = mpi::topology::SimpleCommunicator::world();
     let owned = if rank == 0 {
         let root = root.ok_or_else(|| invalid("missing root CSR"))?;
         let mut own = None;
@@ -313,6 +442,8 @@ pub fn distribute_matrix_market_with_policy(
         root_read_ns,
         distribution_ns: start.elapsed().as_nanos(),
         owned_bytes: bytes,
+        graph_partition_ns,
+        graph_candidate_accepted,
     };
     Ok((partition, owned, stats))
 }
@@ -321,6 +452,40 @@ pub fn distribute_matrix_market_with_policy(
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn scalar_graph_root_partition_retains_exact_owned_rows() {
+        let mut text = String::from("%%MatrixMarket matrix coordinate real symmetric\n8 8 15\n");
+        for row in 1..=8 {
+            text.push_str(&format!("{row} {row} 4\n"));
+            if row < 8 {
+                text.push_str(&format!("{row} {} -1\n", row + 1));
+            }
+        }
+        let root = read_root(Cursor::new(text), MtxPcgPolicy::StrictCertified).unwrap();
+        let (graph, _) = root.graph_partition(2, 2).unwrap();
+        assert_eq!(graph.global_dofs(), root.n);
+        assert_eq!(graph.rank_count(), 2);
+        for rank in 0..2 {
+            let local = root.owned(&graph, rank).unwrap();
+            local.validate().unwrap();
+            for row in 0..local.row_ptr.len() - 1 {
+                let global_row = local.owned.start as usize + row;
+                let first = root.row_ptr[global_row] as usize;
+                let last = root.row_ptr[global_row + 1] as usize;
+                let local_first = local.row_ptr[row] as usize;
+                let local_last = local.row_ptr[row + 1] as usize;
+                assert_eq!(
+                    &local.global_col_idx[local_first..local_last],
+                    &root.cols[first..last]
+                );
+                assert_eq!(
+                    &local.values[local_first..local_last],
+                    &root.vals[first..last]
+                );
+            }
+        }
+    }
 
     #[test]
     fn symmetric_and_duplicate_entries_coalesce() {
