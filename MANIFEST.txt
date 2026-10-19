@@ -304,3 +304,5 @@ docs/WINDOWS_MSVC_MSMPI_ENV.md
 crates/hybit-distributed/examples/abtm_affinity_ab.rs
 docs/H1C3K2_ABTM_AFFINITY_RESEARCH.md
 docs/H1C3K2_REAL_FEM_GRAPH_PROBE.md
+crates/hybit-distributed/examples/k2_partition_candidates.rs
+docs/H1C3K2_ABTM_PARTITION_CANDIDATES.md
