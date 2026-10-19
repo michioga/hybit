@@ -7,6 +7,8 @@ mod cost_partition;
 mod field_halo;
 mod field_partition;
 #[cfg(feature = "mpi")]
+pub mod mpi_assignment;
+#[cfg(feature = "mpi")]
 pub mod mpi_backend;
 #[cfg(feature = "mpi")]
 pub mod mpi_block_jacobi;

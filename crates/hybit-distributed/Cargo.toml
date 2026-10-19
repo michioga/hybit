@@ -64,3 +64,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_root_graph_reuse_bench"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_k3_assignment_spmv"
+required-features = ["mpi"]
