@@ -102,6 +102,7 @@ crates/hybit-distributed/examples/mpi_field_aware_halo.rs
 crates/hybit-distributed/examples/mpi_field_mtx_bench.rs
 crates/hybit-distributed/examples/mpi_field_partition_compare.rs
 crates/hybit-distributed/examples/mpi_k3_assignment_spmv.rs
+crates/hybit-distributed/examples/mpi_k4_assignment_pcg.rs
 crates/hybit-distributed/examples/mpi_robust_partition_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_ledger_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
@@ -254,6 +255,8 @@ docs/H1C3K2_ABTM_PARTITION_CANDIDATES.md
 docs/H1C3K2_REAL_FEM_GRAPH_PROBE.md
 docs/H1C3K3_NATIVE_ASSIGNMENT_MPI_SPMV.md
 docs/H1C3K3_SINGLE_NODE_RESULTS_20261019.md
+docs/H1C3K4_NONCONTIGUOUS_MPI_PCG_EXPERIMENT.md
+docs/H1C3K4_SINGLE_NODE_PCG_RESULTS_20261020.md
 docs/H1C3_GRAPH_FIELD_PARTITION.md
 docs/H1_FIELD_AWARE_DOF.md
 docs/HYBIT_DECISION_LOG.md

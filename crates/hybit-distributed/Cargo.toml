@@ -68,3 +68,6 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_k3_assignment_spmv"
 required-features = ["mpi"]
+[[example]]
+name = "mpi_k4_assignment_pcg"
+required-features = ["mpi"]
