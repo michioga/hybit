@@ -87,6 +87,7 @@ benchmarks/scripts/bench-general-square-preconditioner-compare.ps1
 benchmarks/scripts/bench-general-square-preconditioner-paired-probe.ps1
 benchmarks/scripts/bench-general-square-preconditioner-probe.ps1
 benchmarks/scripts/bench-h1c3k1-real-fem-mpi.ps1
+benchmarks/scripts/bench-k5-assignment-pcg-repeatability.ps1
 book.toml
 crates/hybit-auto/Cargo.toml
 crates/hybit-auto/src/lib.rs
@@ -103,6 +104,7 @@ crates/hybit-distributed/examples/mpi_field_mtx_bench.rs
 crates/hybit-distributed/examples/mpi_field_partition_compare.rs
 crates/hybit-distributed/examples/mpi_k3_assignment_spmv.rs
 crates/hybit-distributed/examples/mpi_k4_assignment_pcg.rs
+crates/hybit-distributed/examples/mpi_k5_assignment_pcg_profile.rs
 crates/hybit-distributed/examples/mpi_robust_partition_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_ledger_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
@@ -257,6 +259,8 @@ docs/H1C3K3_NATIVE_ASSIGNMENT_MPI_SPMV.md
 docs/H1C3K3_SINGLE_NODE_RESULTS_20261019.md
 docs/H1C3K4_NONCONTIGUOUS_MPI_PCG_EXPERIMENT.md
 docs/H1C3K4_SINGLE_NODE_PCG_RESULTS_20261020.md
+docs/H1C3K5_ALLREDUCE_REPRODUCIBILITY_EXPERIMENT.md
+docs/H1C3K5_SINGLE_NODE_REPEATABILITY_RESULTS_20261020.md
 docs/H1C3_GRAPH_FIELD_PARTITION.md
 docs/H1_FIELD_AWARE_DOF.md
 docs/HYBIT_DECISION_LOG.md
