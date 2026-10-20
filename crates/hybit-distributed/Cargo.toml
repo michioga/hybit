@@ -74,3 +74,12 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_k5_assignment_pcg_profile"
 required-features = ["mpi"]
+[[example]]
+name = "mpi_k5b_assignment_solve_many"
+required-features = ["mpi"]
+[[example]]
+name = "mpi_k5b_order_rotation"
+required-features = ["mpi"]
+[[example]]
+name = "mpi_k5c_large_spmv"
+required-features = ["mpi"]
