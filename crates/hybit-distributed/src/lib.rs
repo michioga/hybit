@@ -11,6 +11,8 @@ pub mod mpi_assignment;
 #[cfg(feature = "mpi")]
 pub mod mpi_assignment_scatter;
 #[cfg(feature = "mpi")]
+pub mod mpi_assignment_verify;
+#[cfg(feature = "mpi")]
 pub mod mpi_backend;
 #[cfg(feature = "mpi")]
 pub mod mpi_block_jacobi;
