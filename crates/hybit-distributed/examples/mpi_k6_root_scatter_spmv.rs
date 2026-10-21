@@ -164,6 +164,15 @@ fn main() -> BenchResult<()> {
     // All subsequent operations use only locally owned CSR and the common owner map.
     drop(matrix);
     drop(selected);
+    let root_stream_chunk_bytes =
+        mpi.all_reduce_sum_u64(scatter_stats.root_peak_streamed_chunk_bytes_estimate);
+    let root_k6_chunks_bytes =
+        mpi.all_reduce_sum_u64(scatter_stats.root_k6_all_chunks_bytes_estimate);
+    let root_concurrent_chunks =
+        mpi.all_reduce_sum_u64(u64::from(scatter_stats.max_concurrent_root_chunks));
+    if root_stream_chunk_bytes > root_k6_chunks_bytes || root_concurrent_chunks != 1 {
+        return Err("K7-A bounded root chunk telemetry invalid".into());
+    }
     let local_bytes_sum = mpi.all_reduce_sum_u64(scatter_stats.local_owned_bytes as u64);
     let local_nnz_sum = mpi.all_reduce_sum_u64(scatter_stats.local_nnz as u64);
     if local_nnz_sum != nnz || scatter_stats.global_nnz != nnz || assignment.global_dofs() != n {
@@ -237,13 +246,13 @@ fn main() -> BenchResult<()> {
     let halo_ms = median(&halo_samples);
     let numeric_ms = median(&numeric_samples);
     if mpi.rank() == 0 {
-        println!("K6 ROOT-SCATTER NATIVE PASS method={} ranks={} n={} nnz={} ghosts={} read_ms={:.3} partition_ms={:.3} scatter_ms={:.3} halo_setup_ms={:.3} median_spmv_ms={:.6} median_halo_ms={:.6} median_numeric_ms={:.6} sum_owned_bytes={} sum_operator_bytes={} max_rel={:.3e} root_only=true",policy.label(),ranks,n,nnz,ghosts,read_ms,partition_ms,scatter_ms,halo_setup_ms,spmv_ms,halo_ms,numeric_ms,local_bytes_sum,operator_bytes_sum,worst_rel);
+        println!("K6 ROOT-SCATTER NATIVE PASS method={} ranks={} n={} nnz={} ghosts={} read_ms={:.3} partition_ms={:.3} scatter_ms={:.3} halo_setup_ms={:.3} median_spmv_ms={:.6} median_halo_ms={:.6} median_numeric_ms={:.6} sum_owned_bytes={} sum_operator_bytes={} max_rel={:.3e} root_only=true root_stream_chunk_bytes={} root_k6_all_chunks_bytes={} concurrent_chunks={}",policy.label(),ranks,n,nnz,ghosts,read_ms,partition_ms,scatter_ms,halo_setup_ms,spmv_ms,halo_ms,numeric_ms,local_bytes_sum,operator_bytes_sum,worst_rel,root_stream_chunk_bytes,root_k6_chunks_bytes,root_concurrent_chunks);
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(output)?;
-        writeln!(file,"matrix,ranks,method,n,nnz,repeats,read_root_max_ms,partition_root_max_ms,scatter_max_ms,halo_setup_max_ms,median_spmv_max_ms,median_halo_max_ms,median_numeric_max_ms,ghosts,sent_f64,local_owned_bytes_sum,operator_halo_bytes_sum,root_input_csr_bytes,worst_abs,worst_rel")?;
-        writeln!(file,"{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{},{},{},{:.12e},{:.12e}",path.display(),ranks,policy.label(),n,nnz,repeats,read_ms,partition_ms,scatter_ms,halo_setup_ms,spmv_ms,halo_ms,numeric_ms,ghosts,sent,local_bytes_sum,operator_bytes_sum,global_csr_bytes,worst_abs,worst_rel)?;
+        writeln!(file,"matrix,ranks,method,n,nnz,repeats,read_root_max_ms,partition_root_max_ms,scatter_max_ms,halo_setup_max_ms,median_spmv_max_ms,median_halo_max_ms,median_numeric_max_ms,ghosts,sent_f64,local_owned_bytes_sum,operator_halo_bytes_sum,root_input_csr_bytes,worst_abs,worst_rel,root_stream_chunk_bytes_est,root_k6_all_chunks_bytes_est,max_concurrent_root_chunks")?;
+        writeln!(file,"{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{},{},{},{:.12e},{:.12e},{},{},{}",path.display(),ranks,policy.label(),n,nnz,repeats,read_ms,partition_ms,scatter_ms,halo_setup_ms,spmv_ms,halo_ms,numeric_ms,ghosts,sent,local_bytes_sum,operator_bytes_sum,global_csr_bytes,worst_abs,worst_rel,root_stream_chunk_bytes,root_k6_chunks_bytes,root_concurrent_chunks)?;
     }
     mpi.barrier();
     Ok(())
