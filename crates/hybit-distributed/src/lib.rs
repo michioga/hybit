@@ -11,6 +11,10 @@ pub mod mpi_assignment;
 #[cfg(feature = "mpi")]
 pub mod mpi_assignment_scatter;
 #[cfg(feature = "mpi")]
+pub mod mpi_assignment_sparse;
+#[cfg(feature = "mpi")]
+pub mod mpi_assignment_sparse_verify;
+#[cfg(feature = "mpi")]
 pub mod mpi_assignment_verify;
 #[cfg(feature = "mpi")]
 pub mod mpi_backend;

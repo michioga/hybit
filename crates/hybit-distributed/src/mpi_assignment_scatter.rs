@@ -27,12 +27,12 @@ fn invalid(msg: &'static str) -> io::Error {
 /// MPI Count errors from streaming, where early rank-local failure could hang
 /// other ranks in blocking receives.
 #[derive(Clone, Copy, Debug, Default)]
-struct ChunkCounts {
-    rows: usize,
-    nnz: usize,
+pub(crate) struct ChunkCounts {
+    pub(crate) rows: usize,
+    pub(crate) nnz: usize,
 }
 
-fn chunk_payload_bytes(c: ChunkCounts) -> io::Result<u64> {
+pub(crate) fn chunk_payload_bytes(c: ChunkCounts) -> io::Result<u64> {
     let rows = u64::try_from(c.rows).map_err(|_| invalid("owned row count overflows u64"))?;
     let nnz = u64::try_from(c.nnz).map_err(|_| invalid("local nnz count overflows u64"))?;
     rows.checked_mul(8)
@@ -41,7 +41,7 @@ fn chunk_payload_bytes(c: ChunkCounts) -> io::Result<u64> {
         .ok_or_else(|| invalid("owned chunk byte estimate overflow"))
 }
 
-fn preflight_chunk_counts(
+pub(crate) fn preflight_chunk_counts(
     matrix: &Csr32Matrix,
     assignment: &PartitionAssignment,
 ) -> io::Result<Vec<ChunkCounts>> {
@@ -87,7 +87,7 @@ fn preflight_chunk_counts(
     Ok(counts)
 }
 
-fn build_checked_chunk(
+pub(crate) fn build_checked_chunk(
     matrix: &Csr32Matrix,
     assignment: &PartitionAssignment,
     rank: u32,

@@ -86,3 +86,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_k6_root_scatter_spmv"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_k7c_sparse_owner_spmv"
+required-features = ["mpi"]

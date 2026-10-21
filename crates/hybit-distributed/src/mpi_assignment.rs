@@ -435,6 +435,264 @@ pub fn spmv_assignment(
     })
 }
 
+/// K7-C experimental per-rank sparse directory. Nonroot ranks never hold the
+/// length-global_dofs owner vector. Only referenced remote DOFs are indexed.
+/// This is NOT a distributed graph partitioner: root still owns O(n) labels.
+#[derive(Clone, Debug)]
+pub struct SparseOwnerDirectory {
+    pub global_dofs: u64,
+    pub ranks: u32,
+    pub rank: u32,
+    remote_globals: Vec<u64>,
+    remote_owners: Vec<u32>,
+}
+impl SparseOwnerDirectory {
+    pub fn new(
+        global_dofs: u64,
+        ranks: u32,
+        rank: u32,
+        rows: &AssignmentOwnedCsrRows,
+        remote_globals: Vec<u64>,
+        remote_owners: Vec<u32>,
+    ) -> io::Result<Self> {
+        let dir = Self {
+            global_dofs,
+            ranks,
+            rank,
+            remote_globals,
+            remote_owners,
+        };
+        dir.validate(rows)?;
+        Ok(dir)
+    }
+    pub fn remote_entries(&self) -> (&[u64], &[u32]) {
+        (&self.remote_globals, &self.remote_owners)
+    }
+    pub fn entries(&self) -> usize {
+        self.remote_globals.len()
+    }
+    /// Logical payload bytes. Excludes vector capacities/allocator overhead.
+    pub fn payload_bytes(&self) -> usize {
+        self.remote_globals.len() * (std::mem::size_of::<u64>() + std::mem::size_of::<u32>())
+    }
+    pub fn validate(&self, rows: &AssignmentOwnedCsrRows) -> io::Result<()> {
+        if self.global_dofs == 0
+            || self.ranks == 0
+            || self.rank >= self.ranks
+            || rows.global_dofs != self.global_dofs
+            || rows.owned_globals.is_empty()
+            || rows.row_ptr.len() != rows.owned_globals.len() + 1
+            || rows.row_ptr.first() != Some(&0)
+            || rows.row_ptr.windows(2).any(|x| x[0] > x[1])
+            || rows.global_col_idx.len() != rows.values.len()
+            || rows.global_col_idx.len() > u32::MAX as usize
+            || rows.row_ptr.last().copied() != Some(rows.values.len() as u32)
+            || rows.owned_globals.windows(2).any(|w| w[0] >= w[1])
+            || rows.owned_globals.iter().any(|&g| g >= self.global_dofs)
+            || rows.global_col_idx.iter().any(|&g| g >= self.global_dofs)
+            || rows.values.iter().any(|v| !v.is_finite())
+            || self.remote_globals.len() != self.remote_owners.len()
+            || self.remote_globals.windows(2).any(|w| w[0] >= w[1])
+            || self
+                .remote_owners
+                .iter()
+                .any(|&r| r >= self.ranks || r == self.rank)
+        {
+            return Err(invalid("invalid sparse directory or owned CSR"));
+        }
+        let referenced = rows
+            .global_col_idx
+            .iter()
+            .copied()
+            .filter(|g| rows.owned_globals.binary_search(g).is_err())
+            .collect::<BTreeSet<_>>();
+        if referenced.len() != self.remote_globals.len()
+            || !referenced
+                .iter()
+                .copied()
+                .eq(self.remote_globals.iter().copied())
+        {
+            return Err(invalid(
+                "sparse owner directory misses or adds a remote column",
+            ));
+        }
+        Ok(())
+    }
+    pub fn owner_of(&self, global: u64, rows: &AssignmentOwnedCsrRows) -> io::Result<u32> {
+        if global >= self.global_dofs {
+            return Err(invalid("owner query out of bounds"));
+        }
+        if rows.owned_globals.binary_search(&global).is_ok() {
+            return Ok(self.rank);
+        }
+        let slot = self
+            .remote_globals
+            .binary_search(&global)
+            .map_err(|_| invalid("sparse owner directory has no remote entry"))?;
+        Ok(self.remote_owners[slot])
+    }
+}
+
+/// Native MS-MPI halo setup with sparse remote-column owner lookup.
+/// No global-length owner-map allocation or broadcast occurs in this function.
+pub fn prepare_assignment_owned_rows_sparse(
+    mpi: &MpiRuntime,
+    directory: &SparseOwnerDirectory,
+    rows: &AssignmentOwnedCsrRows,
+) -> io::Result<(AssignmentHaloPlan, AssignmentLocalCsr, AssignmentMpiStats)> {
+    let size = usize::try_from(mpi.size()).map_err(|_| invalid("invalid MPI size"))?;
+    let rank = u32::try_from(mpi.rank()).map_err(|_| invalid("invalid MPI rank"))?;
+    let check = directory.validate(rows).and_then(|()| {
+        if directory.ranks as usize != size || directory.rank != rank {
+            Err(invalid("sparse directory does not match MPI rank/count"))
+        } else {
+            Ok(())
+        }
+    });
+    if mpi.all_reduce_sum_u64(u64::from(check.is_err())) != 0 {
+        return Err(invalid("invalid assignment CSR on one or more ranks"));
+    }
+    check?;
+    let world = mpi::topology::SimpleCommunicator::world();
+    let global_dofs = directory.global_dofs;
+    let mut rank_dofs = vec![0u64; size];
+    world.all_gather_into(&global_dofs, &mut rank_dofs[..]);
+    if rank_dofs.iter().any(|&n| n != global_dofs) {
+        return Err(invalid("MPI ranks disagree on global owner-map length"));
+    }
+    let mut owned_slots = BTreeMap::new();
+    for (slot, &global) in rows.owned_globals.iter().enumerate() {
+        owned_slots.insert(
+            global,
+            u32::try_from(slot).map_err(|_| invalid("owned slot exceeds u32"))?,
+        );
+    }
+    let mut requests = vec![BTreeSet::<u64>::new(); size];
+    for &col in &rows.global_col_idx {
+        let owner = directory.owner_of(col, rows)?;
+        if owner != rank {
+            requests[owner as usize].insert(col);
+        }
+    }
+    let send_counts = requests
+        .iter()
+        .map(|req| i32::try_from(req.len()).map_err(|_| invalid("peer request count > i32")))
+        .collect::<io::Result<Vec<_>>>();
+    if mpi.all_reduce_sum_u64(u64::from(send_counts.is_err())) != 0 {
+        return Err(invalid("peer request count exceeds MPI i32 Count"));
+    }
+    let send_counts = send_counts?;
+    let local_layout = displacements(&send_counts);
+    if mpi.all_reduce_sum_u64(u64::from(local_layout.is_err())) != 0 {
+        return Err(invalid("MPI ghost request buffer exceeds i32"));
+    }
+    let (recv_displs, ghost_len) = local_layout?;
+    let recv_counts = send_counts;
+    let ghost_globals = requests
+        .iter()
+        .flat_map(|set| set.iter().copied())
+        .collect::<Vec<_>>();
+    if ghost_globals.len() != ghost_len {
+        return Err(invalid("ghost count/layout mismatch"));
+    }
+
+    let mut incoming_counts = vec![0i32; size];
+    world.all_to_all_into(&recv_counts[..], &mut incoming_counts[..]);
+    let incoming_layout = displacements(&incoming_counts);
+    if mpi.all_reduce_sum_u64(u64::from(incoming_layout.is_err())) != 0 {
+        return Err(invalid("MPI incoming request buffer exceeds i32"));
+    }
+    let (send_displs, incoming_len) = incoming_layout?;
+    let mut incoming_globals = vec![0u64; incoming_len];
+    {
+        let send = Partition::new(&ghost_globals[..], &recv_counts[..], &recv_displs[..]);
+        let mut recv = PartitionMut::new(
+            &mut incoming_globals[..],
+            &incoming_counts[..],
+            &send_displs[..],
+        );
+        world.all_to_all_varcount_into(&send, &mut recv);
+    }
+
+    let built = (|| -> io::Result<(AssignmentHaloPlan, AssignmentLocalCsr, AssignmentMpiStats)> {
+        let mut send_owned_slots = Vec::with_capacity(incoming_globals.len());
+        for (peer, &count) in incoming_counts.iter().enumerate() {
+            let start = send_displs[peer] as usize;
+            let end = start + count as usize;
+            let globals = &incoming_globals[start..end];
+            if globals.windows(2).any(|w| w[0] >= w[1]) {
+                return Err(invalid("peer requested unsorted/duplicate DOFs"));
+            }
+            for global in globals {
+                send_owned_slots.push(
+                    *owned_slots
+                        .get(global)
+                        .ok_or_else(|| invalid("peer requested non-owned DOF"))?,
+                );
+            }
+        }
+        let owned_len = rows.owned_globals.len();
+        let mut slots = owned_slots;
+        for (i, &ghost) in ghost_globals.iter().enumerate() {
+            slots.insert(
+                ghost,
+                u32::try_from(owned_len + i).map_err(|_| invalid("extended index exceeds u32"))?,
+            );
+        }
+        let col_idx = rows
+            .global_col_idx
+            .iter()
+            .map(|c| {
+                slots
+                    .get(c)
+                    .copied()
+                    .ok_or_else(|| invalid("local CSR column not in owned/ghost slots"))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let peer_ranks = (0..size)
+            .filter(|&peer| recv_counts[peer] > 0 || incoming_counts[peer] > 0)
+            .count();
+        let stats = AssignmentMpiStats {
+            owned_rows: owned_len,
+            local_nnz: rows.values.len(),
+            ghosts: ghost_len,
+            peer_ranks,
+            sent_f64: incoming_globals.len(),
+            received_f64: ghost_len,
+            rank_operator_halo_bytes: rows.row_ptr.len() * 4
+                + col_idx.len() * 4
+                + rows.values.len() * 8
+                + rows.owned_globals.len() * 8
+                + ghost_globals.len() * 8
+                + (owned_len + ghost_len) * 8
+                + send_owned_slots.len() * 4,
+        };
+        Ok((
+            AssignmentHaloPlan {
+                owned_globals: rows.owned_globals.clone(),
+                ghost_globals,
+                send_counts: incoming_counts,
+                send_displs,
+                recv_counts,
+                recv_displs,
+                send_owned_slots,
+            },
+            AssignmentLocalCsr {
+                row_ptr: rows.row_ptr.clone(),
+                col_idx,
+                values: rows.values.clone(),
+                owned_len,
+                extended_len: owned_len + ghost_len,
+            },
+            stats,
+        ))
+    })();
+    if mpi.all_reduce_sum_u64(u64::from(built.is_err())) != 0 {
+        return Err(invalid("invalid reciprocal noncontiguous MPI Halo setup"));
+    }
+    built
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
