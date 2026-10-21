@@ -339,3 +339,27 @@ mod tests {
         assert!(SparseOwnerDirectory::new(4, 2, 0, &rows, vec![3, 1], vec![1, 1]).is_err());
     }
 }
+
+#[cfg(test)]
+mod k7d_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_columns_produce_one_sorted_remote_entry_each() {
+        // Two columns repeat across all six CSR rows; rank 0 owns rows 0,2,4.
+        let matrix = Csr32Matrix::new(
+            6,
+            6,
+            vec![0, 2, 4, 6, 8, 10, 12],
+            vec![1, 5, 1, 5, 1, 5, 1, 5, 1, 5, 1, 5],
+            vec![1.0; 12],
+        )
+        .unwrap();
+        let assignment = PartitionAssignment::from_owners(2, vec![0, 1, 0, 1, 0, 1]).unwrap();
+        let rows = AssignmentOwnedCsrRows::from_global(&matrix, &assignment, 0).unwrap();
+        let (globals, owners) = remote_directory(&assignment, &rows, 0).unwrap();
+        assert_eq!(globals, vec![1, 5]);
+        assert_eq!(owners, vec![1, 1]);
+        SparseOwnerDirectory::new(6, 2, 0, &rows, globals, owners).unwrap();
+    }
+}

@@ -500,6 +500,8 @@ impl SparseOwnerDirectory {
         {
             return Err(invalid("invalid sparse directory or owned CSR"));
         }
+        // Distinct referenced columns are at most the global DOF count;
+        // HashSet avoids one balanced-tree insertion per CSR coefficient.
         let referenced = rows
             .global_col_idx
             .iter()
@@ -567,12 +569,14 @@ pub fn prepare_assignment_owned_rows_sparse(
             u32::try_from(slot).map_err(|_| invalid("owned slot exceeds u32"))?,
         );
     }
-    let mut requests = vec![BTreeSet::<u64>::new(); size];
-    for &col in &rows.global_col_idx {
-        let owner = directory.owner_of(col, rows)?;
-        if owner != rank {
-            requests[owner as usize].insert(col);
-        }
+    // The validated sparse directory already contains every distinct remote
+    // column exactly once, in global ascending order. Grouping these entries
+    // preserves strictly ascending order within each peer, so neither an NNZ
+    // owner lookup nor a per-peer BTreeSet/sort is needed.
+    let mut requests = vec![Vec::<u64>::new(); size];
+    let (remote_globals, remote_owners) = directory.remote_entries();
+    for (&col, &owner) in remote_globals.iter().zip(remote_owners.iter()) {
+        requests[owner as usize].push(col);
     }
     let send_counts = requests
         .iter()
