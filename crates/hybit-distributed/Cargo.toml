@@ -90,3 +90,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_k7c_sparse_owner_spmv"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_k8a_sparse_pcg"
+required-features = ["mpi"]
