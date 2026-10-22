@@ -180,6 +180,38 @@ impl AssignmentLocalCsr {
     pub fn nnz(&self) -> usize {
         self.values.len()
     }
+
+    /// K8-B: a bounded copy of the prepared noncontiguous local operator into
+    /// the existing preconditioner storage convention. Numeric local columns
+    /// already use [owned | ghosts]. Global ID order is NOT assumed contiguous.
+    /// This copy is temporary: drop it immediately after building factors.
+    pub fn preconditioner_rank_local_csr(&self) -> io::Result<crate::RankLocalCsr> {
+        if self.owned_len == 0
+            || self.row_ptr.len() != self.owned_len + 1
+            || self.row_ptr.first() != Some(&0)
+            || self.row_ptr.windows(2).any(|r| r[0] > r[1])
+            || self.row_ptr.last().copied() != Some(self.values.len() as u32)
+            || self.values.len() != self.col_idx.len()
+            || self.owned_len > self.extended_len
+            || self.values.len() > u32::MAX as usize
+            || self
+                .col_idx
+                .iter()
+                .any(|&v| v as usize >= self.extended_len)
+            || self.values.iter().any(|v| !v.is_finite())
+        {
+            return Err(invalid("invalid assignment local CSR for preconditioning"));
+        }
+        Ok(crate::RankLocalCsr {
+            rank: 0,
+            owned: 0..self.owned_len as u64,
+            extended_len: self.extended_len,
+            row_ptr: self.row_ptr.clone(),
+            col_idx: self.col_idx.clone(),
+            values: self.values.clone(),
+        })
+    }
+
     pub fn apply_extended(&self, extended: &[f64], output: &mut [f64]) -> io::Result<()> {
         if extended.len() != self.extended_len || output.len() != self.owned_len {
             return Err(invalid("SpMV vector lengths differ from prepared operator"));
