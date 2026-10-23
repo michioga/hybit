@@ -97,9 +97,11 @@ benchmarks/scripts/bench-k7d-sparse-owner-paired.ps1
 benchmarks/scripts/bench-k8a-original-pcg.ps1
 benchmarks/scripts/bench-k8b-fem-pcg.ps1
 benchmarks/scripts/bench-k8c-large-fem-pcg.ps1
+benchmarks/scripts/bench-k8d1-phase-profile.ps1
 benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
+benchmarks/scripts/make-k8d1-fem-spring.ps1
 book.toml
 crates/hybit-auto/Cargo.toml
 crates/hybit-auto/src/lib.rs
@@ -124,6 +126,7 @@ crates/hybit-distributed/examples/mpi_k6_root_scatter_spmv.rs
 crates/hybit-distributed/examples/mpi_k7c_sparse_owner_spmv.rs
 crates/hybit-distributed/examples/mpi_k8a_sparse_pcg.rs
 crates/hybit-distributed/examples/mpi_k8b_fem_pcg.rs
+crates/hybit-distributed/examples/mpi_k8d1_phase_profile.rs
 crates/hybit-distributed/examples/mpi_robust_partition_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_ledger_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
@@ -295,6 +298,7 @@ docs/H1C3K7D_SPARSE_OWNER_SETUP_OPTIMIZATION_20261021.md
 docs/H1C3K8A_ROOT_ONLY_ORIGINAL_JACOBI_PCG_20261022.md
 docs/H1C3K8B_FEM_SPD_PRECONDITIONERS_20261022.md
 docs/H1C3K8C_LARGE_FEM_CURVATURE_GUARD_20261023.md
+docs/H1C3K8D1_PCG_PHASE_PROFILE_20261023.md
 docs/H1C3_GRAPH_FIELD_PARTITION.md
 docs/H1_FIELD_AWARE_DOF.md
 docs/HYBIT_DECISION_LOG.md

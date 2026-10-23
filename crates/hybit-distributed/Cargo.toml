@@ -98,3 +98,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_k8b_fem_pcg"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_k8d1_phase_profile"
+required-features = ["mpi"]
