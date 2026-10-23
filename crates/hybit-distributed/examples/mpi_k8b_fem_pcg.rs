@@ -233,6 +233,98 @@ fn classify_spd(a: &Csr32Matrix) -> BenchResult<&'static str> {
     Ok("bounded_numerical_cholesky")
 }
 
+/// Explicit experimental gate for non-diagonally-dominant large FEM matrices.
+/// This is NOT an SPD certificate: the few deterministic Rayleigh probes may
+/// miss a negative eigendirection. PCG curvature and true residual are also
+/// monitored. No automatic fallback or production activation occurs.
+fn screen_large_spd_candidate(a: &Csr32Matrix) -> BenchResult<()> {
+    let n = a.nrows();
+    if n <= 512 || n != a.ncols() {
+        return Err("large SPD screen requires square n > 512".into());
+    }
+    for i in 0..n {
+        let begin = a.row_ptr()[i] as usize;
+        let end = a.row_ptr()[i + 1] as usize;
+        let cols = &a.col_idx()[begin..end];
+        let values = &a.values()[begin..end];
+        if cols.is_empty() || cols.windows(2).any(|v| v[0] >= v[1]) {
+            return Err("experimental SPD screen requires sorted unique CSR".into());
+        }
+        let mut diagonal = None;
+        for (&col, &value) in cols.iter().zip(values) {
+            let j = col as usize;
+            if j >= n || !value.is_finite() {
+                return Err("invalid experimental SPD coefficient".into());
+            }
+            if j == i {
+                diagonal = Some(value);
+            } else {
+                let trans_begin = a.row_ptr()[j] as usize;
+                let trans_end = a.row_ptr()[j + 1] as usize;
+                let trans_idx = a.col_idx()[trans_begin..trans_end]
+                    .binary_search(&(i as u32))
+                    .map_err(|_| "experimental SPD missing transpose")?;
+                if a.values()[trans_begin + trans_idx].to_bits() != value.to_bits() {
+                    return Err("experimental SPD asymmetric coefficient".into());
+                }
+            }
+        }
+        if !diagonal.is_some_and(|v| v > 0.0 && v.is_finite()) {
+            return Err("experimental SPD needs positive finite diagonal".into());
+        }
+    }
+    // Four cheap necessary, never sufficient, positive-curvature probes.
+    // Fail closed if a checked direction is not positive.
+    let mut x = vec![0.0f64; n];
+    let mut ax = vec![0.0f64; n];
+    for probe in 0..4 {
+        for (i, value) in x.iter_mut().enumerate() {
+            let t = i as f64 + 1.0;
+            *value = match probe {
+                0 => {
+                    if i % 2 == 0 {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+                1 => 1.0,
+                2 => (t * 0.137).sin() + 0.25 * (t * 0.071).cos(),
+                _ => {
+                    if (i / 2) % 2 == 0 {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+            };
+        }
+        for (i, out) in ax.iter_mut().enumerate() {
+            let first = a.row_ptr()[i] as usize;
+            let last = a.row_ptr()[i + 1] as usize;
+            *out = (first..last)
+                .map(|p| a.values()[p] * x[a.col_idx()[p] as usize])
+                .sum::<f64>();
+        }
+        let energy = x.iter().zip(&ax).map(|(&u, &v)| u * v).sum::<f64>();
+        if !energy.is_finite() || energy <= 0.0 {
+            return Err("experimental SPD Rayleigh probe has nonpositive curvature".into());
+        }
+    }
+    Ok(())
+}
+
+fn classify_for_run(a: &Csr32Matrix, experimental_large_spd: bool) -> BenchResult<&'static str> {
+    if let Ok(certificate) = classify_spd(a) {
+        return Ok(certificate);
+    }
+    if !experimental_large_spd || a.nrows() <= 512 {
+        return classify_spd(a);
+    }
+    screen_large_spd_candidate(a)?;
+    Ok("experimental_symmetric_positive_diagonal_curvature_screen")
+}
+
 enum FixedPreconditioner {
     Jacobi(Vec<f64>),
     Ic0(LocalBlockIc0),
@@ -321,6 +413,14 @@ struct Solution {
     solve_ms: f64,
     spmv_calls: usize,
     dot_reductions: usize,
+    true_residual_checkpoints: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PcgSolveOptions {
+    max_iters: usize,
+    tol: f64,
+    experimental_large_spd: bool,
 }
 
 fn solve_pcg(
@@ -329,8 +429,7 @@ fn solve_pcg(
     op: &AssignmentLocalCsr,
     precond: &FixedPreconditioner,
     rhs: &[f64],
-    max_iters: usize,
-    tol: f64,
+    options: PcgSolveOptions,
 ) -> BenchResult<Solution> {
     let n = halo.owned_len();
     if mpi.all_reduce_sum_u64(u64::from(n == 0 || rhs.len() != n)) != 0 {
@@ -344,6 +443,7 @@ fn solve_pcg(
     let mut scratch = halo.workspace();
     let mut dots = 0usize;
     let mut spmvs = 0usize;
+    let mut checkpoints = 0usize;
     mpi.barrier();
     let started = Instant::now();
     let norm_b2 = world_dot(rhs, rhs);
@@ -361,7 +461,7 @@ fn solve_pcg(
     }
     let mut iters = 0usize;
     let mut converged = false;
-    for it in 0..max_iters {
+    for it in 0..options.max_iters {
         spmv_assignment(mpi, halo, op, &p, &mut scratch, &mut ap)?;
         spmvs += 1;
         let pap = world_dot(&p, &ap);
@@ -383,9 +483,25 @@ fn solve_pcg(
         if !rr.is_finite() || rr < 0.0 {
             return Err("invalid PCG residual".into());
         }
-        if rr.sqrt() <= tol * norm_b * 0.5 {
+        if rr.sqrt() <= options.tol * norm_b * 0.5 {
             converged = true;
             break;
+        }
+        if options.experimental_large_spd && (iters == 1 || iters % 32 == 0) {
+            // Recompute b-Ax independently of recursive PCG residual.
+            spmv_assignment(mpi, halo, op, &x, &mut scratch, &mut ap)?;
+            spmvs += 1;
+            let true_residual = rhs
+                .iter()
+                .zip(&ap)
+                .map(|(&b, &ax)| b - ax)
+                .collect::<Vec<_>>();
+            let true_sq = world_dot(&true_residual, &true_residual);
+            dots += 1;
+            checkpoints += 1;
+            if !true_sq.is_finite() || true_sq < 0.0 || true_sq > norm_b2 * 1.0e24 {
+                return Err("experimental PCG true-residual checkpoint failed".into());
+            }
         }
         precond.apply(&r, &mut z);
         let next = world_dot(&r, &z);
@@ -420,7 +536,7 @@ fn solve_pcg(
         .map(|(&v, &g)| (v - x_exact(g)).abs())
         .fold(0.0f64, f64::max);
     let max_err = world_max(local_err);
-    if !rel.is_finite() || rel > tol || !max_err.is_finite() || max_err > 1.0e-5 {
+    if !rel.is_finite() || rel > options.tol || !max_err.is_finite() || max_err > 1.0e-5 {
         return Err("PCG true residual or manufactured solution certification failed".into());
     }
     Ok(Solution {
@@ -431,6 +547,7 @@ fn solve_pcg(
         solve_ms: world_max(started.elapsed().as_secs_f64() * 1000.0),
         spmv_calls: spmvs,
         dot_reductions: dots,
+        true_residual_checkpoints: checkpoints,
     })
 }
 
@@ -546,8 +663,12 @@ fn verify_root_original(
 
 fn main() -> BenchResult<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 10 {
-        return Err("usage: mpi_k8b_fem_pcg <ranks> <input.mtx> <equal|region|multisource> <warmups> <repeats> <max_iters> <tol> <output.csv> <jacobi|ic0|block> <block-size> (10 arguments)".into());
+    if args.len() != 10 && args.len() != 11 {
+        return Err("usage: mpi_k8b_fem_pcg <ranks> <input.mtx> <equal|region|multisource> <warmups> <repeats> <max_iters> <tol> <output.csv> <jacobi|ic0|block> <block-size> [--experimental-large-spd]".into());
+    }
+    let experimental_large_spd = args.len() == 11;
+    if experimental_large_spd && args[10] != "--experimental-large-spd" {
+        return Err("invalid opt-in flag for experimental large SPD path".into());
     }
     let ranks: i32 = args[0].parse()?;
     let path = Path::new(&args[1]);
@@ -592,7 +713,7 @@ fn main() -> BenchResult<()> {
             {
                 return Err("invalid root-only input matrix dimensions".into());
             }
-            classify_spd(&m)?;
+            classify_for_run(&m, experimental_large_spd)?;
             Ok(m)
         })())
     } else {
@@ -606,7 +727,7 @@ fn main() -> BenchResult<()> {
     }
     let matrix = loaded.transpose()?;
     let certificate = if let Some(ref m) = matrix {
-        classify_spd(m)?
+        classify_for_run(m, experimental_large_spd)?
     } else {
         "nonroot"
     };
@@ -674,8 +795,20 @@ fn main() -> BenchResult<()> {
     let mut worst_err = 0.0f64;
     let mut calls = 0usize;
     let mut reductions = 0usize;
+    let mut true_checkpoints = 0usize;
     for trial in 0..warmups + repeats {
-        let result = solve_pcg(&mpi, &halo, &local, &precond, &rhs, max_iters, tol)?;
+        let result = solve_pcg(
+            &mpi,
+            &halo,
+            &local,
+            &precond,
+            &rhs,
+            PcgSolveOptions {
+                max_iters,
+                tol,
+                experimental_large_spd,
+            },
+        )?;
         if observed_iters.is_some_and(|k| k != result.iterations) {
             return Err("inconsistent iteration count between repeats".into());
         }
@@ -686,6 +819,7 @@ fn main() -> BenchResult<()> {
             worst_err = worst_err.max(result.max_error);
             calls = result.spmv_calls;
             reductions = result.dot_reductions;
+            true_checkpoints = result.true_residual_checkpoints;
         }
         last_solution = Some(result.x);
     }
@@ -710,12 +844,12 @@ fn main() -> BenchResult<()> {
             .create_new(true)
             .write(true)
             .open(output)?;
-        writeln!(file,"matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified,precond_setup_ms,precond_factor_bytes_sum,block_size")?;
-        writeln!(file,"{},{},{},{},{},{},{},{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true,{:.6},{},{}",
+        writeln!(file,"matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified,precond_setup_ms,precond_factor_bytes_sum,block_size,true_residual_checkpoints,experimental_opt_in")?;
+        writeln!(file,"{},{},{},{},{},{},{},{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true,{:.6},{},{},{},{}",
             path.display(), ranks, policy.label(), n, nnz, certificate, precond_mode, warmups, repeats, max_iters, tol,
             observed_iters.unwrap_or(0),solve_median,read_ms,partition_ms,scatter_ms,verify_ms,
             halo_ms,rhs_ms,root_verify_ms,worst_true_rel,root_rel,worst_err,root_err,sparse_owner_bytes,
-            ghosts,calls,reductions,precond_ms,factor_bytes,block_size)?;
+            ghosts,calls,reductions,precond_ms,factor_bytes,block_size,true_checkpoints,experimental_large_spd)?;
     }
     mpi.barrier();
     Ok(())
@@ -784,5 +918,50 @@ mod tests {
     #[test]
     fn strict_spd_certificate_rejects_insufficient_dominance() {
         assert!(certify_strict_spd(&make_matrix(1.0, 1.0, -1.0, -1.0)).is_err());
+    }
+
+    fn build_large_paired_matrix(off: f64, reverse: f64) -> Csr32Matrix {
+        let n = 513usize;
+        let mut rows = vec![0u32];
+        let mut cols = Vec::new();
+        let mut vals = Vec::new();
+        for i in 0..n {
+            if i + 1 < n && i % 2 == 0 {
+                cols.extend([i as u32, (i + 1) as u32]);
+                vals.extend([1.0, off]);
+            } else if i % 2 == 1 {
+                cols.extend([(i - 1) as u32, i as u32]);
+                vals.extend([reverse, 5.0]);
+            } else {
+                cols.push(i as u32);
+                vals.push(1.0);
+            }
+            rows.push(vals.len() as u32);
+        }
+        Csr32Matrix::new(n, n, rows, cols, vals).unwrap()
+    }
+    #[test]
+    fn large_nondominant_spd_requires_explicit_opt_in() {
+        let matrix = build_large_paired_matrix(2.0, 2.0);
+        assert!(classify_for_run(&matrix, false).is_err());
+        assert_eq!(
+            classify_for_run(&matrix, true).unwrap(),
+            "experimental_symmetric_positive_diagonal_curvature_screen"
+        );
+    }
+    #[test]
+    fn large_asymmetric_input_rejected_even_with_opt_in() {
+        let matrix = build_large_paired_matrix(2.0, 2.1);
+        assert!(classify_for_run(&matrix, true).is_err());
+    }
+    #[test]
+    fn large_negative_curvature_probe_rejected() {
+        let matrix = build_large_paired_matrix(4.0, 4.0);
+        assert!(classify_for_run(&matrix, true).is_err());
+    }
+    #[test]
+    fn small_indefinite_matrix_remains_rejected_with_opt_in() {
+        let matrix = make_matrix(1.0, 1.0, 2.0, 2.0);
+        assert!(classify_for_run(&matrix, true).is_err());
     }
 }
