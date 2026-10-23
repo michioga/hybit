@@ -576,6 +576,27 @@ pub fn spmv_assignment_d2_profile(
     })
 }
 
+/// H1-C3K8-D3: read-only diagnostics from the already prepared fixed Halo.
+/// These are logical per-SpMV counts, excluding buffer capacity/allocator
+/// overhead; no MPI calls and no changes to SpMV semantics.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AssignmentD3HaloCounts {
+    pub sent_values: u64,
+    pub received_values: u64,
+    pub sent_peers: u64,
+    pub received_peers: u64,
+}
+impl AssignmentHaloPlan {
+    pub fn d3_halo_counts(&self) -> AssignmentD3HaloCounts {
+        AssignmentD3HaloCounts {
+            sent_values: self.send_owned_slots.len() as u64,
+            received_values: self.ghost_globals.len() as u64,
+            sent_peers: self.send_counts.iter().filter(|&&n| n > 0).count() as u64,
+            received_peers: self.recv_counts.iter().filter(|&&n| n > 0).count() as u64,
+        }
+    }
+}
+
 /// K7-C experimental per-rank sparse directory. Nonroot ranks never hold the
 /// length-global_dofs owner vector. Only referenced remote DOFs are indexed.
 /// This is NOT a distributed graph partitioner: root still owns O(n) labels.
