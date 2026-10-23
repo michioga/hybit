@@ -467,6 +467,115 @@ pub fn spmv_assignment(
     })
 }
 
+/// K8-D2 experimental split-timer for comparing per-SpMV collective validation
+/// against a single collective validation before a fixed-layout PCG solve.
+/// Never treats PCG convergence as an SPD proof.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AssignmentD2SpmvTiming {
+    pub validation_ns: u128,
+    pub pack_ns: u128,
+    pub exchange_ns: u128,
+    pub unpack_ns: u128,
+    pub numeric_ns: u128,
+}
+
+fn assignment_d2_layout_bad(
+    plan: &AssignmentHaloPlan,
+    operator: &AssignmentLocalCsr,
+    x_owned: &[f64],
+    scratch: &AssignmentSpmvWorkspace,
+    y_owned: &[f64],
+) -> bool {
+    plan.owned_len() != x_owned.len()
+        || plan.owned_len() != operator.owned_len()
+        || operator.extended_len != plan.extended_len()
+        || scratch.extended.len() != plan.extended_len()
+        || scratch.send.len() != plan.send_owned_slots.len()
+        || scratch.receive.len() != plan.ghost_globals.len()
+        || y_owned.len() != plan.owned_len()
+}
+
+/// Collective, mandatory before each solve using the fast D2 mode. The
+/// plan/operator/scratch shapes must remain immutable for every subsequent
+/// apply within that solve. No MPI collectives may be skipped by just one rank.
+pub fn validate_assignment_d2_layout(
+    mpi: &MpiRuntime,
+    plan: &AssignmentHaloPlan,
+    operator: &AssignmentLocalCsr,
+    x_owned: &[f64],
+    scratch: &AssignmentSpmvWorkspace,
+    y_owned: &[f64],
+) -> io::Result<()> {
+    let bad = assignment_d2_layout_bad(plan, operator, x_owned, scratch, y_owned);
+    if mpi.all_reduce_sum_u64(u64::from(bad)) != 0 {
+        return Err(invalid("incompatible K8-D2 SpMV buffers"));
+    }
+    Ok(())
+}
+
+/// Experimental, fixed-size SpMV A/B variant with explicit phase timers.
+/// In prevalidated mode the all-reduce guard is omitted on every apply;
+/// callers MUST first collectively call validate_assignment_d2_layout and
+/// MUST preserve the same plan, operator and vector/scratch lengths.
+/// This is not the production API and does not automatically handle errors
+/// that violate the post-validation fixed-layout contract.
+pub fn spmv_assignment_d2_profile(
+    mpi: &MpiRuntime,
+    plan: &AssignmentHaloPlan,
+    operator: &AssignmentLocalCsr,
+    x_owned: &[f64],
+    scratch: &mut AssignmentSpmvWorkspace,
+    y_owned: &mut [f64],
+    skip_collective_validation: bool,
+) -> io::Result<AssignmentD2SpmvTiming> {
+    let started = Instant::now();
+    let local_bad = assignment_d2_layout_bad(plan, operator, x_owned, scratch, y_owned);
+    if skip_collective_validation {
+        // Local failure would violate the caller's prevalidated MPI protocol.
+        if local_bad {
+            return Err(invalid("K8-D2 prevalidated layout was mutated"));
+        }
+    } else if mpi.all_reduce_sum_u64(u64::from(local_bad)) != 0 {
+        return Err(invalid("incompatible MPI assignment SpMV inputs"));
+    }
+    let validation_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    scratch.extended[..x_owned.len()].copy_from_slice(x_owned);
+    for (value, &slot) in scratch.send.iter_mut().zip(&plan.send_owned_slots) {
+        *value = x_owned[slot as usize];
+    }
+    let pack_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    let world = mpi::topology::SimpleCommunicator::world();
+    {
+        let send = Partition::new(
+            &scratch.send[..],
+            &plan.send_counts[..],
+            &plan.send_displs[..],
+        );
+        let mut recv = PartitionMut::new(
+            &mut scratch.receive[..],
+            &plan.recv_counts[..],
+            &plan.recv_displs[..],
+        );
+        world.all_to_all_varcount_into(&send, &mut recv);
+    }
+    let exchange_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    scratch.extended[x_owned.len()..].copy_from_slice(&scratch.receive);
+    let unpack_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    operator.apply_extended(&scratch.extended, y_owned)?;
+    let numeric_ns = started.elapsed().as_nanos();
+    Ok(AssignmentD2SpmvTiming {
+        validation_ns,
+        pack_ns,
+        exchange_ns,
+        unpack_ns,
+        numeric_ns,
+    })
+}
+
 /// K7-C experimental per-rank sparse directory. Nonroot ranks never hold the
 /// length-global_dofs owner vector. Only referenced remote DOFs are indexed.
 /// This is NOT a distributed graph partitioner: root still owns O(n) labels.
