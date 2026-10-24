@@ -14,8 +14,8 @@ use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::mpi_block_jacobi::LocalBlockCholesky;
 use hybit_distributed::mpi_ic0::LocalBlockIc0;
 use hybit_distributed::{
-    abtm_balanced_multisource_partition, abtm_region_grow_partition, ContiguousPartition,
-    PartitionAssignment,
+    abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment,
 };
 use hybit_matrix::{read_matrix_market, Csr32Matrix};
 use mpi::collective::SystemOperation;
@@ -31,11 +31,15 @@ const MAX_INPUT_BYTES: u64 = 384 * 1024 * 1024;
 const MAX_DOFS: usize = 1_200_000;
 const MAX_NNZ: usize = 16_000_000;
 
+// H1-C3K8-D9B: compare native ABTM and externally prepared WSL labels on the
+// SAME Prepared Halo / MS-MPI PCG path. The labels are read by rank zero only.
 #[derive(Clone, Copy, Debug)]
 enum Policy {
     Equal,
     Region,
     Multisource,
+    Multilevel,
+    External,
 }
 impl Policy {
     fn parse(s: &str) -> BenchResult<Self> {
@@ -43,7 +47,9 @@ impl Policy {
             "equal" => Ok(Self::Equal),
             "region" => Ok(Self::Region),
             "multisource" => Ok(Self::Multisource),
-            _ => Err("policy must be equal, region, or multisource".into()),
+            "multilevel" => Ok(Self::Multilevel),
+            "external" => Ok(Self::External),
+            _ => Err("policy must be equal, region, multisource, multilevel, or external".into()),
         }
     }
     fn label(self) -> &'static str {
@@ -51,8 +57,31 @@ impl Policy {
             Self::Equal => "equal",
             Self::Region => "abtm_region_growth",
             Self::Multisource => "abtm_multisource",
+            Self::Multilevel => "abtm_multilevel",
+            Self::External => "external_owner_labels",
         }
     }
+}
+
+fn parse_external_owner_labels(
+    text: &str,
+    expected_dofs: usize,
+    ranks: u32,
+) -> BenchResult<PartitionAssignment> {
+    let owners: Vec<u32> = text
+        .split_whitespace()
+        .map(str::parse::<u32>)
+        .collect::<Result<_, _>>()?;
+    if owners.len() != expected_dofs {
+        return Err(format!(
+            "external owner labels contain {} entries, expected {}",
+            owners.len(),
+            expected_dofs
+        )
+        .into());
+    }
+    // Enforces all ranks nonempty and each owner in 0..ranks.
+    Ok(PartitionAssignment::from_owners(ranks, owners)?)
 }
 
 fn partition(matrix: &Csr32Matrix, ranks: u32, policy: Policy) -> BenchResult<PartitionAssignment> {
@@ -63,6 +92,21 @@ fn partition(matrix: &Csr32Matrix, ranks: u32, policy: Policy) -> BenchResult<Pa
         )?)?,
         Policy::Region => abtm_region_grow_partition(matrix, ranks)?.0,
         Policy::Multisource => abtm_balanced_multisource_partition(matrix, ranks)?.0,
+        Policy::Multilevel => {
+            abtm_multilevel_partition(matrix, ranks, AbtmMultilevelOptions::default())?.0
+        }
+        Policy::External => {
+            let path = std::env::var_os("HYBIT_D9B_OWNER_LABELS")
+                .ok_or("HYBIT_D9B_OWNER_LABELS is required for external partition")?;
+            let max_bytes = (matrix.nrows() as u64)
+                .checked_mul(16)
+                .ok_or("external owner label size bound overflow")?;
+            if std::fs::metadata(&path)?.len() > max_bytes {
+                return Err("external owner labels file exceeds length bound".into());
+            }
+            let labels = std::fs::read_to_string(&path)?;
+            parse_external_owner_labels(&labels, matrix.nrows(), ranks)?
+        }
     })
 }
 
@@ -884,7 +928,7 @@ fn parse_d7_transport(mode: &str) -> BenchResult<bool> {
 fn main() -> BenchResult<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 12 {
-        return Err("usage: mpi_k8d7_prepared_p2p <ranks> <input.mtx> <equal|region|multisource> <warmups> <repeats> <max_iters> <tol> <output.csv> <jacobi|ic0|block> <block-size> --experimental-large-spd <alltoallv|p2p>".into());
+        return Err("usage: mpi_k8d7_prepared_p2p <ranks> <input.mtx> <equal|region|multisource|multilevel|external> <warmups> <repeats> <max_iters> <tol> <output.csv> <jacobi|ic0|block> <block-size> --experimental-large-spd <alltoallv|p2p>".into());
     }
     let experimental_large_spd = true;
     if args[10] != "--experimental-large-spd" {
@@ -1128,6 +1172,30 @@ fn median(data: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn d9b_owner_labels_require_full_valid_rank_coverage() {
+        let p = parse_external_owner_labels("0\n1\n0\n1\n", 4, 2).unwrap();
+        assert_eq!(p.owners(), &[0, 1, 0, 1]);
+        assert!(parse_external_owner_labels("0\n1\n0\n", 4, 2).is_err());
+        assert!(parse_external_owner_labels("0\n1\n2\n1\n", 4, 2).is_err());
+        assert!(parse_external_owner_labels("0\n0\n0\n0\n", 4, 2).is_err());
+        assert!(parse_external_owner_labels("0\n1\n0\nx\n", 4, 2).is_err());
+    }
+
+    #[test]
+    fn d9b_policy_parsing_is_explicit() {
+        assert!(matches!(
+            Policy::parse("multilevel").unwrap(),
+            Policy::Multilevel
+        ));
+        assert!(matches!(
+            Policy::parse("external").unwrap(),
+            Policy::External
+        ));
+        assert!(Policy::parse("metis").is_err());
+        assert!(Policy::parse("scotch").is_err());
+    }
+
     #[test]
     fn d7_transport_modes_are_strict() {
         assert!(!parse_d7_transport("alltoallv").unwrap());
