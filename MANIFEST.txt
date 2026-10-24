@@ -100,6 +100,7 @@ benchmarks/scripts/bench-k8c-large-fem-pcg.ps1
 benchmarks/scripts/bench-k8d1-phase-profile.ps1
 benchmarks/scripts/bench-k8d2-spmv-ab.ps1
 benchmarks/scripts/bench-k8d3-rank-abba.ps1
+benchmarks/scripts/bench-k8d7-prepared-p2p.ps1
 benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
@@ -131,6 +132,7 @@ crates/hybit-distributed/examples/mpi_k8b_fem_pcg.rs
 crates/hybit-distributed/examples/mpi_k8d1_phase_profile.rs
 crates/hybit-distributed/examples/mpi_k8d2_spmv_ab.rs
 crates/hybit-distributed/examples/mpi_k8d3_rank_abba.rs
+crates/hybit-distributed/examples/mpi_k8d7_prepared_p2p.rs
 crates/hybit-distributed/examples/mpi_robust_partition_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_ledger_bench.rs
 crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
@@ -305,6 +307,7 @@ docs/H1C3K8C_LARGE_FEM_CURVATURE_GUARD_20261023.md
 docs/H1C3K8D1_PCG_PHASE_PROFILE_20261023.md
 docs/H1C3K8D2_SPMV_VALIDATION_AB_20261023.md
 docs/H1C3K8D3_RANK_ABBA_20261023.md
+docs/H1C3K8D7_PREPARED_P2P_ABBA_20261024.md
 docs/H1C3_GRAPH_FIELD_PARTITION.md
 docs/H1_FIELD_AWARE_DOF.md
 docs/HYBIT_DECISION_LOG.md

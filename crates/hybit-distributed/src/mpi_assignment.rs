@@ -597,6 +597,88 @@ impl AssignmentHaloPlan {
     }
 }
 
+/// H1-C3K8-D7: experimental native P2P transport for the immutable
+/// prepared assignment Halo. Call `validate_assignment_d2_layout` collectively
+/// before starting the timed solve. Every rank must select P2P together and
+/// must keep all plan, operator and scratch layouts fixed for the full solve.
+///
+/// This is deliberately NOT the production SpMV API: a violated prepared
+/// layout contract or mismatched ranks can deadlock native MPI communication.
+/// All receives are posted first, then all sends, and all requests are waited
+/// on before the extended vector is consumed. Only nonzero peers are posted.
+/// The fixed tag must not be used by another concurrent exchange on WORLD.
+pub fn spmv_assignment_d7_p2p_profile(
+    plan: &AssignmentHaloPlan,
+    operator: &AssignmentLocalCsr,
+    x_owned: &[f64],
+    scratch: &mut AssignmentSpmvWorkspace,
+    y_owned: &mut [f64],
+) -> io::Result<AssignmentD2SpmvTiming> {
+    let started = Instant::now();
+    if assignment_d2_layout_bad(plan, operator, x_owned, scratch, y_owned) {
+        return Err(invalid("D7 prepared P2P layout was mutated"));
+    }
+    let validation_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    scratch.extended[..x_owned.len()].copy_from_slice(x_owned);
+    for (value, &slot) in scratch.send.iter_mut().zip(&plan.send_owned_slots) {
+        *value = x_owned[slot as usize];
+    }
+    let pack_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    const HALO_TAG: i32 = 18307;
+    let world = mpi::topology::SimpleCommunicator::world();
+    mpi::request::scope(|scope| {
+        let mut incoming = Vec::new();
+        let mut unassigned = scratch.receive.as_mut_slice();
+        for (peer, &count) in plan.recv_counts.iter().enumerate() {
+            // The prepared plan guarantees displacements are consecutive,
+            // with count >= 0 and the total matching scratch.receive.len().
+            let (segment, rest) = unassigned.split_at_mut(count as usize);
+            unassigned = rest;
+            if count != 0 {
+                incoming.push(
+                    world
+                        .process_at_rank(peer as i32)
+                        .immediate_receive_into_with_tag(scope, segment, HALO_TAG),
+                );
+            }
+        }
+        let mut outgoing = Vec::new();
+        for (peer, &count) in plan.send_counts.iter().enumerate() {
+            if count != 0 {
+                let start = plan.send_displs[peer] as usize;
+                let stop = start + count as usize;
+                outgoing.push(world.process_at_rank(peer as i32).immediate_send_with_tag(
+                    scope,
+                    &scratch.send[start..stop],
+                    HALO_TAG,
+                ));
+            }
+        }
+        for request in incoming {
+            request.wait();
+        }
+        for request in outgoing {
+            request.wait();
+        }
+    });
+    let exchange_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    scratch.extended[x_owned.len()..].copy_from_slice(&scratch.receive);
+    let unpack_ns = started.elapsed().as_nanos();
+    let started = Instant::now();
+    operator.apply_extended(&scratch.extended, y_owned)?;
+    let numeric_ns = started.elapsed().as_nanos();
+    Ok(AssignmentD2SpmvTiming {
+        validation_ns,
+        pack_ns,
+        exchange_ns,
+        unpack_ns,
+        numeric_ns,
+    })
+}
+
 /// K7-C experimental per-rank sparse directory. Nonroot ranks never hold the
 /// length-global_dofs owner vector. Only referenced remote DOFs are indexed.
 /// This is NOT a distributed graph partitioner: root still owns O(n) labels.

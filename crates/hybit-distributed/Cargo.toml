@@ -110,3 +110,7 @@ required-features = ["mpi"]
 [[example]]
 name = "mpi_k8d3_rank_abba"
 required-features = ["mpi"]
+
+[[example]]
+name = "mpi_k8d7_prepared_p2p"
+required-features = ["mpi"]
