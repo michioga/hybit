@@ -365,3 +365,47 @@ FAIL gates とログへのリンク/パス:
 - **Evidence outside Git (not in manifest):** `D:\Work\k8d8a_thermal1_raw.csv` (48 independent-launch records with rankwise vectors), `D:\Work\k8d8a_thermal1_comparison.csv` (four summary conditions) and individual `.log`/`.csv` files. Source-of-truth for performance is these user-provided files and the native Windows log, not this summary alone. Only **solver-only** times were compared; no global end-to-end production-speedup, SPD certification, cross-matrix generalization, memory-peak, or multinode claim.
 - **D9-C8B design constraint:** the pre-existing `mpi_k5b_assignment_solve_many.rs` demonstrates repeated RHS orchestration but explicitly uses a **synthetic SPD surrogate**, not original Matrix Market coefficients. Reuse its experiment structure where helpful, but extend the validated D7 original-CSR prepared-MPI path for genuine `thermal1` solve-many measurement and retain original-CSR/true-residual checks. Measure N={1,4,8,16} independent RHS with setup amortization, 4/8 ranks, Equal/Multilevel, P2P/Alltoallv, persistent bytes and peak RSS if feasible; report time-to-solution including partition/halo/preconditioner preparation separately from solver-only medians.
 - **Next one action:** validate this handoff addition and its Source Integrity hash with the existing two D9-C8A tracked changes, then obtain user-approved small checkpoint commit/push before implementing D9-C8B. No tag, release or crates.io publish.
+
+## 2026-10-25 H1-C3K8-D9-C8B: original CSR prepared solve-many / MS-MPI checkpoint
+
+### Scope and provenance
+
+- Branch: `develop/0.9.0`; base HEAD before this checkpoint: `e6e717039ecf843be5fcc87c15068b95df952195`.
+- The only Rust source changed for D9-C8B is `crates/hybit-distributed/examples/mpi_k8d7_prepared_p2p.rs`, SHA-256 `aa2a6f232f63536c6b14c04461eb7f4e8ef3ee44aa2641ccea5d59f839500297`.
+- Opt-in `--solve-many 1|4|8|16` uses the original MatrixMarket CSR coefficients, independently constructed deterministic manufactured solutions, and bitwise cross-transport RHS verification. Existing D7 CLI remains usable. This is a benchmark/example checkpoint, **not** a production solver selection change.
+- Native Windows MS-MPI, LLVM/libclang and Rust 1.99.1; no Open MPI or MinGW MPI. The `tools/env/Enter-HybitMsMpi.ps1` environment is used in the same PowerShell process. Visual Studio Developer Shell initialization in that environment file is a build-environment implementation detail, not a request to change MPI backend or FFI policy.
+- User-observed gates: source integrity 374 manifest / 372 verified PASS, Rustfmt PASS, Clippy `--workspace --all-targets --all-features -- -D warnings` PASS, and 18/18 release example tests PASS.
+- Matrix: `D:\Work\thermal1.mtx`, n=82,654, nnz=574,458; eight MPI ranks; Jacobi-PCG, relative tolerance 1e-11; `--experimental-large-spd` uses a bounded experimental curvature screen, **not** a universal SPD certificate.
+
+### Native measured evidence
+
+- Earlier `k8d8b_smoke8_compare` (8 ranks, RHS 1/4) and `k8d8b_rhs8_16` (8 ranks, RHS 8/16) ABBA experiments all passed; the latter initially suggested an ABTM Multilevel + P2P prepared-time gain at RHS 8/16.
+- The independent 48-launch `k8d8b_crosscheck` (Equal first, then ABTM Multilevel; RHS 4/8/16; 2 rounds) was PASS in all cases. P2P estimated prepared totals (Equal vs ABTM): RHS 4 = 1,078.47 vs 1,198.95 ms; RHS 8 = 1,957.23 vs 2,266.45 ms; RHS 16 = 3,835.30 vs 4,117.40 ms. Thus it **did not reproduce** the earlier multilevel absolute-time advantage.
+- The 32-launch `k8d8b_reverse_policy` (ABTM Multilevel first, then Equal; RHS 8/16; 2 rounds) was PASS in all cases. P2P estimated prepared totals (Equal vs ABTM): RHS 8 = 2,386.46 vs 2,283.16 ms; RHS 16 = 4,586.95 vs 4,317.09 ms. Reversing policy measurement order **reversed the winner**.
+- Across the Equal-first and ABTM-first campaigns, P2P profiled batch times changed: at RHS 8, Equal 1,830.30 -> 2,251.14 ms (+23.0%) while ABTM 1,905.43 -> 1,938.68 ms (+1.7%); at RHS 16, Equal 3,708.46 -> 4,457.41 ms (+20.2%) while ABTM 3,782.33 -> 3,981.49 ms (+5.3%). The actual cause of this order-related variation remains unproven.
+- Original-coefficient verification and cross-transport bitwise flags were true for every 48+32 launch; maximum observed root true relative residual approximately 5.0e-12, maximum root solution error approximately 4.84e-9. Equal halo ghosts=23,085; ABTM Multilevel halo ghosts=3,687 (84.0% fewer).
+- P2P remained faster than Alltoallv *within either partition policy* in both campaigns. This communication-mode result is promising; **do not** promote an ABTM absolute-speedup or production performance claim yet.
+- `estimated_prepared_time_to_solution_ms` combines measured setup and profiled batch, whose latter includes post-solve diagnostic collectives. It is **not** the measured whole-process wall time; RHS manufacturing and root verification are tracked separately. Do not treat these as interchangeable metrics.
+- Raw CSVs, transport summaries and policy summaries reside in `D:\Work` under the above experiment prefixes; they are not part of the Git source checkpoint.
+
+### Hardware and scheduling hypotheses for the next session (not established causes)
+
+- Local CPU: AMD Ryzen 7 7800X3D, 8 physical cores / 16 threads, 96 MB shared L3 cache. An eight-rank native MS-MPI run fills the eight physical cores if each rank occupies one physical core. Cache reuse/eviction and rank migration may materially change original-CSR SpMV performance.
+- Current `mpiexec` experiments **did not explicitly set or record processor affinity**. MS-MPI documents `mpiexec` affinity controls, but no affinity mode or rank-to-core placement has been verified for this machine. Avoid claiming the default placement or choosing logical-CPU masks without first checking `mpiexec -help` and observed placement. First instrument, then compare unpinned with a supported pinned configuration.
+- Communication/computation overlap has **not** been implemented or demonstrated in the tested halo + SpMV path (per current development understanding). Examine the actual operator: a potentially beneficial implementation is initiate nonblocking ghost exchange, compute strictly local/interior rows, wait or progress communication, then compute halo-dependent/boundary rows. This requires a correctness-preserving row split and halo-workspace lifetime discipline.
+- Nonblocking MPI initiation by itself does not guarantee useful overlap. Check MS-MPI communication progress, per-rank imbalance, fraction of interior SpMV work, MPI wait time, and net solve-only *and* prepared total performance before claiming a benefit.
+- Cache behavior, core affinity, MPI progress, and row-work imbalance are hypotheses only. No cache misses, clock counters, rank placement, or overlap traces were measured in D9-C8B.
+
+### Next session: D9-C8C plan and stop conditions
+
+1. Do **not** rerun the same grouped-policy ABBA benchmark again as proof of policy superiority. Build a balanced cross-over launch schedule, interleaving Equal and ABTM and rotating Alltoallv/P2P positions; save schedule and per-launch order in CSV.
+2. Establish rank-to-logical-CPU mapping and measured affinity, and record process/thread count. Benchmark unpinned first, then only validated MS-MPI affinity modes. Keep the 8-core/96 MB L3 constraint explicit.
+3. Use the existing D9-C8A per-rank timing counters to correlate slowest rank, numeric skew, exchange skew, owned DOFs/nnz and halo sizes with observed runtime variability. Avoid new solver changes until this cause profile is reviewed.
+4. Only then evaluate communication/computation overlap with baseline and opt-in A/B, using exact original CSR verification, identical RHS and iterations, rankwise timing, and whole-process wall-time alongside solver-only timing.
+5. Maintain full source SHA-256 integrity, branch/HEAD/clean staging guards, Rustfmt, Clippy all-features, 18 example tests and native MS-MPI tests for any follow-up patch. This checkpoint is **not a release**; do not change production defaults.
+
+### Reference sources used for the hypotheses
+
+- AMD official CPU specifications: https://www.amd.com/en/products/processors/desktops/ryzen/7000-series/amd-ryzen-7-7800X3d.html
+- Microsoft mpiexec command and affinity options: https://learn.microsoft.com/en-us/powershell/high-performance-computing/mpiexec?view=hpc19-ps
+- MPI Forum nonblocking communication and progress semantics: https://www.mpi-forum.org/docs/mpi-5.0/mpi50-report/node77.htm

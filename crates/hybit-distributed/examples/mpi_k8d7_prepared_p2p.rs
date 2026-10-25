@@ -122,6 +122,17 @@ fn x_exact(global: u64) -> f64 {
     (t * 0.017).sin() + 0.125 * (t * 0.0031).cos()
 }
 
+// D9-C8B: genuinely different, deterministic manufactured solutions on the
+// ORIGINAL input matrix. RHS 0 is bit-for-bit the legacy D7 experiment.
+fn x_exact_rhs(global: u64, rhs_id: usize) -> f64 {
+    if rhs_id == 0 {
+        return x_exact(global);
+    }
+    let t = global as f64 + 1.0;
+    let phase = rhs_id as f64 * 0.137;
+    (t * 0.017 + phase).sin() + 0.125 * (t * (0.0031 + rhs_id as f64 * 0.000017)).cos()
+}
+
 /// A sufficient (not necessary) SPD certificate: A=A^T exactly, finite,
 /// positive diagonal and strict row diagonal dominance. It intentionally
 /// rejects many valid SPD FEM matrices; never confuses PCG convergence with
@@ -650,6 +661,7 @@ fn solve_pcg(
     op: &AssignmentLocalCsr,
     precond: &FixedPreconditioner,
     rhs: &[f64],
+    rhs_id: usize,
     options: PcgSolveOptions,
 ) -> BenchResult<Solution> {
     let n = halo.owned_len();
@@ -776,7 +788,7 @@ fn solve_pcg(
     let local_err = x
         .iter()
         .zip(&halo.owned_globals)
-        .map(|(&v, &g)| (v - x_exact(g)).abs())
+        .map(|(&v, &g)| (v - x_exact_rhs(g, rhs_id)).abs())
         .fold(0.0f64, f64::max);
     let max_err = world_max(local_err);
     if !rel.is_finite() || rel > options.tol || !max_err.is_finite() || max_err > 1.0e-5 {
@@ -868,6 +880,7 @@ fn verify_root_original(
     owners: Option<&PartitionAssignment>,
     rows: &AssignmentOwnedCsrRows,
     x: &[f64],
+    rhs_id: usize,
     tol: f64,
 ) -> BenchResult<(f64, f64)> {
     let world = mpi::topology::SimpleCommunicator::world();
@@ -933,11 +946,12 @@ fn verify_root_original(
                     let j = matrix.col_idx()[k] as usize;
                     let aij = matrix.values()[k];
                     ax += aij * full[j];
-                    b += aij * x_exact(j as u64);
+                    b += aij * x_exact_rhs(j as u64, rhs_id);
                 }
                 numer += (b - ax) * (b - ax);
                 denom += b * b;
-                reference_error = reference_error.max((full[i] - x_exact(i as u64)).abs());
+                reference_error =
+                    reference_error.max((full[i] - x_exact_rhs(i as u64, rhs_id)).abs());
             }
             if !denom.is_finite() || denom <= 0.0 {
                 return Err("root manufactured RHS invalid".into());
@@ -979,9 +993,21 @@ fn parse_d7_transport(mode: &str) -> BenchResult<bool> {
 
 fn main() -> BenchResult<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 12 {
-        return Err("usage: mpi_k8d7_prepared_p2p <ranks> <input.mtx> <equal|region|multisource|multilevel|external> <warmups> <repeats> <max_iters> <tol> <output.csv> <jacobi|ic0|block> <block-size> --experimental-large-spd <alltoallv|p2p>".into());
+    if args.len() != 12 && args.len() != 14 {
+        return Err("usage: mpi_k8d7_prepared_p2p <ranks> <input.mtx> <equal|region|multisource|multilevel|external> <warmups> <repeats> <max_iters> <tol> <output.csv> <jacobi|ic0|block> <block-size> --experimental-large-spd <alltoallv|p2p> [--solve-many 1|4|8|16]".into());
     }
+    let solve_many = if args.len() == 14 {
+        if args[12] != "--solve-many" {
+            return Err("D9-C8B requires --solve-many flag".into());
+        }
+        let count: usize = args[13].parse()?;
+        if !matches!(count, 1 | 4 | 8 | 16) {
+            return Err("D9-C8B RHS count must be 1, 4, 8 or 16".into());
+        }
+        Some(count)
+    } else {
+        None
+    };
     let experimental_large_spd = true;
     if args[10] != "--experimental-large-spd" {
         return Err("invalid opt-in flag for experimental large SPD path".into());
@@ -1018,6 +1044,8 @@ fn main() -> BenchResult<()> {
         return Err("refuse to overwrite output CSV".into());
     }
     mpi.barrier();
+    // Legacy 12-argument D7 path has no extra setup timer or collective.
+    let prepared_setup_started = solve_many.map(|_| Instant::now());
     let stamp = Instant::now();
     let loaded = if mpi.rank() == 0 {
         Some((|| -> BenchResult<Csr32Matrix> {
@@ -1110,6 +1138,195 @@ fn main() -> BenchResult<()> {
     if rank_owned_dofs.iter().sum::<u64>() != n || rank_owned_nnz.iter().sum::<u64>() != nnz {
         return Err("D9-C8A rank-owned work sum does not equal original CSR".into());
     }
+    if let Some(rhs_count) = solve_many {
+        let prepared_setup_total_ms = world_max(
+            prepared_setup_started
+                .ok_or("D9-C8B missing setup timer")?
+                .elapsed()
+                .as_secs_f64()
+                * 1000.0,
+        );
+        // D9-C8B: opt-in amortization experiment on the exact ORIGINAL CSR.
+        // Partition, sparse scatter, Halo, and preconditioner above are built
+        // ONCE and remain identical across independent manufactured RHS.
+        mpi.barrier();
+        let rhs_started = Instant::now();
+        let mut rhs_vectors = Vec::with_capacity(rhs_count);
+        let mut p2p_workspace = halo.workspace();
+        for rhs_id in 0..rhs_count {
+            let known = halo
+                .owned_globals
+                .iter()
+                .map(|&g| x_exact_rhs(g, rhs_id))
+                .collect::<Vec<_>>();
+            let mut rhs = vec![0.0; known.len()];
+            spmv_assignment(&mpi, &halo, &local, &known, &mut halo.workspace(), &mut rhs)?;
+            // Both transports must construct bitwise-identical RHS for EVERY
+            // independently generated exact solution, before timed batches.
+            let mut p2p_rhs = vec![0.0; known.len()];
+            validate_assignment_d2_layout(&mpi, &halo, &local, &known, &p2p_workspace, &p2p_rhs)?;
+            spmv_assignment_d7_p2p_profile(
+                &halo,
+                &local,
+                &known,
+                &mut p2p_workspace,
+                &mut p2p_rhs,
+            )?;
+            let mismatch = rhs
+                .iter()
+                .zip(&p2p_rhs)
+                .any(|(a, b)| a.to_bits() != b.to_bits());
+            if mpi.all_reduce_sum_u64(u64::from(mismatch)) != 0 {
+                return Err("D9-C8B manufactured RHS differs between transports".into());
+            }
+            rhs_vectors.push(rhs);
+        }
+        let rhs_gen_verify_ms = world_max(rhs_started.elapsed().as_secs_f64() * 1000.0);
+        let options = PcgSolveOptions {
+            max_iters,
+            tol,
+            experimental_large_spd,
+            skip_collective_validation,
+            use_p2p,
+        };
+        let mut iterations = vec![None::<usize>; rhs_count];
+        let mut measured_wall_ms = Vec::with_capacity(repeats);
+        let mut measured_solver_ms = Vec::with_capacity(repeats);
+        let mut last_solutions = Vec::new();
+        let mut max_distributed_rel = 0.0_f64;
+        let mut max_distributed_err = 0.0_f64;
+        let mut batch_spmv_calls = 0_usize;
+        let mut batch_dot_reductions = 0_usize;
+        for trial in 0..warmups + repeats {
+            mpi.barrier();
+            let batch_started = Instant::now();
+            let mut sum_solver_only_ms = 0.0_f64;
+            let mut solutions = Vec::with_capacity(rhs_count);
+            let mut trial_spmvs = 0_usize;
+            let mut trial_dots = 0_usize;
+            for (rhs_id, rhs) in rhs_vectors.iter().enumerate() {
+                let result = solve_pcg(&mpi, &halo, &local, &precond, rhs, rhs_id, options)?;
+                if iterations[rhs_id].is_some_and(|v| v != result.iterations) {
+                    return Err("D9-C8B iteration count changed between batches".into());
+                }
+                iterations[rhs_id] = Some(result.iterations);
+                sum_solver_only_ms += result.solve_ms;
+                trial_spmvs += result.spmv_calls;
+                trial_dots += result.dot_reductions;
+                if trial >= warmups {
+                    max_distributed_rel = max_distributed_rel.max(result.true_rel);
+                    max_distributed_err = max_distributed_err.max(result.max_error);
+                }
+                solutions.push(result.x);
+            }
+            let batch_profiled_wall_ms = world_max(batch_started.elapsed().as_secs_f64() * 1000.0);
+            if trial >= warmups {
+                measured_wall_ms.push(batch_profiled_wall_ms);
+                measured_solver_ms.push(sum_solver_only_ms);
+                batch_spmv_calls = trial_spmvs;
+                batch_dot_reductions = trial_dots;
+            }
+            if trial + 1 == warmups + repeats {
+                last_solutions = solutions;
+            }
+        }
+        mpi.barrier();
+        let root_started = Instant::now();
+        let mut root_true_rel_max = 0.0_f64;
+        let mut root_solution_error_max = 0.0_f64;
+        for (rhs_id, solution) in last_solutions.iter().enumerate() {
+            let (true_rel, max_error) = verify_root_original(
+                &mpi,
+                matrix.as_ref(),
+                selection.as_ref(),
+                &rows,
+                solution,
+                rhs_id,
+                tol,
+            )?;
+            root_true_rel_max = root_true_rel_max.max(true_rel);
+            root_solution_error_max = root_solution_error_max.max(max_error);
+        }
+        let root_verify_ms = world_max(root_started.elapsed().as_secs_f64() * 1000.0);
+        let batch_wall_median = median(&measured_wall_ms);
+        let solver_only_sum_median = median(&measured_solver_ms);
+        // A controlled estimate for one prepared batch, not the measured
+        // full program elapsed time with benchmark warmups/repetitions.
+        let estimated_prepared_total_ms = prepared_setup_total_ms + batch_wall_median;
+        if mpi.rank() == 0 {
+            println!(
+                "D9-C8B ORIGINAL CSR SOLVE-MANY PASS ranks={} method={} transport={} rhs={} median_batch_wall_ms={:.6} median_sum_solver_only_ms={:.6} setup_ms={:.6} root_true_rel_max={:.3e} original_coefficients=true",
+                ranks,
+                policy.label(),
+                mode,
+                rhs_count,
+                batch_wall_median,
+                solver_only_sum_median,
+                prepared_setup_total_ms,
+                root_true_rel_max,
+            );
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(output)?;
+            writeln!(
+                file,
+                "matrix,ranks,method,d7_transport,n,nnz,rhs_count,warmups,repeats,max_iters,tol,preconditioner,block_size,spd_screen,iterations_per_rhs,median_batch_profiled_wall_ms,median_sum_solver_only_ms,prepared_setup_total_ms,estimated_prepared_time_to_solution_ms,estimated_prepared_per_rhs_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,precond_setup_ms,rhs_gen_verify_ms,root_verify_ms,root_original_true_rel_max,root_solution_error_max,distributed_true_rel_max,distributed_solution_error_max,ghosts,factor_bytes,sparse_owner_bytes,rank_owned_dofs,rank_owned_nnz,spmv_calls_per_batch,dot_reductions_per_batch,exact_original_verified,d7_halo_bitwise,reference_scope"
+            )?;
+            let iteration_counts = iterations
+                .iter()
+                .map(|value| value.unwrap_or(0).to_string())
+                .collect::<Vec<_>>()
+                .join("|");
+            let fields = [
+                path.display().to_string(),
+                ranks.to_string(),
+                policy.label().to_string(),
+                mode.to_string(),
+                n.to_string(),
+                nnz.to_string(),
+                rhs_count.to_string(),
+                warmups.to_string(),
+                repeats.to_string(),
+                max_iters.to_string(),
+                format!("{tol:.3e}"),
+                precond_mode.to_string(),
+                block_size.to_string(),
+                certificate.to_string(),
+                iteration_counts,
+                format!("{batch_wall_median:.6}"),
+                format!("{solver_only_sum_median:.6}"),
+                format!("{prepared_setup_total_ms:.6}"),
+                format!("{estimated_prepared_total_ms:.6}"),
+                format!("{:.6}", estimated_prepared_total_ms / rhs_count as f64),
+                format!("{read_ms:.6}"),
+                format!("{partition_ms:.6}"),
+                format!("{scatter_ms:.6}"),
+                format!("{verify_ms:.6}"),
+                format!("{halo_ms:.6}"),
+                format!("{precond_ms:.6}"),
+                format!("{rhs_gen_verify_ms:.6}"),
+                format!("{root_verify_ms:.6}"),
+                format!("{root_true_rel_max:.12e}"),
+                format!("{root_solution_error_max:.12e}"),
+                format!("{max_distributed_rel:.12e}"),
+                format!("{max_distributed_err:.12e}"),
+                ghosts.to_string(),
+                factor_bytes.to_string(),
+                sparse_owner_bytes.to_string(),
+                RankTelemetry::u64_vector_csv(&rank_owned_dofs),
+                RankTelemetry::u64_vector_csv(&rank_owned_nnz),
+                batch_spmv_calls.to_string(),
+                batch_dot_reductions.to_string(),
+                "true".to_string(),
+                "true".to_string(),
+                "original_matrix_coefficients".to_string(),
+            ];
+            writeln!(file, "{}", fields.join(","))?;
+        }
+        mpi.barrier();
+        return Ok(());
+    }
     mpi.barrier();
     let started = Instant::now();
     let known = halo
@@ -1149,6 +1366,7 @@ fn main() -> BenchResult<()> {
             &local,
             &precond,
             &rhs,
+            0,
             PcgSolveOptions {
                 max_iters,
                 tol,
@@ -1181,6 +1399,7 @@ fn main() -> BenchResult<()> {
         selection.as_ref(),
         &rows,
         &final_solution,
+        0,
         tol,
     )?;
     let root_verify_ms = world_max(root_started.elapsed().as_secs_f64() * 1000.0);
@@ -1310,6 +1529,24 @@ fn median(data: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn d9c8b_rhs_zero_preserves_d7_manufactured_solution() {
+        for global in [0, 1, 127, 1_000, 82_653] {
+            assert_eq!(x_exact_rhs(global, 0).to_bits(), x_exact(global).to_bits());
+        }
+    }
+
+    #[test]
+    fn d9c8b_rhs_vectors_are_deterministic_and_distinct() {
+        for rhs_id in [1, 4, 8, 15] {
+            let value = x_exact_rhs(1_337, rhs_id);
+            assert!(value.is_finite());
+            assert_eq!(value.to_bits(), x_exact_rhs(1_337, rhs_id).to_bits());
+            assert_ne!(value.to_bits(), x_exact_rhs(1_337, 0).to_bits());
+        }
+        assert_ne!(x_exact_rhs(17, 1).to_bits(), x_exact_rhs(17, 2).to_bits());
+    }
+
     #[test]
     fn d9b_owner_labels_require_full_valid_rank_coverage() {
         let p = parse_external_owner_labels("0\n1\n0\n1\n", 4, 2).unwrap();
