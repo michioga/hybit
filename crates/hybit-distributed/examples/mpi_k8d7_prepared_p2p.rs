@@ -559,6 +559,17 @@ fn spmv_profile(
 struct RankTelemetry {
     exchange_ms: Vec<f64>,
     dot_collective_ms: Vec<f64>,
+    // D9-C8A: rankwise local phase totals, gathered after the timed solve.
+    spmv_numeric_ms: Vec<f64>,
+    spmv_pack_ms: Vec<f64>,
+    spmv_unpack_ms: Vec<f64>,
+    spmv_validation_ms: Vec<f64>,
+    spmv_other_ms: Vec<f64>,
+    precond_ms: Vec<f64>,
+    dot_local_ms: Vec<f64>,
+    vector_update_ms: Vec<f64>,
+    local_elapsed_ms: Vec<f64>,
+    unattributed_ms: Vec<f64>,
     sent_values: Vec<u64>,
     received_values: Vec<u64>,
     sent_peers: Vec<u64>,
@@ -580,6 +591,22 @@ impl RankTelemetry {
             .fold(f64::INFINITY, f64::min);
         let high = self.exchange_ms.iter().copied().fold(0.0_f64, f64::max);
         if low.is_finite() { high - low } else { 0.0 }
+    }
+    fn numeric_skew_ms(&self) -> f64 {
+        let low = self
+            .spmv_numeric_ms
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+        let high = self.spmv_numeric_ms.iter().copied().fold(0.0_f64, f64::max);
+        if low.is_finite() { high - low } else { 0.0 }
+    }
+    fn slowest_numeric_rank(&self) -> usize {
+        self.spmv_numeric_ms
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map_or(0, |(rank, _)| rank)
     }
     fn f64_vector_csv(v: &[f64]) -> String {
         v.iter()
@@ -769,6 +796,23 @@ fn solve_pcg(
     let mut dot_collective_ms = vec![0.0_f64; nranks];
     let dot_local = phases.dot_collective as f64 * 1e-6;
     world.all_gather_into(&dot_local, &mut dot_collective_ms[..]);
+    // D9-C8A: one post-timer collective records ten local phases. These
+    // values correspond to the SAME measured solve trial, not maxima from
+    // potentially different ranks. No additional MPI call is on the PCG clock.
+    let local_phase = [
+        phases.spmv_numeric as f64 * 1e-6,
+        phases.spmv_pack as f64 * 1e-6,
+        phases.spmv_unpack as f64 * 1e-6,
+        phases.spmv_validation as f64 * 1e-6,
+        phases.spmv_other as f64 * 1e-6,
+        phases.precond as f64 * 1e-6,
+        phases.dot_local as f64 * 1e-6,
+        phases.vector_update as f64 * 1e-6,
+        local_elapsed_ns as f64 * 1e-6,
+        local_elapsed_ns.saturating_sub(phases.accounted()) as f64 * 1e-6,
+    ];
+    let mut all_phases = vec![0.0_f64; nranks * local_phase.len()];
+    world.all_gather_into(&local_phase[..], &mut all_phases[..]);
     let halo_counts = halo.d3_halo_counts();
     let local_counts = [
         halo_counts.sent_values,
@@ -783,6 +827,18 @@ fn solve_pcg(
         dot_collective_ms,
         ..RankTelemetry::default()
     };
+    for values in all_phases.chunks_exact(local_phase.len()) {
+        rank_telemetry.spmv_numeric_ms.push(values[0]);
+        rank_telemetry.spmv_pack_ms.push(values[1]);
+        rank_telemetry.spmv_unpack_ms.push(values[2]);
+        rank_telemetry.spmv_validation_ms.push(values[3]);
+        rank_telemetry.spmv_other_ms.push(values[4]);
+        rank_telemetry.precond_ms.push(values[5]);
+        rank_telemetry.dot_local_ms.push(values[6]);
+        rank_telemetry.vector_update_ms.push(values[7]);
+        rank_telemetry.local_elapsed_ms.push(values[8]);
+        rank_telemetry.unattributed_ms.push(values[9]);
+    }
     for values in all_counts.as_chunks::<4>().0 {
         rank_telemetry.sent_values.push(values[0]);
         rank_telemetry.received_values.push(values[1]);
@@ -1042,6 +1098,18 @@ fn main() -> BenchResult<()> {
     let factor_bytes = mpi.all_reduce_sum_u64(precond.bytes() as u64);
     let ghosts = mpi.all_reduce_sum_u64(hstats.ghosts as u64);
     let sparse_owner_bytes = mpi.all_reduce_sum_u64(stats.owner_bytes as u64);
+    // D9-C8A: compute-load proxies from the exact rank-owned original CSR.
+    // This collective is performed once during setup, outside solve timing.
+    let local_work = [rows.owned_globals.len() as u64, rows.values.len() as u64];
+    let mut rank_work = vec![0_u64; ranks as usize * local_work.len()];
+    mpi::topology::SimpleCommunicator::world().all_gather_into(&local_work[..], &mut rank_work[..]);
+    let (rank_pairs, remainder) = rank_work.as_chunks::<2>();
+    debug_assert!(remainder.is_empty());
+    let rank_owned_dofs = rank_pairs.iter().map(|w| w[0]).collect::<Vec<_>>();
+    let rank_owned_nnz = rank_pairs.iter().map(|w| w[1]).collect::<Vec<_>>();
+    if rank_owned_dofs.iter().sum::<u64>() != n || rank_owned_nnz.iter().sum::<u64>() != nnz {
+        return Err("D9-C8A rank-owned work sum does not equal original CSR".into());
+    }
     mpi.barrier();
     let started = Instant::now();
     let known = halo
@@ -1145,9 +1213,9 @@ fn main() -> BenchResult<()> {
             .open(output)?;
         writeln!(
             file,
-            "matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified,precond_setup_ms,precond_factor_bytes_sum,block_size,true_residual_checkpoints,experimental_opt_in,phase_spmv_halo_ms,phase_spmv_numeric_ms,phase_spmv_other_ms,phase_dot_local_ms,phase_dot_allreduce_ms,phase_precond_apply_ms,phase_vector_update_ms,phase_unattributed_ms,phase_scope,d2_mode,phase_spmv_validation_ms,phase_spmv_pack_ms,phase_spmv_exchange_ms,phase_spmv_unpack_ms,d3_rank_exchange_ms,d3_rank_dot_allreduce_ms,d3_rank_sent_values,d3_rank_received_values,d3_rank_sent_peers,d3_rank_received_peers,d3_exchange_skew_ms,d3_slowest_exchange_rank,d7_transport,d7_halo_bitwise"
+            "matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified,precond_setup_ms,precond_factor_bytes_sum,block_size,true_residual_checkpoints,experimental_opt_in,phase_spmv_halo_ms,phase_spmv_numeric_ms,phase_spmv_other_ms,phase_dot_local_ms,phase_dot_allreduce_ms,phase_precond_apply_ms,phase_vector_update_ms,phase_unattributed_ms,phase_scope,d2_mode,phase_spmv_validation_ms,phase_spmv_pack_ms,phase_spmv_exchange_ms,phase_spmv_unpack_ms,d3_rank_exchange_ms,d3_rank_dot_allreduce_ms,d3_rank_sent_values,d3_rank_received_values,d3_rank_sent_peers,d3_rank_received_peers,d3_exchange_skew_ms,d3_slowest_exchange_rank,d7_transport,d7_halo_bitwise,d8_rank_spmv_numeric_ms,d8_rank_spmv_pack_ms,d8_rank_spmv_unpack_ms,d8_rank_spmv_validation_ms,d8_rank_spmv_other_ms,d8_rank_precond_ms,d8_rank_dot_local_ms,d8_rank_vector_update_ms,d8_rank_local_elapsed_ms,d8_rank_unattributed_ms,d8_rank_owned_dofs,d8_rank_owned_nnz,d8_numeric_skew_ms,d8_slowest_numeric_rank"
         )?;
-        writeln!(
+        write!(
             file,
             "{},{},{},{},{},{},{},{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true,{:.6},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},rankwise_max_not_additive,prevalidated,{:.6},{:.6},{:.6},{:.6},{},{},{},{},{},{},{:.6},{},{},true",
             path.display(),
@@ -1204,6 +1272,24 @@ fn main() -> BenchResult<()> {
             selected_ranks.exchange_skew_ms(),
             selected_ranks.slowest_exchange_rank(),
             mode
+        )?;
+        writeln!(
+            file,
+            ",{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{}",
+            RankTelemetry::f64_vector_csv(&selected_ranks.spmv_numeric_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.spmv_pack_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.spmv_unpack_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.spmv_validation_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.spmv_other_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.precond_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.dot_local_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.vector_update_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.local_elapsed_ms),
+            RankTelemetry::f64_vector_csv(&selected_ranks.unattributed_ms),
+            RankTelemetry::u64_vector_csv(&rank_owned_dofs),
+            RankTelemetry::u64_vector_csv(&rank_owned_nnz),
+            selected_ranks.numeric_skew_ms(),
+            selected_ranks.slowest_numeric_rank()
         )?;
     }
     mpi.barrier();
@@ -1263,6 +1349,19 @@ mod tests {
         assert!((data.exchange_skew_ms() - 2.0).abs() < 1.0e-12);
         assert_eq!(data.slowest_exchange_rank(), 1);
         assert_eq!(RankTelemetry::u64_vector_csv(&[2, 4, 1]), "2|4|1");
+    }
+    #[test]
+    fn d8_rank_numeric_skew_and_slowest_rank() {
+        let data = RankTelemetry {
+            spmv_numeric_ms: vec![0.4, 1.1, 0.6],
+            ..RankTelemetry::default()
+        };
+        assert!((data.numeric_skew_ms() - 0.7).abs() < 1.0e-12);
+        assert_eq!(data.slowest_numeric_rank(), 1);
+        assert_eq!(
+            RankTelemetry::f64_vector_csv(&data.spmv_numeric_ms),
+            "0.400000|1.100000|0.600000"
+        );
     }
     fn make_matrix(d0: f64, d1: f64, a01: f64, a10: f64) -> Csr32Matrix {
         Csr32Matrix::new(
