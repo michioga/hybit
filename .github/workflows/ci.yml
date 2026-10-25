@@ -16,13 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.1
           components: rustfmt, clippy
       - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+        run: cargo +1.99.1 fmt --all -- --check
+      - name: Clippy (no default features)
+        run: cargo +1.99.1 clippy --workspace --all-targets --no-default-features -- -D warnings
+      - name: Clippy (default features)
+        run: cargo +1.99.1 clippy --workspace --all-targets -- -D warnings
 
   test:
     name: Rust ${{ matrix.rust }} on ${{ matrix.os }}
@@ -42,10 +45,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
+      - name: Verify selected Rust version
+        run: rustc +${{ matrix.rust }} --version
       - name: Test workspace
-        run: cargo test --workspace --release
+        run: cargo +${{ matrix.rust }} test --workspace --release
       - name: Build facade examples
-        run: cargo build --release -p hybit --examples
+        run: cargo +${{ matrix.rust }} build --release -p hybit --examples
 
   docs:
     name: mdBook
@@ -73,14 +78,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
       - name: Check workspace metadata
-        run: cargo metadata --format-version 1 --no-deps > /dev/null
+        run: cargo +1.99.1 metadata --format-version 1 --no-deps > /dev/null
       - name: Check package contents
         shell: bash
         run: |
           set -euo pipefail
           for crate in hybit-core hybit-matrix hybit-krylov hybit-precond hybit-auto hybit; do
             echo "== $crate =="
-            cargo package -p "$crate" --list
+            cargo +1.99.1 package -p "$crate" --list
           done
