@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg_with_workspace, read_matrix_market, recommend_rigid_body_aggregate_nodes,
     Csr32Matrix, LinearOperator, PcgWorkspace, RigidBodyAggregation,
-    RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions,
+    RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions, analyze_csr32, pcg_with_workspace,
+    read_matrix_market, recommend_rigid_body_aggregate_nodes,
 };
 
 #[derive(Debug)]
@@ -58,7 +58,7 @@ impl Args {
                             return Err(format!(
                                 "unknown aggregation '{other}'; use contiguous or graph"
                             )
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -109,7 +109,9 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT structural kernel profile");
-    println!("Usage: fem_structural_profile --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous] [--kernel-repeats 20]");
+    println!(
+        "Usage: fem_structural_profile --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous] [--kernel-repeats 20]"
+    );
 }
 
 fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {
@@ -432,7 +434,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         outcome.iterations as f64 * precond_ms
     );
     println!("estimated other    : {:.3} ms total", other_ms);
-    println!("note               : kernel totals are microbenchmark estimates, not nested timers inside PCG");
+    println!(
+        "note               : kernel totals are microbenchmark estimates, not nested timers inside PCG"
+    );
 
     if !verified.is_finite() {
         return Err("non-finite independently verified residual".into());

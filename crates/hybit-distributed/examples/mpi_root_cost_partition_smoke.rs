@@ -3,12 +3,12 @@
 //! This synthetic smoke is not a real distributed mesh reader or speed test.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    broadcast_root_cost_selection_mpi, capture_partition_calibration,
-    cost_aware_contiguous_partition_scoped, select_and_broadcast_cost_partition_mpi,
     ContiguousPartition, CostAwarePartitionOptions, DistributedTopologyError,
-    PartitionCostCalibration, ScopedCostPartitionResult,
+    PartitionCostCalibration, ScopedCostPartitionResult, broadcast_root_cost_selection_mpi,
+    capture_partition_calibration, cost_aware_contiguous_partition_scoped,
+    select_and_broadcast_cost_partition_mpi,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use std::error::Error;

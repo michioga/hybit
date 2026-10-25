@@ -4,8 +4,8 @@
 //! Collective MPI errors are synchronized where possible. Experimental only.
 
 use hybit_distributed::mpi_assignment::{
-    prepare_assignment_owned_rows_sparse, spmv_assignment, AssignmentHaloPlan, AssignmentLocalCsr,
-    AssignmentOwnedCsrRows,
+    AssignmentHaloPlan, AssignmentLocalCsr, AssignmentOwnedCsrRows,
+    prepare_assignment_owned_rows_sparse, spmv_assignment,
 };
 use hybit_distributed::mpi_assignment_sparse::scatter_sparse_owners_from_root;
 use hybit_distributed::mpi_assignment_sparse_verify::verify_sparse_assignment_scatter_exact;
@@ -13,10 +13,10 @@ use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::mpi_block_jacobi::LocalBlockCholesky;
 use hybit_distributed::mpi_ic0::LocalBlockIc0;
 use hybit_distributed::{
-    abtm_balanced_multisource_partition, abtm_region_grow_partition, ContiguousPartition,
-    PartitionAssignment,
+    ContiguousPartition, PartitionAssignment, abtm_balanced_multisource_partition,
+    abtm_region_grow_partition,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::error::Error;
@@ -565,7 +565,7 @@ fn solve_pcg(
             converged = true;
             break;
         }
-        if options.experimental_large_spd && (iters == 1 || iters % 32 == 0) {
+        if options.experimental_large_spd && (iters == 1 || iters.is_multiple_of(32)) {
             // Recompute b-Ax independently of recursive PCG residual.
             spmv_profile(mpi, halo, op, &x, &mut scratch, &mut ap, &mut phases)?;
             spmvs += 1;
@@ -933,23 +933,74 @@ fn main() -> BenchResult<()> {
         .ok_or("missing measured K8-D1 phase sample")?
         .1;
     if mpi.rank() == 0 {
-        println!("K8-D1 PROFILED FEM PCG PASS method={} ranks={} n={} nnz={} spd={} precond={} block={} iterations={} median_solve_ms={:.6} root_original_rel={:.3e} precond_setup_ms={:.3} factor_bytes={} exact_original=true",
-            policy.label(), ranks, n, nnz, certificate, precond_mode, block_size, observed_iters.unwrap_or(0), solve_median,
-            root_rel, precond_ms, factor_bytes);
+        println!(
+            "K8-D1 PROFILED FEM PCG PASS method={} ranks={} n={} nnz={} spd={} precond={} block={} iterations={} median_solve_ms={:.6} root_original_rel={:.3e} precond_setup_ms={:.3} factor_bytes={} exact_original=true",
+            policy.label(),
+            ranks,
+            n,
+            nnz,
+            certificate,
+            precond_mode,
+            block_size,
+            observed_iters.unwrap_or(0),
+            solve_median,
+            root_rel,
+            precond_ms,
+            factor_bytes
+        );
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(output)?;
-        writeln!(file,"matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified,precond_setup_ms,precond_factor_bytes_sum,block_size,true_residual_checkpoints,experimental_opt_in,phase_spmv_halo_ms,phase_spmv_numeric_ms,phase_spmv_other_ms,phase_dot_local_ms,phase_dot_allreduce_ms,phase_precond_apply_ms,phase_vector_update_ms,phase_unattributed_ms,phase_scope")?;
-        writeln!(file,"{},{},{},{},{},{},{},{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true,{:.6},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},rankwise_max_not_additive",
-            path.display(), ranks, policy.label(), n, nnz, certificate, precond_mode, warmups, repeats, max_iters, tol,
-            observed_iters.unwrap_or(0),solve_median,read_ms,partition_ms,scatter_ms,verify_ms,
-            halo_ms,rhs_ms,root_verify_ms,worst_true_rel,root_rel,worst_err,root_err,sparse_owner_bytes,
-            ghosts,calls,reductions,precond_ms,factor_bytes,block_size,true_checkpoints,experimental_large_spd,
-            selected_phases.spmv_halo_ms, selected_phases.spmv_numeric_ms,
-            selected_phases.spmv_other_ms, selected_phases.dot_local_ms,
-            selected_phases.dot_collective_ms, selected_phases.precond_ms,
-            selected_phases.vector_update_ms, selected_phases.unattributed_ms)?;
+        writeln!(
+            file,
+            "matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified,precond_setup_ms,precond_factor_bytes_sum,block_size,true_residual_checkpoints,experimental_opt_in,phase_spmv_halo_ms,phase_spmv_numeric_ms,phase_spmv_other_ms,phase_dot_local_ms,phase_dot_allreduce_ms,phase_precond_apply_ms,phase_vector_update_ms,phase_unattributed_ms,phase_scope"
+        )?;
+        writeln!(
+            file,
+            "{},{},{},{},{},{},{},{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true,{:.6},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},rankwise_max_not_additive",
+            path.display(),
+            ranks,
+            policy.label(),
+            n,
+            nnz,
+            certificate,
+            precond_mode,
+            warmups,
+            repeats,
+            max_iters,
+            tol,
+            observed_iters.unwrap_or(0),
+            solve_median,
+            read_ms,
+            partition_ms,
+            scatter_ms,
+            verify_ms,
+            halo_ms,
+            rhs_ms,
+            root_verify_ms,
+            worst_true_rel,
+            root_rel,
+            worst_err,
+            root_err,
+            sparse_owner_bytes,
+            ghosts,
+            calls,
+            reductions,
+            precond_ms,
+            factor_bytes,
+            block_size,
+            true_checkpoints,
+            experimental_large_spd,
+            selected_phases.spmv_halo_ms,
+            selected_phases.spmv_numeric_ms,
+            selected_phases.spmv_other_ms,
+            selected_phases.dot_local_ms,
+            selected_phases.dot_collective_ms,
+            selected_phases.precond_ms,
+            selected_phases.vector_update_ms,
+            selected_phases.unattributed_ms
+        )?;
     }
     mpi.barrier();
     Ok(())
@@ -959,7 +1010,7 @@ fn median(data: &[f64]) -> f64 {
     let mut sorted = data.to_vec();
     sorted.sort_by(f64::total_cmp);
     let m = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         0.5 * (sorted[m - 1] + sorted[m])
     } else {
         sorted[m]

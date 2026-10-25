@@ -9,13 +9,12 @@
 //! This does NOT change HyBIT's automatic routing or production MPI solver.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    capture_partition_calibration, field_graph_contiguous_partition,
-    select_and_broadcast_cost_partition_mpi, validate_field_contiguous_partition,
     CalibrationGuardDecision, ContiguousPartition, CostAwarePartitionDecision,
     CostAwarePartitionKind, CostAwarePartitionOptions, PartitionCostCalibration,
-    RootMpiCostSelection,
+    RootMpiCostSelection, capture_partition_calibration, field_graph_contiguous_partition,
+    select_and_broadcast_cost_partition_mpi, validate_field_contiguous_partition,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use mpi::collective::SystemOperation;
@@ -211,7 +210,7 @@ fn median(values: &[f64]) -> f64 {
     assert!(!values.is_empty(), "nonempty timing samples");
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) * 0.5
     } else {
         sorted[sorted.len() / 2]
@@ -576,12 +575,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     if rank == 0 {
         println!(
             "PASS H1-C3H ranks={expected} n={n} nnz={} expected_calls={expected_calls} decision={:?} selected={:?} guard={:?} workers_global_csr={workers_global_csr_final} baseline_ghosts={} graph_candidate_ghosts={} selected_ghosts={} calibration_baseline_us={:.3} calibration_graph_us={:.3} holdout_baseline_us={:.3} holdout_graph_us={:.3} holdout_selected_us={:.3} all_epochs_graph_faster={candidate_wins_all_epochs} calibration_to_holdout_graph_ratio={calibration_holdout_ratio:.3} probe_wall_ms={probe_wall_ms:.6} root_candidate_prepare_ms={:.6} second_selector_wall_ms={decision_wall_ms:.6} baseline_native_setup_ms={:.6} graph_native_setup_ms={:.6} selected_native_setup_ms={:.6} gate_break_even_calls={calibrated_break_even:?} fully_accounted_break_even_calls={full_break_even:?} modeled_baseline_only_ms={baseline_only_ms:.6} modeled_selected_after_calibration_ms={selected_after_calibration_ms:.6} modeled_selected_from_probe_start_ms={selected_from_probe_start_ms:.6} baseline_abs_err={baseline_error_final:.3e} graph_abs_err={graph_error_final:.3e} selected_abs_err={holdout_error:.3e}",
-            candidate.total_nnz, selected.decision, selected.selected_kind,
-            selected.calibration_guard, baseline.ghosts, candidate.ghosts, holdout.ghosts,
-            baseline_ms * 1e3, graph_ms * 1e3, base_holdout_ms * 1e3,
-            graph_holdout_ms * 1e3, selected_holdout_ms * 1e3,
+            candidate.total_nnz,
+            selected.decision,
+            selected.selected_kind,
+            selected.calibration_guard,
+            baseline.ghosts,
+            candidate.ghosts,
+            holdout.ghosts,
+            baseline_ms * 1e3,
+            graph_ms * 1e3,
+            base_holdout_ms * 1e3,
+            graph_holdout_ms * 1e3,
+            selected_holdout_ms * 1e3,
             graph_prepare_ns as f64 * 1e-6,
-            baseline.setup_max_ms, candidate.setup_max_ms, holdout.setup_max_ms,
+            baseline.setup_max_ms,
+            candidate.setup_max_ms,
+            holdout.setup_max_ms,
         );
         println!(
             "H1-C3H epochs baseline_us={:?} graph_us={:?} selected_us={:?}",

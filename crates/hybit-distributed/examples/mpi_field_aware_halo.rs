@@ -6,9 +6,9 @@
 
 use hybit_distributed::field_aligned_contiguous_partition;
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    build_contiguous_halo_plans, partition_telemetry, ContiguousPartition, PreparedFieldAwareHalo,
+    ContiguousPartition, PreparedFieldAwareHalo, build_contiguous_halo_plans, partition_telemetry,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use std::error::Error;

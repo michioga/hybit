@@ -7,7 +7,7 @@
 
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_input::prepare_owned_rows;
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_mtx::{MtxPcgPolicy, distribute_matrix_market_with_policy};
 use hybit::distributed::mpi_pcg::{
     DistributedPcg, DistributedPcgOptions, DistributedPcgPreconditioner, DistributedPcgStatus,
 };
@@ -32,7 +32,7 @@ fn rank_max_f64(local: f64) -> f64 {
 fn median(samples: &mut [f64]) -> f64 {
     samples.sort_by(f64::total_cmp);
     let mid = samples.len() / 2;
-    if samples.len() % 2 == 0 {
+    if samples.len().is_multiple_of(2) {
         (samples[mid - 1] + samples[mid]) * 0.5
     } else {
         samples[mid]
@@ -88,7 +88,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 && (!csv.exists() || std::fs::metadata(csv)?.len() == 0) {
         let mut f = OpenOptions::new().create(true).append(true).open(csv)?;
-        writeln!(f, "case,policy,ranks,n,nnz,preconditioner,block_size,warmups,repeats,iterations,status,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,setup_max_ms,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_precond_apply_ms,median_max_halo_wait_ms,estimated_one_rhs_ms,estimated_ten_rhs_ms")?;
+        writeln!(
+            f,
+            "case,policy,ranks,n,nnz,preconditioner,block_size,warmups,repeats,iterations,status,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,setup_max_ms,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_precond_apply_ms,median_max_halo_wait_ms,estimated_one_rhs_ms,estimated_ten_rhs_ms"
+        )?;
     }
     mpi.barrier();
     let (partition, owned, ingest) = distribute_matrix_market_with_policy(&mpi, matrix, policy)?;
@@ -194,8 +197,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         scores.push(score);
         if mpi.rank() == 0 {
             let mut f = OpenOptions::new().append(true).open(csv)?;
-            writeln!(f, "{label},{policy_label},{expected},{},{},{name},{block_size},{warmups},{repeats},{iterations},{status:?},{relative:.12e},{abs_error:.12e},{spmv_calls},{allreduce_calls},{setup_ms:.6},{solve_ms:.6},{spmv_ms:.6},{reduce_ms:.6},{apply_ms:.6},{wait_ms:.6},{:.6},{:.6}", partition.global_dofs(), ingest.global_nnz, score.estimated_ms(1.0), score.estimated_ms(10.0))?;
-            println!("PASS G8-C7 {label}/{name}[{block_size}] ranks={expected}: iters={iterations}, rel={relative:.3e}, setup={setup_ms:.4}ms, solve={solve_ms:.4}ms, apply={apply_ms:.4}ms, est_1rhs={:.4}ms, est_10rhs={:.4}ms", score.estimated_ms(1.0), score.estimated_ms(10.0));
+            writeln!(
+                f,
+                "{label},{policy_label},{expected},{},{},{name},{block_size},{warmups},{repeats},{iterations},{status:?},{relative:.12e},{abs_error:.12e},{spmv_calls},{allreduce_calls},{setup_ms:.6},{solve_ms:.6},{spmv_ms:.6},{reduce_ms:.6},{apply_ms:.6},{wait_ms:.6},{:.6},{:.6}",
+                partition.global_dofs(),
+                ingest.global_nnz,
+                score.estimated_ms(1.0),
+                score.estimated_ms(10.0)
+            )?;
+            println!(
+                "PASS G8-C7 {label}/{name}[{block_size}] ranks={expected}: iters={iterations}, rel={relative:.3e}, setup={setup_ms:.4}ms, solve={solve_ms:.4}ms, apply={apply_ms:.4}ms, est_1rhs={:.4}ms, est_10rhs={:.4}ms",
+                score.estimated_ms(1.0),
+                score.estimated_ms(10.0)
+            );
         }
         mpi.barrier();
     }

@@ -13,32 +13,32 @@ mod region;
 mod restricted;
 mod topology;
 
-pub use abtm::{AbtmConfig, AbtmMatrix, AbtmStats, TileDesc, TileKind, TILE_WIDTH};
+pub use abtm::{AbtmConfig, AbtmMatrix, AbtmStats, TILE_WIDTH, TileDesc, TileKind};
 pub use csr32::{Csr32Matrix, ParallelCsr32Operator};
 pub use dense_block::{DenseBlockCsrOperator, DenseBlockSize};
 pub use dof_layout::{DofAddress, DofBlock, DofEntityKind, FieldAwareDofLayout};
 pub use dual_topology::{AbtmDualTopology, AbtmDualTopologyStats};
 pub use field_region::{
-    close_to_field_blocks, field_block_owners, grow_field_aware_region, FieldAwareRegionGrowth,
-    FieldAwareRegionStats,
+    FieldAwareRegionGrowth, FieldAwareRegionStats, close_to_field_blocks, field_block_owners,
+    grow_field_aware_region,
 };
 pub use mask::DofMask;
 pub use matrix_market::{
-    read_matrix_market, read_matrix_market_from_reader, write_matrix_market_general,
-    MatrixMarketError, MatrixMarketInfo, MatrixMarketSymmetry,
+    MatrixMarketError, MatrixMarketInfo, MatrixMarketSymmetry, read_matrix_market,
+    read_matrix_market_from_reader, write_matrix_market_general,
 };
 pub use metadata_first::{
     AbtmMetadataFirstMatrix, AbtmMetadataFirstStats, AbtmProductPruningStats,
 };
 pub use prepared_field_region::{PreparedFieldAwareLocalRegion, PreparedFieldAwareTopology};
-pub use profile::{analyze_csr32, MatrixProfile};
+pub use profile::{MatrixProfile, analyze_csr32};
 pub use region::{
-    extract_local_submatrix_pattern, grow_undirected_region, prepare_local_numeric_plan,
-    region_multiplicity, AbtmLocalNumericPlan, AbtmLocalNumericPlanStats,
-    AbtmLocalSubmatrixPattern, AbtmLocalSubmatrixPatternStats, AbtmRegionGrowth,
-    AbtmRegionGrowthStats, AbtmRegionMultiplicity, AbtmRegionMultiplicityStats,
+    AbtmLocalNumericPlan, AbtmLocalNumericPlanStats, AbtmLocalSubmatrixPattern,
+    AbtmLocalSubmatrixPatternStats, AbtmRegionGrowth, AbtmRegionGrowthStats,
+    AbtmRegionMultiplicity, AbtmRegionMultiplicityStats, extract_local_submatrix_pattern,
+    grow_undirected_region, prepare_local_numeric_plan, region_multiplicity,
 };
 pub use restricted::{PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator};
 pub use topology::{
-    AbtmTopology, AbtmTopologyRow, AbtmTopologyStats, AbtmTopologyWord, ABTM_TOPOLOGY_WORD_BITS,
+    ABTM_TOPOLOGY_WORD_BITS, AbtmTopology, AbtmTopologyRow, AbtmTopologyStats, AbtmTopologyWord,
 };

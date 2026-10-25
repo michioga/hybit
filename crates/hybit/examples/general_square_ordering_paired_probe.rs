@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    fgmres_with_workspace, read_matrix_market, Csr32Matrix, FgmresOptions, FgmresWorkspace,
-    Ilu0Preconditioner, KrylovOutcome, SolveStatus, SolverOptions,
+    Csr32Matrix, FgmresOptions, FgmresWorkspace, Ilu0Preconditioner, KrylovOutcome, SolveStatus,
+    SolverOptions, fgmres_with_workspace, read_matrix_market,
 };
 
 const PROBE_ITERS: &[usize] = &[4, 8, 16];

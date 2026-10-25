@@ -8,13 +8,12 @@
 //! This is an experiment, not an automatic solver policy or performance claim.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    capture_partition_calibration, field_graph_contiguous_partition,
-    select_and_broadcast_cost_partition_mpi, validate_field_contiguous_partition,
     CalibrationGuardDecision, ContiguousPartition, CostAwarePartitionDecision,
     CostAwarePartitionKind, CostAwarePartitionOptions, PartitionCostCalibration,
-    RootMpiCostSelection,
+    RootMpiCostSelection, capture_partition_calibration, field_graph_contiguous_partition,
+    select_and_broadcast_cost_partition_mpi, validate_field_contiguous_partition,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use mpi::collective::SystemOperation;
@@ -463,9 +462,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     if rank == 0 {
         println!(
             "PASS H1-C3G ranks={expected} n={n} nnz={} expected_calls={expected_calls} decision={:?} selected={:?} guard={:?} workers_global_csr={workers_global_csr} baseline_ghosts={} graph_candidate_ghosts={} selected_ghosts={} calibration_baseline_max_rank_median_ms={baseline_ms:.6} calibration_graph_max_rank_median_ms={graph_ms:.6} root_graph_prepare_ms={:.6} extra_native_setup_ns={extra_setup_ns} calibration_preparation_budget_ns={preparation_budget_ns} break_even_calls={break_even:?} modeled_baseline_total_ms={modeled_baseline_ms:.6} modeled_graph_total_ms={modeled_graph_ms:.6} holdout_selected_max_rank_median_ms={:.6} baseline_abs_err={baseline_error:.3e} graph_abs_err={candidate_error:.3e} holdout_abs_err={holdout_error:.3e}",
-            candidate.total_nnz, selected.decision, selected.selected_kind,
-            selected.calibration_guard, baseline.ghosts, candidate.ghosts,
-            holdout.ghosts, graph_prepare_ns as f64 * 1e-6,
+            candidate.total_nnz,
+            selected.decision,
+            selected.selected_kind,
+            selected.calibration_guard,
+            baseline.ghosts,
+            candidate.ghosts,
+            holdout.ghosts,
+            graph_prepare_ns as f64 * 1e-6,
             median(&holdout.max_rank_spmv_ms),
         );
         println!(

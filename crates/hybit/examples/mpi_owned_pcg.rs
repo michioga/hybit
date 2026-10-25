@@ -5,11 +5,11 @@
 //! Reference x is an analytic function evaluated at requested global DOFs.
 //! Tests 1/2/4/8 ranks; output is correctness-oriented, not a speedup claim.
 
+use hybit::distributed::ContiguousPartition;
 use hybit::distributed::mpi_backend::MpiRuntime;
-use hybit::distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit::distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit::distributed::mpi_overlap::OverlapSpmv;
 use hybit::distributed::mpi_pcg::{DistributedPcg, DistributedPcgOptions, DistributedPcgStatus};
-use hybit::distributed::ContiguousPartition;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -59,7 +59,7 @@ fn row(global: u64, n: u64, kind: &str, side: u64) -> Vec<(u64, f64)> {
             if global >= side {
                 out.push((global - side, -1.0));
             }
-            if global % side != 0 {
+            if !global.is_multiple_of(side) {
                 out.push((global - 1, -1.0));
             }
             out.push((global, 4.5));
@@ -71,7 +71,7 @@ fn row(global: u64, n: u64, kind: &str, side: u64) -> Vec<(u64, f64)> {
             }
         }
         "disconnected" => {
-            if global % 32 != 0 {
+            if !global.is_multiple_of(32) {
                 out.push((global - 1, -0.6));
             }
             out.push((global, 3.0));
@@ -189,9 +189,22 @@ fn run(
     mpi.barrier();
     if rank == 0 {
         let mut csv = OpenOptions::new().append(true).open(csv_path)?;
-        writeln!(csv, "{kind},{ranks},{n},{rhs},{nnz},{ghosts},{sent},{received},{resident},{},{},{:.12e},{:.12e},{:.12e},{:.6},{:.6},{:.6}",
-            report.iterations, report.allreduce_calls,report.true_relative_residual,truth_error_sum,halo_error_sum,input_avg,setup_avg,solve_avg)?;
-        println!("PASS C2 {kind} N={n} rhs={rhs} ranks={ranks} iter={} rel={:.3e} truth_err={truth_error_sum:.3e} ghosts={ghosts} nnz={nnz} avg_solve_ms={solve_avg:.3}",report.iterations,report.true_relative_residual);
+        writeln!(
+            csv,
+            "{kind},{ranks},{n},{rhs},{nnz},{ghosts},{sent},{received},{resident},{},{},{:.12e},{:.12e},{:.12e},{:.6},{:.6},{:.6}",
+            report.iterations,
+            report.allreduce_calls,
+            report.true_relative_residual,
+            truth_error_sum,
+            halo_error_sum,
+            input_avg,
+            setup_avg,
+            solve_avg
+        )?;
+        println!(
+            "PASS C2 {kind} N={n} rhs={rhs} ranks={ranks} iter={} rel={:.3e} truth_err={truth_error_sum:.3e} ghosts={ghosts} nnz={nnz} avg_solve_ms={solve_avg:.3}",
+            report.iterations, report.true_relative_residual
+        );
     }
     mpi.barrier();
     Ok(())
@@ -210,7 +223,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 {
         let mut csv = File::create(&csv_path)?;
-        writeln!(csv, "case,ranks,n,rhs,global_nnz,total_ghosts,total_halo_sent,total_halo_recv,sum_operator_bytes,iterations,allreduces,true_rel,truth_error_sum,halo_error_sum,mean_rank_input_ms,mean_rank_setup_ms,mean_rank_solve_ms")?;
+        writeln!(
+            csv,
+            "case,ranks,n,rhs,global_nnz,total_ghosts,total_halo_sent,total_halo_recv,sum_operator_bytes,iterations,allreduces,true_rel,truth_error_sum,halo_error_sum,mean_rank_input_ms,mean_rank_setup_ms,mean_rank_solve_ms"
+        )?;
     }
     mpi.barrier();
     for side in [64u64, 128u64] {

@@ -7,10 +7,10 @@ use hybit_distributed::mpi_assignment_sparse::scatter_sparse_owners_from_root;
 use hybit_distributed::mpi_assignment_sparse_verify::verify_sparse_assignment_scatter_exact;
 use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::{
-    abtm_balanced_multisource_partition, abtm_region_grow_partition, ContiguousPartition,
-    PartitionAssignment,
+    ContiguousPartition, PartitionAssignment, abtm_balanced_multisource_partition,
+    abtm_region_grow_partition,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::error::Error;
@@ -70,7 +70,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let i = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         0.5 * (sorted[i - 1] + sorted[i])
     } else {
         sorted[i]
@@ -283,13 +283,76 @@ fn main() -> BenchResult<()> {
     let halo_ms = median(&halo_samples);
     let numeric_ms = median(&numeric_samples);
     if mpi.rank() == 0 {
-        println!("K6 ROOT-SCATTER NATIVE PASS method={} ranks={} n={} nnz={} ghosts={} read_ms={:.3} partition_ms={:.3} scatter_ms={:.3} halo_setup_ms={:.3} median_spmv_ms={:.6} median_halo_ms={:.6} median_numeric_ms={:.6} sum_owned_bytes={} sum_operator_bytes={} max_rel={:.3e} root_only=true root_stream_chunk_bytes={} root_k6_all_chunks_bytes={} concurrent_chunks={} exact_original=true verify_ms={:.3} verified_rows={} verified_nnz={} sparse_owner_bytes_sum={} sparse_owner_entries={} replicated_owner_baseline_bytes={} nonroot_owner_max_bytes={}",policy.label(),ranks,n,nnz,ghosts,read_ms,partition_ms,scatter_ms,halo_setup_ms,spmv_ms,halo_ms,numeric_ms,local_bytes_sum,operator_bytes_sum,worst_rel,root_stream_chunk_bytes,root_k6_chunks_bytes,root_concurrent_chunks,verify_ms,verification.verified_rows,verification.verified_nnz,owner_bytes_sum,owner_entries_sum,replicated_owner_baseline_bytes,nonroot_owner_bytes_max);
+        println!(
+            "K6 ROOT-SCATTER NATIVE PASS method={} ranks={} n={} nnz={} ghosts={} read_ms={:.3} partition_ms={:.3} scatter_ms={:.3} halo_setup_ms={:.3} median_spmv_ms={:.6} median_halo_ms={:.6} median_numeric_ms={:.6} sum_owned_bytes={} sum_operator_bytes={} max_rel={:.3e} root_only=true root_stream_chunk_bytes={} root_k6_all_chunks_bytes={} concurrent_chunks={} exact_original=true verify_ms={:.3} verified_rows={} verified_nnz={} sparse_owner_bytes_sum={} sparse_owner_entries={} replicated_owner_baseline_bytes={} nonroot_owner_max_bytes={}",
+            policy.label(),
+            ranks,
+            n,
+            nnz,
+            ghosts,
+            read_ms,
+            partition_ms,
+            scatter_ms,
+            halo_setup_ms,
+            spmv_ms,
+            halo_ms,
+            numeric_ms,
+            local_bytes_sum,
+            operator_bytes_sum,
+            worst_rel,
+            root_stream_chunk_bytes,
+            root_k6_chunks_bytes,
+            root_concurrent_chunks,
+            verify_ms,
+            verification.verified_rows,
+            verification.verified_nnz,
+            owner_bytes_sum,
+            owner_entries_sum,
+            replicated_owner_baseline_bytes,
+            nonroot_owner_bytes_max
+        );
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(output)?;
-        writeln!(file,"matrix,ranks,method,n,nnz,repeats,read_root_max_ms,partition_root_max_ms,scatter_max_ms,halo_setup_max_ms,median_spmv_max_ms,median_halo_max_ms,median_numeric_max_ms,ghosts,sent_f64,local_owned_bytes_sum,operator_halo_bytes_sum,root_input_csr_bytes,worst_abs,worst_rel,root_stream_chunk_bytes_est,root_k6_all_chunks_bytes_est,max_concurrent_root_chunks,exact_original_verified,verify_original_max_ms,verified_original_rows,verified_original_nnz,sparse_owner_bytes_sum,sparse_owner_entries,replicated_owner_baseline_bytes,nonroot_owner_max_bytes")?;
-        writeln!(file,"{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{},{},{},{:.12e},{:.12e},{},{},{},true,{:.6},{},{},{},{},{},{}",path.display(),ranks,policy.label(),n,nnz,repeats,read_ms,partition_ms,scatter_ms,halo_setup_ms,spmv_ms,halo_ms,numeric_ms,ghosts,sent,local_bytes_sum,operator_bytes_sum,global_csr_bytes,worst_abs,worst_rel,root_stream_chunk_bytes,root_k6_chunks_bytes,root_concurrent_chunks,verify_ms,verification.verified_rows,verification.verified_nnz,owner_bytes_sum,owner_entries_sum,replicated_owner_baseline_bytes,nonroot_owner_bytes_max)?;
+        writeln!(
+            file,
+            "matrix,ranks,method,n,nnz,repeats,read_root_max_ms,partition_root_max_ms,scatter_max_ms,halo_setup_max_ms,median_spmv_max_ms,median_halo_max_ms,median_numeric_max_ms,ghosts,sent_f64,local_owned_bytes_sum,operator_halo_bytes_sum,root_input_csr_bytes,worst_abs,worst_rel,root_stream_chunk_bytes_est,root_k6_all_chunks_bytes_est,max_concurrent_root_chunks,exact_original_verified,verify_original_max_ms,verified_original_rows,verified_original_nnz,sparse_owner_bytes_sum,sparse_owner_entries,replicated_owner_baseline_bytes,nonroot_owner_max_bytes"
+        )?;
+        writeln!(
+            file,
+            "{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{},{},{},{:.12e},{:.12e},{},{},{},true,{:.6},{},{},{},{},{},{}",
+            path.display(),
+            ranks,
+            policy.label(),
+            n,
+            nnz,
+            repeats,
+            read_ms,
+            partition_ms,
+            scatter_ms,
+            halo_setup_ms,
+            spmv_ms,
+            halo_ms,
+            numeric_ms,
+            ghosts,
+            sent,
+            local_bytes_sum,
+            operator_bytes_sum,
+            global_csr_bytes,
+            worst_abs,
+            worst_rel,
+            root_stream_chunk_bytes,
+            root_k6_chunks_bytes,
+            root_concurrent_chunks,
+            verify_ms,
+            verification.verified_rows,
+            verification.verified_nnz,
+            owner_bytes_sum,
+            owner_entries_sum,
+            replicated_owner_baseline_bytes,
+            nonroot_owner_bytes_max
+        )?;
     }
     mpi.barrier();
     Ok(())

@@ -102,6 +102,7 @@ benchmarks/scripts/bench-k8d2-spmv-ab.ps1
 benchmarks/scripts/bench-k8d3-rank-abba.ps1
 benchmarks/scripts/bench-k8d7-prepared-p2p.ps1
 benchmarks/scripts/bench-k8d9b-partition-pcg.ps1
+benchmarks/scripts/bench-k8d9c1-refine.ps1
 benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
@@ -140,6 +141,7 @@ crates/hybit-distributed/examples/mpi_root_cost_partition_smoke.rs
 crates/hybit-distributed/examples/mpi_root_graph_reuse_bench.rs
 crates/hybit-distributed/examples/mpi_root_graph_selection_bench.rs
 crates/hybit-distributed/examples/mpi_root_measured_calibration_bench.rs
+crates/hybit-distributed/examples/partition_d9c1_refine_probe.rs
 crates/hybit-distributed/examples/partition_graph_export.rs
 crates/hybit-distributed/examples/partition_quality_probe.rs
 crates/hybit-distributed/examples/schur_inner_policy_probe.rs
@@ -310,6 +312,8 @@ docs/H1C3K8D2_SPMV_VALIDATION_AB_20261023.md
 docs/H1C3K8D3_RANK_ABBA_20261023.md
 docs/H1C3K8D7_PREPARED_P2P_ABBA_20261024.md
 docs/H1C3K8D9B_EXTERNAL_LABELS_PCG_20261024.md
+docs/H1C3K8D9C1_BOUNDARY_REFINEMENT_20261024.md
+docs/H1C3K8_RUST2024_MIGRATION_20261024.md
 docs/H1C3_GRAPH_FIELD_PARTITION.md
 docs/H1_FIELD_AWARE_DOF.md
 docs/HYBIT_DECISION_LOG.md
@@ -346,6 +350,7 @@ fortran/hybit.f90
 include/hybit.def
 include/hybit.h
 include/hybit.hpp
+rust-toolchain.toml
 tools/bench/generate-k5c-grid7-mtx.py
 tools/build/build-examples.ps1
 tools/build/build.ps1

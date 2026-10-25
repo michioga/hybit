@@ -4,7 +4,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit::{read_matrix_market, Csr32Matrix, Ilu0Preconditioner};
+use hybit::{Csr32Matrix, Ilu0Preconditioner, read_matrix_market};
 
 #[derive(Debug)]
 struct Args {
@@ -577,10 +577,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!(
         "LEVEL_COMPARE|forward_levels_ratio={:.9}|backward_levels_ratio={:.9}|forward_parallelism_ratio={:.9}|backward_parallelism_ratio={:.9}|natural_profile_ms={natural_profile_ms:.6}|rcm_profile_ms={rcm_profile_ms:.6}|ordering_ms={ordering_ms:.6}|natural_bandwidth={natural_bandwidth}|rcm_bandwidth={rcm_bandwidth}",
-        rcm_profile.forward.levels as f64
-            / natural_profile.forward.levels.max(1) as f64,
-        rcm_profile.backward.levels as f64
-            / natural_profile.backward.levels.max(1) as f64,
+        rcm_profile.forward.levels as f64 / natural_profile.forward.levels.max(1) as f64,
+        rcm_profile.backward.levels as f64 / natural_profile.backward.levels.max(1) as f64,
         (matrix.nrows() as f64 / rcm_profile.forward.levels.max(1) as f64)
             / (matrix.nrows() as f64 / natural_profile.forward.levels.max(1) as f64),
         (matrix.nrows() as f64 / rcm_profile.backward.levels.max(1) as f64)

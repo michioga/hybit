@@ -1483,7 +1483,7 @@ impl TwoLevelBlockJacobiPreconditioner {
             return Err(HybitError::InvalidArgument("aggregate_nodes must be > 0"));
         }
         let n = matrix.nrows();
-        if n % dofs_per_node != 0 {
+        if !n.is_multiple_of(dofs_per_node) {
             return Err(HybitError::InvalidArgument(
                 "matrix dimension must be divisible by dofs_per_node for aggregation",
             ));

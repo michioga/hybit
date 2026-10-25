@@ -1,9 +1,9 @@
 //! H1-C3J: prepared-Graph replay must preserve the exact legacy decision.
 use hybit_distributed::{
-    capture_partition_calibration, cost_aware_contiguous_partition_scoped,
-    cost_aware_contiguous_partition_scoped_prepared, prepare_cost_graph_candidate_scoped,
     CalibrationGuardDecision, CostAwarePartitionDecision, CostAwarePartitionKind,
-    CostAwarePartitionOptions, PartitionCostCalibration,
+    CostAwarePartitionOptions, PartitionCostCalibration, capture_partition_calibration,
+    cost_aware_contiguous_partition_scoped, cost_aware_contiguous_partition_scoped_prepared,
+    prepare_cost_graph_candidate_scoped,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 

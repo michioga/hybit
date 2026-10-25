@@ -5,7 +5,7 @@
 //! require an explicit permission token and are not correctness-gated.
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_input::prepare_owned_rows;
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_mtx::{MtxPcgPolicy, distribute_matrix_market_with_policy};
 use hybit::distributed::mpi_pcg::{
     DistributedPcg, DistributedPcgOptions, DistributedPcgPreconditioner, DistributedPcgStatus,
 };
@@ -76,7 +76,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let needs_header = !csv.exists() || std::fs::metadata(csv)?.len() == 0;
         if needs_header {
             let mut out = OpenOptions::new().append(true).create(true).open(csv)?;
-            writeln!(out, "case,policy,ranks,n,nnz,preconditioner,iterations,status,interpretation,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,max_setup_ms,max_solve_ms,max_spmv_ms,max_allreduce_ms,max_preconditioner_apply_ms,factor_bytes_global")?;
+            writeln!(
+                out,
+                "case,policy,ranks,n,nnz,preconditioner,iterations,status,interpretation,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,max_setup_ms,max_solve_ms,max_spmv_ms,max_allreduce_ms,max_preconditioner_apply_ms,factor_bytes_global"
+            )?;
         }
     }
     mpi.barrier();
@@ -140,13 +143,29 @@ fn main() -> Result<(), Box<dyn Error>> {
             "experimental_unverified"
         };
         let mut out = OpenOptions::new().append(true).open(csv)?;
-        writeln!(out, "{label},{policy_label},{expected},{},{},{selection},{},{:?},{interpretation},{:.12e},{max_abs_error:.12e},{},{},{max_setup_ms:.6},{max_solve_ms:.6},{max_spmv_ms:.6},{max_allreduce_ms:.6},{max_preconditioner_apply_ms:.6},{factor_bytes_global}",
-            partition.global_dofs(), stats.global_nnz, report.iterations, report.status,
-            report.true_relative_residual, report.spmv_calls, report.allreduce_calls)?;
-        println!("G8-C10 {interpretation} {label}/{selection}: ranks={expected} n={} nnz={} iter={} status={:?} true_rel={:.4e} err={max_abs_error:.3e} solve={max_solve_ms:.3}ms",
-            partition.global_dofs(), stats.global_nnz, report.iterations, report.status, report.true_relative_residual);
+        writeln!(
+            out,
+            "{label},{policy_label},{expected},{},{},{selection},{},{:?},{interpretation},{:.12e},{max_abs_error:.12e},{},{},{max_setup_ms:.6},{max_solve_ms:.6},{max_spmv_ms:.6},{max_allreduce_ms:.6},{max_preconditioner_apply_ms:.6},{factor_bytes_global}",
+            partition.global_dofs(),
+            stats.global_nnz,
+            report.iterations,
+            report.status,
+            report.true_relative_residual,
+            report.spmv_calls,
+            report.allreduce_calls
+        )?;
+        println!(
+            "G8-C10 {interpretation} {label}/{selection}: ranks={expected} n={} nnz={} iter={} status={:?} true_rel={:.4e} err={max_abs_error:.3e} solve={max_solve_ms:.3}ms",
+            partition.global_dofs(),
+            stats.global_nnz,
+            report.iterations,
+            report.status,
+            report.true_relative_residual
+        );
         if policy == MtxPcgPolicy::ExperimentalUnverified {
-            println!("G8-C10 WARNING: manufactured-solution convergence does not prove matrix SPD or physical validity");
+            println!(
+                "G8-C10 WARNING: manufactured-solution convergence does not prove matrix SPD or physical validity"
+            );
         }
     }
     mpi.barrier();

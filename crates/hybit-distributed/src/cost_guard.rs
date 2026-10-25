@@ -5,9 +5,9 @@
 //! by the caller; no timing is inferred from graph sparsity or rank-local time.
 
 use crate::{
-    cost_aware_contiguous_partition, ContiguousPartition, CostAwarePartitionKind,
-    CostAwarePartitionOptions, CostAwarePartitionReport, DistributedTopologyError,
-    PartitionCostCalibration, RankId,
+    ContiguousPartition, CostAwarePartitionKind, CostAwarePartitionOptions,
+    CostAwarePartitionReport, DistributedTopologyError, PartitionCostCalibration, RankId,
+    cost_aware_contiguous_partition,
 };
 use hybit_matrix::{Csr32Matrix, FieldAwareDofLayout};
 

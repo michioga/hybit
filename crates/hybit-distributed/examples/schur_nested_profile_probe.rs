@@ -6,8 +6,8 @@
 //! proof of exact fixed-operator Krylov convergence. Always gate true ||Ax-b||.
 
 use hybit_core::{HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions};
-use hybit_distributed::{abtm_multilevel_partition, AbtmMultilevelOptions, PartitionAssignment};
-use hybit_krylov::{fgmres, pcg, FgmresOptions, KrylovOutcome};
+use hybit_distributed::{AbtmMultilevelOptions, PartitionAssignment, abtm_multilevel_partition};
+use hybit_krylov::{FgmresOptions, KrylovOutcome, fgmres, pcg};
 use hybit_matrix::Csr32Matrix;
 use std::cell::RefCell;
 use std::error::Error;
@@ -651,7 +651,10 @@ fn main() -> R<()> {
         std::process::exit(2);
     }
     let mut csv = BufWriter::new(File::create(&args[1])?);
-    writeln!(csv, "case,n,nnz,interior,interface,partition_ms,prepare_ms,sparse_bytes_lower_bound,coupling_nnz,schur_iterations,global_iterations,schur_solve_ms,global_solve_ms,schur_true_residual,global_true_residual,schur_solution_error,p1_inner_calls,p1_inner_iterations,p1_inner_pcg_ms,p1_inner_allocation_ms,p1_schur_actions,p1_gg_ms,p1_ig_rhs_ms,p1_gi_ms,p1_condensed_ms,p1_outer_fgmres_ms,p1_reconstruct_ms,p1_unattributed_ms")?;
+    writeln!(
+        csv,
+        "case,n,nnz,interior,interface,partition_ms,prepare_ms,sparse_bytes_lower_bound,coupling_nnz,schur_iterations,global_iterations,schur_solve_ms,global_solve_ms,schur_true_residual,global_true_residual,schur_solution_error,p1_inner_calls,p1_inner_iterations,p1_inner_pcg_ms,p1_inner_allocation_ms,p1_schur_actions,p1_gg_ms,p1_ig_rhs_ms,p1_gi_ms,p1_condensed_ms,p1_outer_fgmres_ms,p1_reconstruct_ms,p1_unattributed_ms"
+    )?;
     for case in CASES {
         let r = eval(case)?;
         let p1_accounted_ms = p1_ms(
@@ -695,16 +698,28 @@ fn main() -> R<()> {
         )?;
         println!(
             "PASS {} n={} I={} Gamma={} Schur/FGMRES={} global/PCG={} solve={:.3}/{:.3}ms true_res={:.3e}/{:.3e}",
-            r.name, r.n, r.interior, r.interface, r.schur_iterations,
-            r.global_iterations, r.schur_solve_ms, r.global_solve_ms,
-            r.schur_residual, r.global_residual
+            r.name,
+            r.n,
+            r.interior,
+            r.interface,
+            r.schur_iterations,
+            r.global_iterations,
+            r.schur_solve_ms,
+            r.global_solve_ms,
+            r.schur_residual,
+            r.global_residual
         );
         println!(
             "P1 {} inner_calls={} inner_iters={} inner_pcg={:.3}ms inner_alloc={:.3}ms actions={} GG={:.3}ms IG_rhs={:.3}ms GI={:.3}ms unattributed={:.3}ms",
-            r.name, r.p1.inner_calls, r.p1.inner_iterations,
-            p1_ms(r.p1.inner_pcg_ns), p1_ms(r.p1.inner_alloc_ns),
-            r.p1.schur_actions, p1_ms(r.p1.gg_ns),
-            p1_ms(r.p1.ig_rhs_ns), p1_ms(r.p1.gi_ns),
+            r.name,
+            r.p1.inner_calls,
+            r.p1.inner_iterations,
+            p1_ms(r.p1.inner_pcg_ns),
+            p1_ms(r.p1.inner_alloc_ns),
+            r.p1.schur_actions,
+            p1_ms(r.p1.gg_ns),
+            p1_ms(r.p1.ig_rhs_ns),
+            p1_ms(r.p1.gi_ns),
             p1_unattributed_ms,
         );
     }
@@ -735,10 +750,11 @@ mod tests {
         assert_eq!(plan.interior_count + plan.interface_count, a.nrows());
         assert_eq!(plan.interface_count, 72);
         assert_eq!(plan.locals.len(), 4);
-        assert!(plan
-            .locals
-            .iter()
-            .all(|loc| loc.a.nrows() == loc.dofs.len()));
+        assert!(
+            plan.locals
+                .iter()
+                .all(|loc| loc.a.nrows() == loc.dofs.len())
+        );
     }
 
     #[test]

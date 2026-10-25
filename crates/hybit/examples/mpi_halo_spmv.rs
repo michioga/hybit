@@ -4,11 +4,11 @@
 //! Only owned x values are passed to the MPI operator; ghosts arrive from peers.
 //! Global matrix replication is a test harness, not a production input strategy.
 
+use hybit::Csr32Matrix;
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::{
-    build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition,
+    ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr,
 };
-use hybit::Csr32Matrix;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -183,7 +183,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 {
         let mut file = File::create(&csv_path)?;
-        writeln!(file, "case,ranks,n,ghosts,remote_nnz,oneway_peer_links,sent_values,received_values,error_sum,avg_exchange_ms")?;
+        writeln!(
+            file,
+            "case,ranks,n,ghosts,remote_nnz,oneway_peer_links,sent_values,received_values,error_sum,avg_exchange_ms"
+        )?;
     }
     mpi.barrier();
     for (kind, n) in [

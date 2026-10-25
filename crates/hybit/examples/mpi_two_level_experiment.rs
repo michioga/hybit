@@ -5,7 +5,7 @@
 //! require an explicit permission token and are not correctness-gated.
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_input::prepare_owned_rows;
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_mtx::{MtxPcgPolicy, distribute_matrix_market_with_policy};
 use hybit::distributed::mpi_pcg::DistributedAdaptiveBlockScore;
 use hybit::distributed::mpi_pcg::{
     DistributedAdaptivePcgPolicy, DistributedAdaptiveSolveOptions, DistributedPcg,
@@ -39,7 +39,10 @@ fn write_adaptive_trace(
         .write(true)
         .create_new(true)
         .open(trace_path)?;
-    writeln!(out, "rank,mode,block_index,global_start,size,dense_factor_bytes,residual_energy,internal_l1,boundary_l1,score,selected")?;
+    writeln!(
+        out,
+        "rank,mode,block_index,global_start,size,dense_factor_bytes,residual_energy,internal_l1,boundary_l1,score,selected"
+    )?;
     let name = match mode {
         DistributedAdaptiveBlockScore::ResidualEnergy => "residual",
         DistributedAdaptiveBlockScore::BoundaryCoupling => "boundary",
@@ -334,7 +337,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let needs_header = !csv.exists() || std::fs::metadata(csv)?.len() == 0;
         if needs_header {
             let mut out = OpenOptions::new().append(true).create(true).open(csv)?;
-            writeln!(out, "case,policy,ranks,n,nnz,preconditioner,iterations,status,interpretation,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,max_setup_ms,max_solve_ms,max_spmv_ms,max_allreduce_ms,max_preconditioner_apply_ms,coarse_allreduce_calls,max_coarse_allreduce_ms,factor_bytes_global,adaptive_escalation_iteration,adaptive_probe_ratio,adaptive_factor_setup_max_ms,final_factor_bytes_global")?;
+            writeln!(
+                out,
+                "case,policy,ranks,n,nnz,preconditioner,iterations,status,interpretation,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,max_setup_ms,max_solve_ms,max_spmv_ms,max_allreduce_ms,max_preconditioner_apply_ms,coarse_allreduce_calls,max_coarse_allreduce_ms,factor_bytes_global,adaptive_escalation_iteration,adaptive_probe_ratio,adaptive_factor_setup_max_ms,final_factor_bytes_global"
+            )?;
         }
     }
     if mpi.rank() == 0 && trace_stride > 0 {
@@ -451,12 +457,28 @@ fn main() -> Result<(), Box<dyn Error>> {
             "experimental_unverified"
         };
         let mut out = OpenOptions::new().append(true).open(csv)?;
-        writeln!(out, "{label},{policy_label},{expected},{},{},{selection},{},{:?},{interpretation},{:.12e},{max_abs_error:.12e},{},{},{max_setup_ms:.6},{max_solve_ms:.6},{max_spmv_ms:.6},{max_allreduce_ms:.6},{max_preconditioner_apply_ms:.6},{},{max_coarse_allreduce_ms:.6},{factor_bytes_global},{},{:.12e},{adaptive_factor_setup_max_ms:.6},{final_factor_bytes_global}",
-            partition.global_dofs(), stats.global_nnz, report.iterations, report.status,
-            report.true_relative_residual, report.spmv_calls, report.allreduce_calls, report.coarse_allreduce_calls,
-            report.adaptive_escalation_iteration, report.adaptive_probe_ratio)?;
-        println!("G8-C12a {interpretation} {label}/{selection}: ranks={expected} n={} nnz={} iter={} status={:?} true_rel={:.4e} err={max_abs_error:.3e} solve={max_solve_ms:.3}ms",
-            partition.global_dofs(), stats.global_nnz, report.iterations, report.status, report.true_relative_residual);
+        writeln!(
+            out,
+            "{label},{policy_label},{expected},{},{},{selection},{},{:?},{interpretation},{:.12e},{max_abs_error:.12e},{},{},{max_setup_ms:.6},{max_solve_ms:.6},{max_spmv_ms:.6},{max_allreduce_ms:.6},{max_preconditioner_apply_ms:.6},{},{max_coarse_allreduce_ms:.6},{factor_bytes_global},{},{:.12e},{adaptive_factor_setup_max_ms:.6},{final_factor_bytes_global}",
+            partition.global_dofs(),
+            stats.global_nnz,
+            report.iterations,
+            report.status,
+            report.true_relative_residual,
+            report.spmv_calls,
+            report.allreduce_calls,
+            report.coarse_allreduce_calls,
+            report.adaptive_escalation_iteration,
+            report.adaptive_probe_ratio
+        )?;
+        println!(
+            "G8-C12a {interpretation} {label}/{selection}: ranks={expected} n={} nnz={} iter={} status={:?} true_rel={:.4e} err={max_abs_error:.3e} solve={max_solve_ms:.3}ms",
+            partition.global_dofs(),
+            stats.global_nnz,
+            report.iterations,
+            report.status,
+            report.true_relative_residual
+        );
         if adaptive_policy.is_some() {
             println!(
                 "G8-C12d-3 ADAPTIVE {label}/{selection}: probe_iter={} ratio={:.6e} promoted_at={} direct_setup_max_ms={:.4} final_factor_bytes_global={final_factor_bytes_global}",
@@ -467,7 +489,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             );
         }
         if policy == MtxPcgPolicy::ExperimentalUnverified {
-            println!("G8-C12a WARNING: manufactured-solution convergence does not prove matrix SPD or physical validity");
+            println!(
+                "G8-C12a WARNING: manufactured-solution convergence does not prove matrix SPD or physical validity"
+            );
         }
     }
     mpi.barrier();

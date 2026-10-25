@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    read_matrix_market, Csr32Matrix, GeneralSquareOptions, GeneralSquarePreconditionerPolicy,
-    HybitSolver, MatrixProblemClass, SolveReport, SolveStatus, SolverOptions,
+    Csr32Matrix, GeneralSquareOptions, GeneralSquarePreconditionerPolicy, HybitSolver,
+    MatrixProblemClass, SolveReport, SolveStatus, SolverOptions, read_matrix_market,
 };
 
 #[derive(Debug)]

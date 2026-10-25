@@ -7,13 +7,12 @@
 //! The synthetic calibration demonstrates the branch, NOT a speedup claim.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    broadcast_root_cost_selection_mpi, capture_partition_calibration,
-    cost_aware_contiguous_partition_scoped, select_and_broadcast_cost_partition_mpi,
     CalibrationGuardDecision, CostAwarePartitionDecision, CostAwarePartitionKind,
     CostAwarePartitionOptions, PartitionCostCalibration, RootMpiCostSelection,
-    ScopedCostPartitionResult,
+    ScopedCostPartitionResult, broadcast_root_cost_selection_mpi, capture_partition_calibration,
+    cost_aware_contiguous_partition_scoped, select_and_broadcast_cost_partition_mpi,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use mpi::collective::SystemOperation;
@@ -375,7 +374,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             baseline.setup_max_ms,
             graph.setup_max_ms,
         );
-        println!("H1-C3F offsets baseline={baseline_offsets:?} selected={graph_offsets:?} warmups={WARMUPS} measured={SAMPLES} note=illustrative-calibration-not-speedup-proof");
+        println!(
+            "H1-C3F offsets baseline={baseline_offsets:?} selected={graph_offsets:?} warmups={WARMUPS} measured={SAMPLES} note=illustrative-calibration-not-speedup-proof"
+        );
     }
     Ok(())
 }

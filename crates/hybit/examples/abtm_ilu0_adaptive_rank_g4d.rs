@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit_matrix::{read_matrix_market, AbtmTopology, Csr32Matrix};
+use hybit_matrix::{AbtmTopology, Csr32Matrix, read_matrix_market};
 
 const ILU0_RELATIVE_PIVOT_FLOOR: f64 = 1.0e-12;
 
@@ -828,8 +828,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!(
         "G4D_BASE|csr_numeric_ms={csr_ms:.6}|popcount_numeric_ms={popcount_ms:.6}|popcount_over_csr={popcount_over_csr:.9e}|executed_updates={}|popcount_rank_uses={}",
-        popcount_once.stats.executed_updates,
-        popcount_once.stats.popcount_rank_uses,
+        popcount_once.stats.executed_updates, popcount_once.stats.popcount_rank_uses,
     );
 
     for &threshold in &args.thresholds {

@@ -8,16 +8,16 @@
 //! Results apply to single-node MPI until separately validated on >=2 hosts.
 
 use hybit_distributed::mpi_assignment::{
-    prepare_assignment_owned_rows, spmv_assignment, AssignmentHaloPlan, AssignmentLocalCsr,
-    AssignmentOwnedCsrRows,
+    AssignmentHaloPlan, AssignmentLocalCsr, AssignmentOwnedCsrRows, prepare_assignment_owned_rows,
+    spmv_assignment,
 };
 use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::{
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
     abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
-    field_graph_contiguous_partition, partition_telemetry_assignment, AbtmMultilevelOptions,
-    ContiguousPartition, PartitionAssignment, PartitionTelemetry,
+    field_graph_contiguous_partition, partition_telemetry_assignment,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
+use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::collections::BTreeSet;
@@ -81,7 +81,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let middle = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         0.5 * (sorted[middle - 1] + sorted[middle])
     } else {
         sorted[middle]
@@ -606,25 +606,61 @@ fn main() -> BenchResult<()> {
     mpi.barrier();
     if mpi.rank() == 0 {
         let mut output = OpenOptions::new().write(true).create_new(true).open(csv)?;
-        writeln!(output, "matrix,scope,ranks,n,input_nnz,surrogate_nnz,shift,method,radius,warmups,repeats,max_iters,tolerance,read_max_ms,surrogate_max_ms,partition_max_ms,owned_extract_max_ms,halo_setup_max_ms,rhs_setup_max_ms,median_max_solve_ms,median_max_exchange_sum_ms,median_max_numeric_sum_ms,iterations,spmv_calls,explicit_dot_reductions,true_rel_residual,max_abs_solution_error,ghosts,cut_nnz,peer_relations,owned_imbalance,nnz_imbalance,rank_operator_halo_sum_bytes")?;
+        writeln!(
+            output,
+            "matrix,scope,ranks,n,input_nnz,surrogate_nnz,shift,method,radius,warmups,repeats,max_iters,tolerance,read_max_ms,surrogate_max_ms,partition_max_ms,owned_extract_max_ms,halo_setup_max_ms,rhs_setup_max_ms,median_max_solve_ms,median_max_exchange_sum_ms,median_max_numeric_sum_ms,iterations,spmv_calls,explicit_dot_reductions,true_rel_residual,max_abs_solution_error,ghosts,cut_nnz,peer_relations,owned_imbalance,nnz_imbalance,rank_operator_halo_sum_bytes"
+        )?;
         for case in &cases {
             let solve = median(&case.samples_ms);
             let exchange = median(&case.exchange_samples_ms);
             let numeric = median(&case.numeric_samples_ms);
             let s = &case.telemetry;
             let iters = case.reference_iters.unwrap_or(0);
-            writeln!(output, "{},synthetic_spd_single_node_mpi_experiment,{},{},{},{},{:.8},{},{},{},{},{},{:.3e},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{solve:.6},{exchange:.6},{numeric:.6},{iters},{},{},{:.12e},{:.12e},{},{},{},{:.8},{:.8},{}",
-                path.display(), expected, n, info.input_entries, matrix.nnz(), shift,
-                case.policy.label(), radius, warmups, repeats, max_iters, tol,
-                read_max_ms, surrogate_max_ms, case.partition_ms, case.extraction_ms,
-                case.halo_setup_ms, case.rhs_setup_ms, case.spmv_calls, case.dot_reductions,
-                case.worst_true_rel, case.worst_solution_error,
-                s.communication_volume, s.cut_nnz, s.directional_peer_relations,
-                s.owned_dof_imbalance, s.local_nnz_imbalance, case.resident_bytes_sum)?;
-            println!("K4 NATIVE PASS method={} ranks={} iterations={} solve_median_ms={solve:.6} exchange_sum_median_ms={exchange:.6} true_rel={:.3e} max_solution_err={:.3e} ghosts={} cut={} partition_ms={:.3} extraction_ms={:.3} halo_ms={:.3}",
-                case.policy.label(), expected, iters, case.worst_true_rel,
-                case.worst_solution_error, s.communication_volume, s.cut_nnz,
-                case.partition_ms, case.extraction_ms, case.halo_setup_ms);
+            writeln!(
+                output,
+                "{},synthetic_spd_single_node_mpi_experiment,{},{},{},{},{:.8},{},{},{},{},{},{:.3e},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{solve:.6},{exchange:.6},{numeric:.6},{iters},{},{},{:.12e},{:.12e},{},{},{},{:.8},{:.8},{}",
+                path.display(),
+                expected,
+                n,
+                info.input_entries,
+                matrix.nnz(),
+                shift,
+                case.policy.label(),
+                radius,
+                warmups,
+                repeats,
+                max_iters,
+                tol,
+                read_max_ms,
+                surrogate_max_ms,
+                case.partition_ms,
+                case.extraction_ms,
+                case.halo_setup_ms,
+                case.rhs_setup_ms,
+                case.spmv_calls,
+                case.dot_reductions,
+                case.worst_true_rel,
+                case.worst_solution_error,
+                s.communication_volume,
+                s.cut_nnz,
+                s.directional_peer_relations,
+                s.owned_dof_imbalance,
+                s.local_nnz_imbalance,
+                case.resident_bytes_sum
+            )?;
+            println!(
+                "K4 NATIVE PASS method={} ranks={} iterations={} solve_median_ms={solve:.6} exchange_sum_median_ms={exchange:.6} true_rel={:.3e} max_solution_err={:.3e} ghosts={} cut={} partition_ms={:.3} extraction_ms={:.3} halo_ms={:.3}",
+                case.policy.label(),
+                expected,
+                iters,
+                case.worst_true_rel,
+                case.worst_solution_error,
+                s.communication_volume,
+                s.cut_nnz,
+                case.partition_ms,
+                case.extraction_ms,
+                case.halo_setup_ms
+            );
         }
         output.flush()?;
         println!(

@@ -6,10 +6,10 @@
 //! This does NOT provide distributed matrix ingestion or automatic solver routing.
 
 use crate::{
-    cost_aware_contiguous_partition_scoped, validate_field_contiguous_partition,
     CalibrationGuardDecision, ContiguousPartition, CostAwarePartitionDecision,
     CostAwarePartitionKind, CostAwarePartitionOptions, DistributedTopologyError,
     PartitionCalibrationIdentity, ScopedCostPartitionResult, ScopedPartitionCostCalibration,
+    cost_aware_contiguous_partition_scoped, validate_field_contiguous_partition,
 };
 use hybit_matrix::{Csr32Matrix, FieldAwareDofLayout};
 use mpi::collective::SystemOperation;

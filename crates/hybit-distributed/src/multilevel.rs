@@ -1,6 +1,6 @@
 use crate::{
-    partition_telemetry_assignment, DistributedTopologyError, GlobalDofId, PartitionAssignment,
-    PartitionTelemetry, RankId,
+    DistributedTopologyError, GlobalDofId, PartitionAssignment, PartitionTelemetry, RankId,
+    partition_telemetry_assignment,
 };
 use hybit_matrix::{AbtmDualTopology, Csr32Matrix};
 use std::cmp::Reverse;

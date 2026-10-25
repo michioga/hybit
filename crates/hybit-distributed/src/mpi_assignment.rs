@@ -7,8 +7,8 @@
 //! This module does not change the production MPI-PCG/contiguous path.
 //! The ownership map is intentionally replicated on every rank (O(global n)).
 
-use crate::mpi_backend::MpiRuntime;
 use crate::PartitionAssignment;
+use crate::mpi_backend::MpiRuntime;
 use hybit_matrix::Csr32Matrix;
 use mpi::datatype::{Partition, PartitionMut};
 use mpi::traits::*;

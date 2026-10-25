@@ -229,11 +229,11 @@ impl AbtmTopology {
                 let word = word as u32;
                 let bit = col % ABTM_TOPOLOGY_WORD_BITS;
 
-                if let Some((last_word, last_mask)) = row_words.last_mut() {
-                    if *last_word == word {
-                        *last_mask |= 1u64 << bit;
-                        continue;
-                    }
+                if let Some((last_word, last_mask)) = row_words.last_mut()
+                    && *last_word == word
+                {
+                    *last_mask |= 1u64 << bit;
+                    continue;
                 }
 
                 match row_words.binary_search_by_key(&word, |&(index, _)| index) {

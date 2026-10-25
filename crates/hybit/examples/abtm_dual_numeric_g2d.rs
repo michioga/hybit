@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit_matrix::{
-    read_matrix_market, AbtmDualTopology, AbtmMetadataFirstMatrix, AbtmTopologyRow,
+    AbtmDualTopology, AbtmMetadataFirstMatrix, AbtmTopologyRow, read_matrix_market,
 };
 
 #[derive(Debug)]

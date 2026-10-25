@@ -5,7 +5,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 
 const WORD_BITS: usize = 64;
 const WORD_INDEX_MASK: u32 = (1u32 << 26) - 1;

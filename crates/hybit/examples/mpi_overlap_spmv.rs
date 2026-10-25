@@ -1,12 +1,12 @@
 //! G8-B3 native MPI overlap vs G8-B2 blocking reference, 1/2/4 processes.
 //! Global matrix replication is ONLY a deterministic test harness.
 
+use hybit::Csr32Matrix;
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_overlap::OverlapSpmv;
 use hybit::distributed::{
-    build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition,
+    ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr,
 };
-use hybit::Csr32Matrix;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -174,8 +174,13 @@ fn run_case(
     mpi.barrier();
     if mpi.rank() == 0 {
         let mut f = OpenOptions::new().append(true).open(csv)?;
-        writeln!(f,"{kind},{size},{n},{interior},{boundary},{ghost},{global_send},{global_recv},{error_sum:.12e},{avg_prepare_ms:.6},{avg_block_ms:.6},{avg_async_ms:.6},{avg_post_ms:.6},{avg_interior_ms:.6},{avg_wait_ms:.6}")?;
-        println!("PASS B3 {kind} ranks={size} n={n} interior={interior} boundary={boundary} ghost={ghost} err={error_sum:.3e} blocking={avg_block_ms:.6}ms overlap={avg_async_ms:.6}ms wait={avg_wait_ms:.6}ms");
+        writeln!(
+            f,
+            "{kind},{size},{n},{interior},{boundary},{ghost},{global_send},{global_recv},{error_sum:.12e},{avg_prepare_ms:.6},{avg_block_ms:.6},{avg_async_ms:.6},{avg_post_ms:.6},{avg_interior_ms:.6},{avg_wait_ms:.6}"
+        )?;
+        println!(
+            "PASS B3 {kind} ranks={size} n={n} interior={interior} boundary={boundary} ghost={ghost} err={error_sum:.3e} blocking={avg_block_ms:.6}ms overlap={avg_async_ms:.6}ms wait={avg_wait_ms:.6}ms"
+        );
     }
     mpi.barrier();
     Ok(())
@@ -194,7 +199,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 {
         let mut f = File::create(&path)?;
-        writeln!(f,"case,ranks,n,interior_rows,boundary_rows,ghosts,sent_values,recv_values,error_sum,prepare_ms,blocking_spmv_ms,overlap_spmv_ms,post_ms,interior_spmv_ms,wait_ms")?;
+        writeln!(
+            f,
+            "case,ranks,n,interior_rows,boundary_rows,ghosts,sent_values,recv_values,error_sum,prepare_ms,blocking_spmv_ms,overlap_spmv_ms,post_ms,interior_spmv_ms,wait_ms"
+        )?;
     }
     mpi.barrier();
     for (kind, n) in [

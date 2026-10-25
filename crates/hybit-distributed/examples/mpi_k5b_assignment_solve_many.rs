@@ -8,16 +8,16 @@
 //! Results apply to single-node MPI until separately validated on >=2 hosts.
 
 use hybit_distributed::mpi_assignment::{
-    prepare_assignment_owned_rows, spmv_assignment, AssignmentHaloPlan, AssignmentLocalCsr,
-    AssignmentOwnedCsrRows,
+    AssignmentHaloPlan, AssignmentLocalCsr, AssignmentOwnedCsrRows, prepare_assignment_owned_rows,
+    spmv_assignment,
 };
 use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::{
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
     abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
-    field_graph_contiguous_partition, partition_telemetry_assignment, AbtmMultilevelOptions,
-    ContiguousPartition, PartitionAssignment, PartitionTelemetry,
+    field_graph_contiguous_partition, partition_telemetry_assignment,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
+use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::collections::BTreeSet;
@@ -704,37 +704,85 @@ fn main() -> BenchResult<()> {
             .write(true)
             .create_new(true)
             .open(&raw_csv)?;
-        writeln!(out, "matrix,scope,ranks,n,input_nnz,surrogate_nnz,shift,method,radius,rhs_count,read_max_ms,surrogate_max_ms,partition_max_ms,owned_extract_jacobi_max_ms,halo_setup_max_ms,rhs_manufacture_max_ms,solve_many_wall_max_ms,solve_individual_max_sum_ms,prepared_total_approx_ms,halo_exchange_max_sum_ms,dot_allreduce_max_sum_ms,total_pcg_iterations,worst_true_rel,worst_max_abs_solution_error,ghosts,cut_nnz,peer_relations,rank_operator_halo_sum_bytes")?;
-        writeln!(raw, "matrix,scope,ranks,method,rhs_id,iterations,spmv_calls,dot_reductions,true_rel,max_abs_error,solve_max_ms,halo_exchange_max_ms,dot_allreduce_max_ms,numeric_spmv_max_ms,dot_local_max_ms,validation_allreduce_max_ms")?;
+        writeln!(
+            out,
+            "matrix,scope,ranks,n,input_nnz,surrogate_nnz,shift,method,radius,rhs_count,read_max_ms,surrogate_max_ms,partition_max_ms,owned_extract_jacobi_max_ms,halo_setup_max_ms,rhs_manufacture_max_ms,solve_many_wall_max_ms,solve_individual_max_sum_ms,prepared_total_approx_ms,halo_exchange_max_sum_ms,dot_allreduce_max_sum_ms,total_pcg_iterations,worst_true_rel,worst_max_abs_solution_error,ghosts,cut_nnz,peer_relations,rank_operator_halo_sum_bytes"
+        )?;
+        writeln!(
+            raw,
+            "matrix,scope,ranks,method,rhs_id,iterations,spmv_calls,dot_reductions,true_rel,max_abs_error,solve_max_ms,halo_exchange_max_ms,dot_allreduce_max_ms,numeric_spmv_max_ms,dot_local_max_ms,validation_allreduce_max_ms"
+        )?;
         for (case, (manufacture_max_ms, checkpoints, records)) in
             cases.iter().zip(all_results.iter())
         {
             for rhs in records {
-                writeln!(raw, "{},synthetic_spd_single_node_mpi_solve_many,{},{},{},{},{},{},{:.12e},{:.12e},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
-                    path.display(), expected, case.policy.label(), rhs.id, rhs.iterations,
-                    rhs.spmv_calls, rhs.dot_reductions, rhs.true_rel, rhs.max_abs_error,
-                    rhs.solve_max_ms, rhs.exchange_max_ms, rhs.allreduce_max_ms,
-                    rhs.numeric_max_ms, rhs.dot_local_max_ms,
-                    rhs.validation_allreduce_max_ms)?;
+                writeln!(
+                    raw,
+                    "{},synthetic_spd_single_node_mpi_solve_many,{},{},{},{},{},{},{:.12e},{:.12e},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
+                    path.display(),
+                    expected,
+                    case.policy.label(),
+                    rhs.id,
+                    rhs.iterations,
+                    rhs.spmv_calls,
+                    rhs.dot_reductions,
+                    rhs.true_rel,
+                    rhs.max_abs_error,
+                    rhs.solve_max_ms,
+                    rhs.exchange_max_ms,
+                    rhs.allreduce_max_ms,
+                    rhs.numeric_max_ms,
+                    rhs.dot_local_max_ms,
+                    rhs.validation_allreduce_max_ms
+                )?;
             }
             for c in checkpoints {
                 let prep = case.partition_ms + case.extraction_ms + case.halo_setup_ms;
                 let approx = prep + c.solve_many_wall_max_ms;
                 let s = &case.telemetry;
-                writeln!(out, "{},synthetic_spd_single_node_mpi_solve_many,{},{},{},{},{:.8},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{approx:.6},{:.6},{:.6},{},{:.12e},{:.12e},{},{},{},{}",
-                    path.display(), expected, n, info.input_entries, matrix.nnz(), shift,
-                    case.policy.label(), radius, c.count, read_max_ms, surrogate_max_ms,
-                    case.partition_ms, case.extraction_ms, case.halo_setup_ms,
-                    manufacture_max_ms, c.solve_many_wall_max_ms,
-                    c.max_individual_solve_sum_ms, c.halo_exchange_sum_ms,
-                    c.allreduce_sum_ms, c.iterations_sum, c.worst_true_rel,
-                    c.worst_abs_solution_err, s.communication_volume, s.cut_nnz,
-                    s.directional_peer_relations, case.operator_halo_bytes_sum)?;
-                println!("K5B NATIVE PASS method={} ranks={} rhs={} solve_many_wall_ms={:.4} prepared_total_approx_ms={:.4} iterations_sum={} true_rel_max={:.3e} max_solution_err={:.3e} ghosts={} cut={}",
-                    case.policy.label(), expected, c.count,
-                    c.solve_many_wall_max_ms, approx, c.iterations_sum,
-                    c.worst_true_rel, c.worst_abs_solution_err,
-                    s.communication_volume, s.cut_nnz);
+                writeln!(
+                    out,
+                    "{},synthetic_spd_single_node_mpi_solve_many,{},{},{},{},{:.8},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{approx:.6},{:.6},{:.6},{},{:.12e},{:.12e},{},{},{},{}",
+                    path.display(),
+                    expected,
+                    n,
+                    info.input_entries,
+                    matrix.nnz(),
+                    shift,
+                    case.policy.label(),
+                    radius,
+                    c.count,
+                    read_max_ms,
+                    surrogate_max_ms,
+                    case.partition_ms,
+                    case.extraction_ms,
+                    case.halo_setup_ms,
+                    manufacture_max_ms,
+                    c.solve_many_wall_max_ms,
+                    c.max_individual_solve_sum_ms,
+                    c.halo_exchange_sum_ms,
+                    c.allreduce_sum_ms,
+                    c.iterations_sum,
+                    c.worst_true_rel,
+                    c.worst_abs_solution_err,
+                    s.communication_volume,
+                    s.cut_nnz,
+                    s.directional_peer_relations,
+                    case.operator_halo_bytes_sum
+                )?;
+                println!(
+                    "K5B NATIVE PASS method={} ranks={} rhs={} solve_many_wall_ms={:.4} prepared_total_approx_ms={:.4} iterations_sum={} true_rel_max={:.3e} max_solution_err={:.3e} ghosts={} cut={}",
+                    case.policy.label(),
+                    expected,
+                    c.count,
+                    c.solve_many_wall_max_ms,
+                    approx,
+                    c.iterations_sum,
+                    c.worst_true_rel,
+                    c.worst_abs_solution_err,
+                    s.communication_volume,
+                    s.cut_nnz
+                );
             }
         }
         out.flush()?;

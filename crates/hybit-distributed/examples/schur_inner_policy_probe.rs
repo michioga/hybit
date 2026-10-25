@@ -6,8 +6,8 @@
 //! proof of exact fixed-operator Krylov convergence. Always gate true ||Ax-b||.
 
 use hybit_core::{HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions};
-use hybit_distributed::{abtm_multilevel_partition, AbtmMultilevelOptions, PartitionAssignment};
-use hybit_krylov::{fgmres, pcg, FgmresOptions, KrylovOutcome};
+use hybit_distributed::{AbtmMultilevelOptions, PartitionAssignment, abtm_multilevel_partition};
+use hybit_krylov::{FgmresOptions, KrylovOutcome, fgmres, pcg};
 use hybit_matrix::Csr32Matrix;
 use std::cell::RefCell;
 use std::error::Error;
@@ -727,7 +727,8 @@ fn main() -> R<()> {
             let mut successful = Vec::new();
             let mut failure_note = String::new();
             for _ in 0..3 {
-                match eval(case) {
+                let evaluation = eval(case);
+                match evaluation {
                     Ok(row) => successful.push(row),
                     Err(error) => {
                         failure_note = error.to_string();
@@ -777,8 +778,14 @@ fn main() -> R<()> {
                 )?;
                 println!(
                     "{} {:<28} {:<18} Schur={:.3}ms global={:.3}ms inner_iters={} outer={} residual={:.3e}",
-                    status, case.name, label, r.schur_solve_ms, r.global_solve_ms,
-                    r.p1.inner_iterations, r.schur_iterations, r.schur_residual
+                    status,
+                    case.name,
+                    label,
+                    r.schur_solve_ms,
+                    r.global_solve_ms,
+                    r.p1.inner_iterations,
+                    r.schur_iterations,
+                    r.schur_residual
                 );
             } else {
                 failed += 1;
@@ -869,10 +876,11 @@ mod tests {
         assert_eq!(plan.interior_count + plan.interface_count, a.nrows());
         assert_eq!(plan.interface_count, 72);
         assert_eq!(plan.locals.len(), 4);
-        assert!(plan
-            .locals
-            .iter()
-            .all(|loc| loc.a.nrows() == loc.dofs.len()));
+        assert!(
+            plan.locals
+                .iter()
+                .all(|loc| loc.a.nrows() == loc.dofs.len())
+        );
     }
 
     #[test]

@@ -4,12 +4,12 @@
 //! The production DistributedPcg::solve API receives a rank-local operator,
 //! local RHS and locally-owned solution vector; no replicated CSR is needed.
 
+use hybit::Csr32Matrix;
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_pcg::{DistributedPcg, DistributedPcgOptions, DistributedPcgStatus};
 use hybit::distributed::{
-    build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition,
+    ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr,
 };
-use hybit::Csr32Matrix;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -226,9 +226,12 @@ fn run_case(
         )?;
         println!(
             "PASS C1 {kind}/{rhs_kind}: ranks={ranks} n={n} iters={} true_rel={:.3e} serial_err={:.3e} truth_err={:.3e} interior={} boundary={}",
-            report.iterations, report.true_relative_residual,
-            global_reference_error, global_truth_error,
-            pcg.interior_rows(), pcg.boundary_rows(),
+            report.iterations,
+            report.true_relative_residual,
+            global_reference_error,
+            global_truth_error,
+            pcg.interior_rows(),
+            pcg.boundary_rows(),
         );
     }
     mpi.barrier();
@@ -250,7 +253,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 {
         let mut f = File::create(&csv)?;
-        writeln!(f, "case,ranks,n,rhs,iterations,status,true_relative_residual,serial_relative_residual,serial_solution_error,manufactured_solution_error,spmv_calls,allreduce_calls,interior_rows,boundary_rows,avg_elapsed_ms")?;
+        writeln!(
+            f,
+            "case,ranks,n,rhs,iterations,status,true_relative_residual,serial_relative_residual,serial_solution_error,manufactured_solution_error,spmv_calls,allreduce_calls,interior_rows,boundary_rows,avg_elapsed_ms"
+        )?;
     }
     mpi.barrier();
     for (kind, n) in [

@@ -5,7 +5,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit::{read_matrix_market, Csr32Matrix, Ilu0Preconditioner, LinearOperator, Preconditioner};
+use hybit::{Csr32Matrix, Ilu0Preconditioner, LinearOperator, Preconditioner, read_matrix_market};
 
 #[derive(Debug)]
 struct Args {

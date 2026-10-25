@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    read_matrix_market, Csr32Matrix, Ilu0Preconditioner, JacobiPreconditioner, Preconditioner,
+    Csr32Matrix, Ilu0Preconditioner, JacobiPreconditioner, Preconditioner, read_matrix_market,
 };
 
 const APPLY_REPEATS: usize = 3;

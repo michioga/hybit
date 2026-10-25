@@ -2,7 +2,7 @@
 //! matching vs sparse 64-bit ABTM row masks. Diagnostic only; no solver routing.
 //! Usage: cargo run --release --locked -p hybit-distributed \
 //!   --example abtm_affinity_ab -- D:\Work\thermal1.mtx [repeats]
-use hybit_matrix::{read_matrix_market, AbtmDualTopology, Csr32Matrix};
+use hybit_matrix::{AbtmDualTopology, Csr32Matrix, read_matrix_market};
 use std::cmp::Reverse;
 use std::error::Error;
 use std::hint::black_box;
@@ -45,11 +45,11 @@ fn pack(adjacency: &[Vec<usize>]) -> Words {
             for &neighbor in neighbors {
                 let index = neighbor / 64;
                 let mask = 1u64 << (neighbor % 64);
-                if let Some((last, bits)) = row.last_mut() {
-                    if *last == index {
-                        *bits |= mask;
-                        continue;
-                    }
+                if let Some((last, bits)) = row.last_mut()
+                    && *last == index
+                {
+                    *bits |= mask;
+                    continue;
                 }
                 row.push((index, mask));
             }
@@ -162,7 +162,7 @@ fn one_pass(adj: &[Vec<usize>], words: &Words, method: Method) -> Vec<usize> {
 fn median(mut d: Vec<Duration>) -> f64 {
     d.sort();
     let i = d.len() / 2;
-    if d.len() % 2 == 0 {
+    if d.len().is_multiple_of(2) {
         (d[i - 1].as_secs_f64() + d[i].as_secs_f64()) * 500.0
     } else {
         d[i].as_secs_f64() * 1000.0
@@ -233,10 +233,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         matrix.nnz(),
         info.input_entries
     );
-    println!("source_read_ms={read_ms:.4} dual_adjacency_ms={adjacency_ms:.4} bitmap_prep_ms={bitmap_prep_ms:.4}");
-    println!("adjacency_edges_directed={raw_adj_entries} bitmap_nonempty_words={word_count} bitmap_payload_est_bytes={}", word_count * std::mem::size_of::<(usize, u64)>());
-    println!("pairs_checked={checked} coarse_vertices={coarse_vertices} exact_pair_scores=PASS exact_matching=PASS");
-    println!("stamped_pair_median_ms={stamp_ms:.4} bitmap_pair_median_ms={bitmap_ms:.4} pair_speed_ratio={:.4}", stamp_ms / bitmap_ms);
+    println!(
+        "source_read_ms={read_ms:.4} dual_adjacency_ms={adjacency_ms:.4} bitmap_prep_ms={bitmap_prep_ms:.4}"
+    );
+    println!(
+        "adjacency_edges_directed={raw_adj_entries} bitmap_nonempty_words={word_count} bitmap_payload_est_bytes={}",
+        word_count * std::mem::size_of::<(usize, u64)>()
+    );
+    println!(
+        "pairs_checked={checked} coarse_vertices={coarse_vertices} exact_pair_scores=PASS exact_matching=PASS"
+    );
+    println!(
+        "stamped_pair_median_ms={stamp_ms:.4} bitmap_pair_median_ms={bitmap_ms:.4} pair_speed_ratio={:.4}",
+        stamp_ms / bitmap_ms
+    );
     println!(
         "bitmap_build_plus_pair_ms={:.4} stamp_pair_ms={stamp_ms:.4}",
         bitmap_prep_ms + bitmap_ms

@@ -9,10 +9,10 @@
 //! strictly row diagonally dominant. G8-C4 adds an explicitly experimental
 //! acceptance policy that is NOT a mathematical SPD certificate.
 
+use crate::ContiguousPartition;
 use crate::field_partition::field_graph_contiguous_partition;
 use crate::mpi_backend::MpiRuntime;
 use crate::mpi_input::OwnedCsrRows;
-use crate::ContiguousPartition;
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use mpi::traits::*;
 use std::collections::BTreeMap;

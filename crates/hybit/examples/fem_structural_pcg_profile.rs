@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg_with_workspace, read_matrix_market, recommend_rigid_body_aggregate_nodes,
     Csr32Matrix, HybitError, KrylovOutcome, LinearOperator, ParallelCsr32Operator,
     ParallelRigidBodyTwoLevelPreconditioner, PcgWorkspace, Preconditioner, RigidBodyAggregation,
-    RigidBodyTwoLevelBlockJacobiPreconditioner, SolveStatus, SolverOptions,
+    RigidBodyTwoLevelBlockJacobiPreconditioner, SolveStatus, SolverOptions, analyze_csr32,
+    pcg_with_workspace, read_matrix_market, recommend_rigid_body_aggregate_nodes,
 };
 
 #[derive(Debug)]
@@ -54,7 +54,7 @@ impl Args {
                             return Err(format!(
                                 "unknown aggregation '{other}'; use contiguous or graph"
                             )
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -101,8 +101,12 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT PCG vector-kernel profile");
-    println!("Usage: fem_structural_pcg_profile --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous]");
-    println!("The profiled path uses Parallel CSR + Parallel rigid-body preconditioner and times actual PCG stages.");
+    println!(
+        "Usage: fem_structural_pcg_profile --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous]"
+    );
+    println!(
+        "The profiled path uses Parallel CSR + Parallel rigid-body preconditioner and times actual PCG stages."
+    );
     println!("Set RAYON_NUM_THREADS before launch to control the shared Rayon pool.");
 }
 
@@ -694,7 +698,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         "profile/control    : {:.3}x",
         profiled_wall / control_wall.max(f64::MIN_POSITIVE)
     );
-    println!("note               : profile uses the same serial PCG vector kernels as production; only nested timers are added");
+    println!(
+        "note               : profile uses the same serial PCG vector kernels as production; only nested timers are added"
+    );
 
     Ok(())
 }

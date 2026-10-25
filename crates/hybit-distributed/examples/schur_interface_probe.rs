@@ -5,10 +5,10 @@
 //! is meaningful for symmetric and unsymmetric input matrices alike.
 
 use hybit_distributed::{
-    abtm_multilevel_partition, partition_telemetry_assignment, AbtmMultilevelOptions,
-    ContiguousPartition, PartitionAssignment,
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment, abtm_multilevel_partition,
+    partition_telemetry_assignment,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
@@ -290,7 +290,9 @@ fn env_usize(name: &str, default: usize) -> Result<usize, Box<dyn Error>> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().collect();
     if args.len() != 5 && args.len() != 6 {
-        eprintln!("usage: schur_interface_probe <matrix.mtx> <ranks> <summary.csv> <per_rank.csv> [external_owners.txt]");
+        eprintln!(
+            "usage: schur_interface_probe <matrix.mtx> <ranks> <summary.csv> <per_rank.csv> [external_owners.txt]"
+        );
         std::process::exit(2);
     }
     let ranks: u32 = args[2].parse()?;
@@ -305,8 +307,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let mut summary_writer = BufWriter::new(File::create(&args[3])?);
     let mut ranks_writer = BufWriter::new(File::create(&args[4])?);
-    writeln!(summary_writer, "case,mode,ranks,n,nnz,interior,interface,interface_fraction,cut_nnz,communication_volume,nnz_ii,nnz_ig,nnz_gi,nnz_gg,global_dense_schur_bytes,per_rank_dense_schur_bytes_sum,local_dense_cholesky_bytes_sum,local_dense_cholesky_bytes_max,owner_fnv64,dof_imbalance,partition_ms,classification_ms")?;
-    writeln!(ranks_writer, "case,mode,rank,owned,interior,interface,nnz_ii,nnz_ig,nnz_gi,nnz_gg,dense_interface_bytes,dense_local_cholesky_bytes,interface_fraction")?;
+    writeln!(
+        summary_writer,
+        "case,mode,ranks,n,nnz,interior,interface,interface_fraction,cut_nnz,communication_volume,nnz_ii,nnz_ig,nnz_gi,nnz_gg,global_dense_schur_bytes,per_rank_dense_schur_bytes_sum,local_dense_cholesky_bytes_sum,local_dense_cholesky_bytes_max,owner_fnv64,dof_imbalance,partition_ms,classification_ms"
+    )?;
+    writeln!(
+        ranks_writer,
+        "case,mode,rank,owned,interior,interface,nnz_ii,nnz_ig,nnz_gi,nnz_gg,dense_interface_bytes,dense_local_cholesky_bytes,interface_fraction"
+    )?;
 
     let t_contiguous = Instant::now();
     let contiguous = ContiguousPartition::balanced(matrix.nrows() as u64, ranks)?;

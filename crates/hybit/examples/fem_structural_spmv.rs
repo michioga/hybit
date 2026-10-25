@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg_with_workspace, read_matrix_market, recommend_rigid_body_aggregate_nodes,
     Csr32Matrix, LinearOperator, ParallelCsr32Operator, PcgWorkspace, RigidBodyAggregation,
-    RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions,
+    RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions, analyze_csr32, pcg_with_workspace,
+    read_matrix_market, recommend_rigid_body_aggregate_nodes,
 };
 
 #[derive(Debug)]
@@ -58,7 +58,7 @@ impl Args {
                             return Err(format!(
                                 "unknown aggregation '{other}'; use contiguous or graph"
                             )
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -109,7 +109,9 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT structural serial vs parallel CSR SpMV benchmark");
-    println!("Usage: fem_structural_spmv --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous] [--kernel-repeats 20]");
+    println!(
+        "Usage: fem_structural_spmv --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous] [--kernel-repeats 20]"
+    );
     println!("Set RAYON_NUM_THREADS before launch to control parallel CSR thread count.");
 }
 

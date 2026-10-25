@@ -3,11 +3,11 @@
 //! ABTM noncontiguous assignments have NOT been routed through MPI-PCG yet.
 
 use hybit_distributed::{
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
     abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
-    field_graph_contiguous_partition, partition_telemetry_assignment, AbtmMultilevelOptions,
-    ContiguousPartition, PartitionAssignment, PartitionTelemetry,
+    field_graph_contiguous_partition, partition_telemetry_assignment,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
+use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout, read_matrix_market};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::OpenOptions;
@@ -191,7 +191,7 @@ fn write_row(
         accepted,
         levels,
         bytes,
-)?;
+    )?;
     Ok(())
 }
 

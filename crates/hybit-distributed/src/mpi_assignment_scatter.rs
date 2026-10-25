@@ -10,9 +10,9 @@
 //! and drops one destination CSR chunk at a time. Rank 0 builds its own chunk
 //! last. Pre-transfer failures are checked collectively before MPI sends start.
 
+use crate::PartitionAssignment;
 use crate::mpi_assignment::AssignmentOwnedCsrRows;
 use crate::mpi_backend::MpiRuntime;
-use crate::PartitionAssignment;
 use hybit_matrix::Csr32Matrix;
 use mpi::traits::*;
 use std::io;

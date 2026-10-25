@@ -1,11 +1,11 @@
 //! K7-C: root-only global owner map; nonroot ranks keep only owners of
 //! their locally referenced remote columns. Original K6/K7-B path unchanged.
+use crate::PartitionAssignment;
 use crate::mpi_assignment::{AssignmentOwnedCsrRows, SparseOwnerDirectory};
 use crate::mpi_assignment_scatter::{
-    build_checked_chunk, chunk_payload_bytes, preflight_chunk_counts, AssignmentScatterStats,
+    AssignmentScatterStats, build_checked_chunk, chunk_payload_bytes, preflight_chunk_counts,
 };
 use crate::mpi_backend::MpiRuntime;
-use crate::PartitionAssignment;
 use hybit_matrix::Csr32Matrix;
 use mpi::traits::*;
 use std::collections::BTreeMap;

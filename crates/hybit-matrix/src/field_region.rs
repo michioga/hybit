@@ -7,8 +7,8 @@
 //! structural edges or explicit seeds can connect them.
 
 use crate::{
-    extract_local_submatrix_pattern, grow_undirected_region, AbtmDualTopology,
-    AbtmLocalSubmatrixPattern, DofMask, FieldAwareDofLayout,
+    AbtmDualTopology, AbtmLocalSubmatrixPattern, DofMask, FieldAwareDofLayout,
+    extract_local_submatrix_pattern, grow_undirected_region,
 };
 use hybit_core::HybitError;
 
@@ -276,9 +276,11 @@ mod tests {
         assert!(closed.contains(66));
         assert!(closed.contains(67));
         assert!(closed.contains(131));
-        assert!(close_to_field_blocks(&layout, &DofMask::new(132))
-            .unwrap()
-            .is_empty());
+        assert!(
+            close_to_field_blocks(&layout, &DofMask::new(132))
+                .unwrap()
+                .is_empty()
+        );
         assert!(close_to_field_blocks(&layout, &DofMask::new(131)).is_err());
     }
 

@@ -2,11 +2,11 @@
 //! The global CSR fixture is deliberately replicated for testing only.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
+    CalibrationGuardDecision, CostAwarePartitionOptions, PartitionCostCalibration,
     build_contiguous_halo_plans, capture_partition_calibration,
     cost_aware_contiguous_partition_scoped, verify_cost_partition_mpi_consensus,
-    CalibrationGuardDecision, CostAwarePartitionOptions, PartitionCostCalibration,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use std::error::Error;
@@ -116,7 +116,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         mpi.barrier();
         if mpi.rank() == 0 {
-            println!("PASS H1-C3D injected_environment_mismatch ranks={expected_ranks} rejected_collectively=true");
+            println!(
+                "PASS H1-C3D injected_environment_mismatch ranks={expected_ranks} rejected_collectively=true"
+            );
         }
         return Ok(());
     }

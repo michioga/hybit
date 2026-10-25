@@ -3,7 +3,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit::{read_matrix_market, AbtmTopology};
+use hybit::{AbtmTopology, read_matrix_market};
 
 #[derive(Debug)]
 struct Args {
@@ -72,8 +72,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let stats = topology.stats();
     println!(
         "G1_TOPOLOGY|nrows={}|ncols={}|stored_csr_nnz={}|structural_nnz={}|nonempty_words={}|average_word_nnz={:.9e}|word_fill_ratio={:.9e}|metadata_bytes={}|metadata_bytes_per_nnz={:.9e}|build_ms={build_ms:.6}",
-        stats.nrows, stats.ncols, matrix.nnz(), stats.structural_nnz, stats.nonempty_words,
-        stats.average_word_nnz(), stats.word_fill_ratio(), stats.metadata_bytes,
+        stats.nrows,
+        stats.ncols,
+        matrix.nnz(),
+        stats.structural_nnz,
+        stats.nonempty_words,
+        stats.average_word_nnz(),
+        stats.word_fill_ratio(),
+        stats.metadata_bytes,
         stats.metadata_bytes_per_nnz()
     );
 
@@ -113,7 +119,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("G1 topology popcount invariant failed".into());
     }
     let rank_select_ms = start.elapsed().as_secs_f64() * 1.0e3;
-    println!("G1_RANK_SELECT|selected={selected}|fingerprint=0x{fingerprint:016x}|elapsed_ms={rank_select_ms:.6}");
+    println!(
+        "G1_RANK_SELECT|selected={selected}|fingerprint=0x{fingerprint:016x}|elapsed_ms={rank_select_ms:.6}"
+    );
 
     let start = Instant::now();
     let intersection = topology.intersection(&topology)?;
@@ -136,7 +144,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     println!(
         "G1_ALGEBRA|intersection_nnz={}|union_nnz={}|and_not_nnz={}|xor_nnz={}|intersection_ms={intersection_ms:.6}|union_ms={union_ms:.6}|and_not_ms={and_not_ms:.6}|xor_ms={xor_ms:.6}",
-        intersection.structural_nnz(), union.structural_nnz(), and_not.structural_nnz(), xor.structural_nnz()
+        intersection.structural_nnz(),
+        union.structural_nnz(),
+        and_not.structural_nnz(),
+        xor.structural_nnz()
     );
     Ok(())
 }

@@ -3,8 +3,8 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use hybit::{
-    read_matrix_market, GeneralSquarePreconditionerPolicy, HybitSolver, MatrixProblemClass,
-    PreconditionerKind,
+    GeneralSquarePreconditionerPolicy, HybitSolver, MatrixProblemClass, PreconditionerKind,
+    read_matrix_market,
 };
 
 #[derive(Debug)]

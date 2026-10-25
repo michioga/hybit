@@ -4,10 +4,10 @@
 //! H1-C2 field-aligned, and H1-C3 graph-refined contiguous partitions.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    build_contiguous_halo_plans, field_aligned_contiguous_partition, partition_telemetry,
-    ContiguousPartition, PreparedFieldGraphHalo,
+    ContiguousPartition, PreparedFieldGraphHalo, build_contiguous_halo_plans,
+    field_aligned_contiguous_partition, partition_telemetry,
 };
 use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
 use std::error::Error;
@@ -184,14 +184,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     if rank == 0 {
         println!(
             "PASS H1-C3 ranks={ranks} n={} nnz={} accepted={} ghosts={} field_ghosts={} equal_ghosts={} peers={} field_peers={} equal_peers={} cut={} field_cut={} equal_cut={} owned_imbalance={:.3} field_owned_imbalance={:.3} nnz_imbalance={:.3} field_nnz_imbalance={:.3} abs_err={total_error:.3e} sent={total_sent} recv={total_recv} mean_rank_spmv_ms={mean_spmv_ms:.6} mean_rank_graph_prepare_ms={mean_graph_prepare_ms:.6} mean_rank_native_setup_ms={mean_native_setup_ms:.6}",
-            layout.total_dofs(), matrix.nnz(), selected.candidate_accepted,
-            selected.selected.communication_volume, field_stats.communication_volume,
+            layout.total_dofs(),
+            matrix.nnz(),
+            selected.candidate_accepted,
+            selected.selected.communication_volume,
+            field_stats.communication_volume,
             equal_stats.communication_volume,
-            selected.selected.directional_peer_relations, field_stats.directional_peer_relations,
+            selected.selected.directional_peer_relations,
+            field_stats.directional_peer_relations,
             equal_stats.directional_peer_relations,
-            selected.selected.cut_nnz, field_stats.cut_nnz, equal_stats.cut_nnz,
-            selected.selected.owned_dof_imbalance, field_stats.owned_dof_imbalance,
-            selected.selected.local_nnz_imbalance, field_stats.local_nnz_imbalance,
+            selected.selected.cut_nnz,
+            field_stats.cut_nnz,
+            equal_stats.cut_nnz,
+            selected.selected.owned_dof_imbalance,
+            field_stats.owned_dof_imbalance,
+            selected.selected.local_nnz_imbalance,
+            field_stats.local_nnz_imbalance,
         );
     }
     mpi.barrier();

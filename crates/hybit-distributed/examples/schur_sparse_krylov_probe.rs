@@ -6,8 +6,8 @@
 //! proof of exact fixed-operator Krylov convergence. Always gate true ||Ax-b||.
 
 use hybit_core::{HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions};
-use hybit_distributed::{abtm_multilevel_partition, AbtmMultilevelOptions, PartitionAssignment};
-use hybit_krylov::{fgmres, pcg, FgmresOptions, KrylovOutcome};
+use hybit_distributed::{AbtmMultilevelOptions, PartitionAssignment, abtm_multilevel_partition};
+use hybit_krylov::{FgmresOptions, KrylovOutcome, fgmres, pcg};
 use hybit_matrix::Csr32Matrix;
 use std::error::Error;
 use std::fs::File;
@@ -578,7 +578,10 @@ fn main() -> R<()> {
         std::process::exit(2);
     }
     let mut csv = BufWriter::new(File::create(&args[1])?);
-    writeln!(csv, "case,n,nnz,interior,interface,partition_ms,prepare_ms,sparse_bytes_lower_bound,coupling_nnz,schur_iterations,global_iterations,schur_solve_ms,global_solve_ms,schur_true_residual,global_true_residual,schur_solution_error")?;
+    writeln!(
+        csv,
+        "case,n,nnz,interior,interface,partition_ms,prepare_ms,sparse_bytes_lower_bound,coupling_nnz,schur_iterations,global_iterations,schur_solve_ms,global_solve_ms,schur_true_residual,global_true_residual,schur_solution_error"
+    )?;
     for case in CASES {
         let r = eval(case)?;
         writeln!(
@@ -603,9 +606,16 @@ fn main() -> R<()> {
         )?;
         println!(
             "PASS {} n={} I={} Gamma={} Schur/FGMRES={} global/PCG={} solve={:.3}/{:.3}ms true_res={:.3e}/{:.3e}",
-            r.name, r.n, r.interior, r.interface, r.schur_iterations,
-            r.global_iterations, r.schur_solve_ms, r.global_solve_ms,
-            r.schur_residual, r.global_residual
+            r.name,
+            r.n,
+            r.interior,
+            r.interface,
+            r.schur_iterations,
+            r.global_iterations,
+            r.schur_solve_ms,
+            r.global_solve_ms,
+            r.schur_residual,
+            r.global_residual
         );
     }
     csv.flush()?;
@@ -625,10 +635,11 @@ mod tests {
         assert_eq!(plan.interior_count + plan.interface_count, a.nrows());
         assert_eq!(plan.interface_count, 72);
         assert_eq!(plan.locals.len(), 4);
-        assert!(plan
-            .locals
-            .iter()
-            .all(|loc| loc.a.nrows() == loc.dofs.len()));
+        assert!(
+            plan.locals
+                .iter()
+                .all(|loc| loc.a.nrows() == loc.dofs.len())
+        );
     }
 
     #[test]

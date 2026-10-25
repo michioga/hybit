@@ -1,6 +1,6 @@
 use hybit::{
-    pcg, Csr32Matrix, HybitSolver, JacobiPreconditioner, PreconditionerKind, SolveStatus,
-    SolverOptions,
+    Csr32Matrix, HybitSolver, JacobiPreconditioner, PreconditionerKind, SolveStatus, SolverOptions,
+    pcg,
 };
 
 fn easy_plus_hard_block(
@@ -81,7 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  factor memory   : {:.3} KiB",
         report.local_factor_bytes as f64 / 1024.0
     );
-    println!("  timings [ms]    : analysis={:.3}, probe={:.3}, diagnostics={:.3}, factor={:.3}, restart={:.3}",
+    println!(
+        "  timings [ms]    : analysis={:.3}, probe={:.3}, diagnostics={:.3}, factor={:.3}, restart={:.3}",
         report.analysis_seconds * 1.0e3,
         report.probe_seconds * 1.0e3,
         report.diagnostics_seconds * 1.0e3,

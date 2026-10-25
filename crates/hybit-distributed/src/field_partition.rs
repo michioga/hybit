@@ -6,9 +6,9 @@
 //! accept/reject a proposal. No numeric SpMV backend is changed.
 
 use crate::{
-    build_contiguous_halo_plans, field_aligned_contiguous_partition, partition_telemetry,
-    prepare_rank_local_csrs, validate_field_contiguous_partition, ContiguousPartition,
-    DistributedTopologyError, HaloPlan, PartitionTelemetry, RankId, RankLocalCsr,
+    ContiguousPartition, DistributedTopologyError, HaloPlan, PartitionTelemetry, RankId,
+    RankLocalCsr, build_contiguous_halo_plans, field_aligned_contiguous_partition,
+    partition_telemetry, prepare_rank_local_csrs, validate_field_contiguous_partition,
 };
 use hybit_matrix::{AbtmDualTopology, Csr32Matrix, FieldAwareDofLayout};
 
@@ -251,7 +251,7 @@ impl PreparedFieldGraphHalo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{simulate_halo_exchange, validate_field_assignment, PartitionAssignment};
+    use crate::{PartitionAssignment, simulate_halo_exchange, validate_field_assignment};
     use hybit_matrix::{DofBlock, DofEntityKind};
 
     fn fixture() -> (FieldAwareDofLayout, Csr32Matrix) {

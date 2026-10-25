@@ -1,4 +1,4 @@
-use hybit::{solve, Csr32Matrix};
+use hybit::{Csr32Matrix, solve};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a = Csr32Matrix::new(

@@ -580,7 +580,7 @@ fn adaptive_window_ratio(
     current_norm: f64,
     last_checkpoint_norm: &mut f64,
 ) -> Option<f64> {
-    if interval == 0 || step % interval != 0 {
+    if interval == 0 || !step.is_multiple_of(interval) {
         return None;
     }
     let ratio = current_norm / *last_checkpoint_norm;
@@ -916,242 +916,231 @@ impl DistributedPcg {
                         status = DistributedPcgStatus::Converged;
                         break;
                     }
-                    if let Some((plan, policy)) = adaptive {
-                        if adaptive_escalation_iteration == 0 {
-                            if let Some(window_ratio) = adaptive_window_ratio(
-                                step,
-                                policy.probe_iterations,
-                                r_sq.sqrt(),
-                                &mut adaptive_checkpoint_norm,
-                            ) {
-                                adaptive_probe_ratio = window_ratio;
-                                if adaptive_probe_ratio > policy.poor_progress_ratio {
-                                    // Every rank makes the same choice: r_sq and initial_norm
-                                    // are MPI global reductions. Reject local factor failures
-                                    // collectively BEFORE coarse preparation enters collectives.
-                                    let started = Instant::now();
-                                    let rank_budget =
-                                        policy.factor_budget_bytes_global / mpi.size() as usize;
-                                    let (mut mask, mut decisions) = select_budgeted_blocks(
-                                        local,
-                                        &self.r,
-                                        policy.block_size,
-                                        rank_budget,
-                                        policy.selection_mode,
-                                    );
-                                    if let DistributedAdaptiveBlockScore::SwapOne {
-                                        target_rank,
+                    if let Some((plan, policy)) = adaptive
+                        && adaptive_escalation_iteration == 0
+                        && let Some(window_ratio) = adaptive_window_ratio(
+                            step,
+                            policy.probe_iterations,
+                            r_sq.sqrt(),
+                            &mut adaptive_checkpoint_norm,
+                        )
+                    {
+                        adaptive_probe_ratio = window_ratio;
+                        if adaptive_probe_ratio > policy.poor_progress_ratio {
+                            // Every rank makes the same choice: r_sq and initial_norm
+                            // are MPI global reductions. Reject local factor failures
+                            // collectively BEFORE coarse preparation enters collectives.
+                            let started = Instant::now();
+                            let rank_budget =
+                                policy.factor_budget_bytes_global / mpi.size() as usize;
+                            let (mut mask, mut decisions) = select_budgeted_blocks(
+                                local,
+                                &self.r,
+                                policy.block_size,
+                                rank_budget,
+                                policy.selection_mode,
+                            );
+                            if let DistributedAdaptiveBlockScore::SwapOne {
+                                target_rank,
+                                remove,
+                                add,
+                            } = policy.selection_mode
+                            {
+                                // Collective validation prevents an invalid intervention
+                                // on one rank from leaving other ranks inside MPI calls.
+                                let mut locally_valid = target_rank < mpi.size() as usize;
+                                if locally_valid && target_rank == mpi.rank() as usize {
+                                    let costs: Vec<usize> =
+                                        decisions.iter().map(|d| d.factor_bytes).collect();
+                                    locally_valid = swap_selected_block(
+                                        &mut mask,
+                                        &costs,
                                         remove,
                                         add,
-                                    } = policy.selection_mode
-                                    {
-                                        // Collective validation prevents an invalid intervention
-                                        // on one rank from leaving other ranks inside MPI calls.
-                                        let mut locally_valid = target_rank < mpi.size() as usize;
-                                        if locally_valid && target_rank == mpi.rank() as usize {
-                                            let costs: Vec<usize> =
-                                                decisions.iter().map(|d| d.factor_bytes).collect();
-                                            locally_valid = swap_selected_block(
-                                                &mut mask,
-                                                &costs,
-                                                remove,
-                                                add,
-                                                rank_budget,
-                                            );
-                                            if locally_valid {
-                                                for (record, &chosen) in
-                                                    decisions.iter_mut().zip(&mask)
-                                                {
-                                                    record.selected = chosen;
-                                                }
-                                            }
-                                        }
-                                        let rejected =
-                                            mpi.all_reduce_sum_u64(u64::from(!locally_valid));
-                                        reductions += 1;
-                                        if rejected != 0 {
-                                            return Err(invalid(
-                                                "invalid or over-budget adaptive block swap",
-                                            ));
-                                        }
-                                    }
-                                    if let DistributedAdaptiveBlockScore::ReplayMask { masks }
-                                    | DistributedAdaptiveBlockScore::ReplayPooled { masks }
-                                    | DistributedAdaptiveBlockScore::ReplayMaskNoCoarse {
-                                        masks,
-                                    } = policy.selection_mode
-                                    {
-                                        let rank = mpi.rank() as usize;
-                                        let pooled = matches!(
-                                            policy.selection_mode,
-                                            DistributedAdaptiveBlockScore::ReplayPooled { .. }
-                                        );
-                                        let packed = AbtmPooledBlockMask::from_rank_masks(masks);
-                                        let replayed = if mpi.size() == 8 && rank < masks.len() {
-                                            let costs: Vec<usize> =
-                                                decisions.iter().map(|d| d.factor_bytes).collect();
-                                            packed.and_then(|bitmap| {
-                                                replay_reference_mask(
-                                                    bitmap.rank_bits(rank),
-                                                    &costs,
-                                                    if pooled { usize::MAX } else { rank_budget },
-                                                )
-                                            })
-                                        } else {
-                                            None
-                                        };
-                                        // All ranks validate before calling Cholesky preparation.
-                                        let rejected =
-                                            mpi.all_reduce_sum_u64(u64::from(replayed.is_none()));
-                                        reductions += 1;
-                                        if rejected != 0 {
-                                            return Err(invalid("replay mask invalid, over budget, or not eight ranks"));
-                                        }
-                                        if pooled {
-                                            // Every rank enters this reduction after the validation
-                                            // collective. Only direct Cholesky bytes are budgeted;
-                                            // coarse/Jacobi payload is reported separately.
-                                            let local_bytes = decisions
-                                                .iter()
-                                                .zip(replayed.as_ref().ok_or_else(|| {
-                                                    invalid("replay mask missing")
-                                                })?)
-                                                .filter(|(_, selected)| **selected)
-                                                .try_fold(0u64, |sum, (d, _)| {
-                                                    sum.checked_add(d.factor_bytes as u64)
-                                                });
-                                            // Overflow is collectively treated as an over-budget run.
-                                            let local_bytes = local_bytes.unwrap_or(u64::MAX);
-                                            let global_bytes = mpi.all_reduce_sum_u64(local_bytes);
-                                            reductions += 1;
-                                            if global_bytes
-                                                > policy.factor_budget_bytes_global as u64
-                                            {
-                                                return Err(invalid("pooled replay exceeds global direct-factor budget"));
-                                            }
-                                        }
-                                        mask = replayed
-                                            .ok_or_else(|| invalid("replay mask missing"))?;
+                                        rank_budget,
+                                    );
+                                    if locally_valid {
                                         for (record, &chosen) in decisions.iter_mut().zip(&mask) {
                                             record.selected = chosen;
                                         }
                                     }
-                                    self.adaptive_block_trace = decisions;
-                                    let any_selected = mpi.all_reduce_sum_u64(
-                                        mask.iter().filter(|&&v| v).count() as u64,
-                                    );
+                                }
+                                let rejected = mpi.all_reduce_sum_u64(u64::from(!locally_valid));
+                                reductions += 1;
+                                if rejected != 0 {
+                                    return Err(invalid(
+                                        "invalid or over-budget adaptive block swap",
+                                    ));
+                                }
+                            }
+                            if let DistributedAdaptiveBlockScore::ReplayMask { masks }
+                            | DistributedAdaptiveBlockScore::ReplayPooled { masks }
+                            | DistributedAdaptiveBlockScore::ReplayMaskNoCoarse { masks } =
+                                policy.selection_mode
+                            {
+                                let rank = mpi.rank() as usize;
+                                let pooled = matches!(
+                                    policy.selection_mode,
+                                    DistributedAdaptiveBlockScore::ReplayPooled { .. }
+                                );
+                                let packed = AbtmPooledBlockMask::from_rank_masks(masks);
+                                let replayed = if mpi.size() == 8 && rank < masks.len() {
+                                    let costs: Vec<usize> =
+                                        decisions.iter().map(|d| d.factor_bytes).collect();
+                                    packed.and_then(|bitmap| {
+                                        replay_reference_mask(
+                                            bitmap.rank_bits(rank),
+                                            &costs,
+                                            if pooled { usize::MAX } else { rank_budget },
+                                        )
+                                    })
+                                } else {
+                                    None
+                                };
+                                // All ranks validate before calling Cholesky preparation.
+                                let rejected =
+                                    mpi.all_reduce_sum_u64(u64::from(replayed.is_none()));
+                                reductions += 1;
+                                if rejected != 0 {
+                                    return Err(invalid(
+                                        "replay mask invalid, over budget, or not eight ranks",
+                                    ));
+                                }
+                                if pooled {
+                                    // Every rank enters this reduction after the validation
+                                    // collective. Only direct Cholesky bytes are budgeted;
+                                    // coarse/Jacobi payload is reported separately.
+                                    let local_bytes = decisions
+                                        .iter()
+                                        .zip(
+                                            replayed
+                                                .as_ref()
+                                                .ok_or_else(|| invalid("replay mask missing"))?,
+                                        )
+                                        .filter(|(_, selected)| **selected)
+                                        .try_fold(0u64, |sum, (d, _)| {
+                                            sum.checked_add(d.factor_bytes as u64)
+                                        });
+                                    // Overflow is collectively treated as an over-budget run.
+                                    let local_bytes = local_bytes.unwrap_or(u64::MAX);
+                                    let global_bytes = mpi.all_reduce_sum_u64(local_bytes);
                                     reductions += 1;
-                                    if any_selected != 0 {
-                                        let blocks = LocalBlockCholesky::prepare_selected(
-                                            local,
-                                            policy.block_size,
-                                            &mask,
-                                        );
-                                        if mpi.all_reduce_sum_u64(u64::from(blocks.is_err())) != 0 {
-                                            return Err(invalid(
+                                    if global_bytes > policy.factor_budget_bytes_global as u64 {
+                                        return Err(invalid(
+                                            "pooled replay exceeds global direct-factor budget",
+                                        ));
+                                    }
+                                }
+                                mask = replayed.ok_or_else(|| invalid("replay mask missing"))?;
+                                for (record, &chosen) in decisions.iter_mut().zip(&mask) {
+                                    record.selected = chosen;
+                                }
+                            }
+                            self.adaptive_block_trace = decisions;
+                            let any_selected =
+                                mpi.all_reduce_sum_u64(mask.iter().filter(|&&v| v).count() as u64);
+                            reductions += 1;
+                            if any_selected != 0 {
+                                let blocks = LocalBlockCholesky::prepare_selected(
+                                    local,
+                                    policy.block_size,
+                                    &mask,
+                                );
+                                if mpi.all_reduce_sum_u64(u64::from(blocks.is_err())) != 0 {
+                                    return Err(invalid(
                                         "adaptive local Cholesky failed on at least one MPI rank",
                                     ));
-                                        }
-                                        let blocks = blocks?;
-                                        // Both arms reuse the exact same collectively validated, replayed
-                                        // selected local factors and Jacobi fallback.
-                                        // Only the rank-constant correction is toggled.
-                                        if matches!(
-                                            policy.selection_mode,
-                                            DistributedAdaptiveBlockScore::ReplayMaskNoCoarse { .. }
-                                        ) {
-                                            self.preconditioner =
-                                                PreparedPreconditioner::LocalBlockCholesky(blocks);
-                                        } else {
-                                            let coarse = RankConstantTwoLevelJacobi::prepare(
-                                                mpi, plan, local,
-                                            )?;
-                                            self.preconditioner =
+                                }
+                                let blocks = blocks?;
+                                // Both arms reuse the exact same collectively validated, replayed
+                                // selected local factors and Jacobi fallback.
+                                // Only the rank-constant correction is toggled.
+                                if matches!(
+                                    policy.selection_mode,
+                                    DistributedAdaptiveBlockScore::ReplayMaskNoCoarse { .. }
+                                ) {
+                                    self.preconditioner =
+                                        PreparedPreconditioner::LocalBlockCholesky(blocks);
+                                } else {
+                                    let coarse =
+                                        RankConstantTwoLevelJacobi::prepare(mpi, plan, local)?;
+                                    self.preconditioner =
                                         PreparedPreconditioner::RankConstantTwoLevelBlockCholesky {
                                             blocks,
                                             coarse,
                                         };
-                                        }
-                                        adaptive_factor_setup_ns = started.elapsed().as_nanos();
-                                        adaptive_escalation_iteration = step;
-
-                                        // Preconditioner changed: restart PCG with the actual
-                                        // residual, not the recursively accumulated residual.
-                                        let timing = self.overlap.spmv_overlap(
-                                            mpi,
-                                            local,
-                                            x,
-                                            &mut self.ax,
-                                        )?;
-                                        accumulate_spmv(
-                                            timing,
-                                            &mut spmv_elapsed_ns,
-                                            &mut halo_wait_ns,
-                                            &mut interior_compute_ns,
-                                            &mut boundary_compute_ns,
-                                        );
-                                        spmv_calls += 1;
-                                        for (i, &bi) in b.iter().enumerate() {
-                                            self.r[i] = bi - self.ax[i];
-                                        }
-                                        r_sq = timed_sum(
-                                            mpi,
-                                            local_dot(&self.r, &self.r),
-                                            &mut allreduce_elapsed_ns,
-                                        );
-                                        reductions += 1;
-                                        // Sample the actual b-Ax residual following promotion.
-                                        // The pre-existing numerical guard remains untouched.
-                                        if self.residual_trace_stride != 0
-                                            && r_sq.is_finite()
-                                            && r_sq >= 0.0
-                                        {
-                                            let actual_norm = r_sq.sqrt();
-                                            let relative = if norm_b > 0.0 {
-                                                actual_norm / norm_b
-                                            } else {
-                                                actual_norm
-                                            };
-                                            self.residual_trace.push(
-                                                DistributedPcgResidualSample {
-                                                    iteration: step,
-                                                    phase: "promotion_restart",
-                                                    recursive_relative_residual: relative,
-                                                    true_relative_residual: Some(relative),
-                                                },
-                                            );
-                                        }
-                                        if !r_sq.is_finite() || r_sq < 0.0 {
-                                            status = DistributedPcgStatus::Breakdown;
-                                            break;
-                                        }
-                                        if r_sq.sqrt() <= threshold {
-                                            status = DistributedPcgStatus::Converged;
-                                            break;
-                                        }
-                                        let t_precond = Instant::now();
-                                        let coarse_ns =
-                                            self.preconditioner.apply(&self.r, &mut self.z);
-                                        preconditioner_apply_ns += t_precond.elapsed().as_nanos();
-                                        coarse_allreduce_elapsed_ns += coarse_ns;
-                                        if self.preconditioner.has_coarse_reduction() {
-                                            coarse_allreduce_calls += 1;
-                                        }
-                                        let next_rz = timed_sum(
-                                            mpi,
-                                            local_dot(&self.r, &self.z),
-                                            &mut allreduce_elapsed_ns,
-                                        );
-                                        reductions += 1;
-                                        if !next_rz.is_finite() || next_rz <= 0.0 {
-                                            status = DistributedPcgStatus::Breakdown;
-                                            break;
-                                        }
-                                        self.p.copy_from_slice(&self.z);
-                                        rz = next_rz;
-                                        continue;
-                                    }
                                 }
+                                adaptive_factor_setup_ns = started.elapsed().as_nanos();
+                                adaptive_escalation_iteration = step;
+
+                                // Preconditioner changed: restart PCG with the actual
+                                // residual, not the recursively accumulated residual.
+                                let timing =
+                                    self.overlap.spmv_overlap(mpi, local, x, &mut self.ax)?;
+                                accumulate_spmv(
+                                    timing,
+                                    &mut spmv_elapsed_ns,
+                                    &mut halo_wait_ns,
+                                    &mut interior_compute_ns,
+                                    &mut boundary_compute_ns,
+                                );
+                                spmv_calls += 1;
+                                for (i, &bi) in b.iter().enumerate() {
+                                    self.r[i] = bi - self.ax[i];
+                                }
+                                r_sq = timed_sum(
+                                    mpi,
+                                    local_dot(&self.r, &self.r),
+                                    &mut allreduce_elapsed_ns,
+                                );
+                                reductions += 1;
+                                // Sample the actual b-Ax residual following promotion.
+                                // The pre-existing numerical guard remains untouched.
+                                if self.residual_trace_stride != 0
+                                    && r_sq.is_finite()
+                                    && r_sq >= 0.0
+                                {
+                                    let actual_norm = r_sq.sqrt();
+                                    let relative = if norm_b > 0.0 {
+                                        actual_norm / norm_b
+                                    } else {
+                                        actual_norm
+                                    };
+                                    self.residual_trace.push(DistributedPcgResidualSample {
+                                        iteration: step,
+                                        phase: "promotion_restart",
+                                        recursive_relative_residual: relative,
+                                        true_relative_residual: Some(relative),
+                                    });
+                                }
+                                if !r_sq.is_finite() || r_sq < 0.0 {
+                                    status = DistributedPcgStatus::Breakdown;
+                                    break;
+                                }
+                                if r_sq.sqrt() <= threshold {
+                                    status = DistributedPcgStatus::Converged;
+                                    break;
+                                }
+                                let t_precond = Instant::now();
+                                let coarse_ns = self.preconditioner.apply(&self.r, &mut self.z);
+                                preconditioner_apply_ns += t_precond.elapsed().as_nanos();
+                                coarse_allreduce_elapsed_ns += coarse_ns;
+                                if self.preconditioner.has_coarse_reduction() {
+                                    coarse_allreduce_calls += 1;
+                                }
+                                let next_rz = timed_sum(
+                                    mpi,
+                                    local_dot(&self.r, &self.z),
+                                    &mut allreduce_elapsed_ns,
+                                );
+                                reductions += 1;
+                                if !next_rz.is_finite() || next_rz <= 0.0 {
+                                    status = DistributedPcgStatus::Breakdown;
+                                    break;
+                                }
+                                self.p.copy_from_slice(&self.z);
+                                rz = next_rz;
+                                continue;
                             }
                         }
                     }
@@ -1249,7 +1238,7 @@ impl DistributedPcg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition};
+    use crate::{ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr};
     use hybit_matrix::Csr32Matrix;
 
     #[test]
@@ -1371,7 +1360,7 @@ mod tests {
 
     #[test]
     fn boundary_mode_changes_ranked_block_without_exceeding_budget() {
-        use crate::{build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition};
+        use crate::{ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr};
         use hybit_matrix::Csr32Matrix;
         // Three two-DOF blocks, all with equal residual energy; the last
         // block has the least exterior coupling. This A is SPD by strict

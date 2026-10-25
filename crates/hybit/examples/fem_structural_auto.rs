@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, read_matrix_market, Csr32Matrix, HybitSolver, ParallelCsr32Operator,
-    RigidBodyAggregation, SolverOptions, StructuralOptions, StructuralPcgVectorPolicy,
-    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
+    Csr32Matrix, HybitSolver, ParallelCsr32Operator, RigidBodyAggregation, SolverOptions,
+    StructuralOptions, StructuralPcgVectorPolicy, StructuralPreconditionerPolicy,
+    StructuralSpmvPolicy, analyze_csr32, read_matrix_market,
 };
 
 #[derive(Debug)]
@@ -60,7 +60,7 @@ impl Args {
                             return Err(format!(
                                 "unknown aggregation '{other}'; use auto, contiguous, or graph"
                             )
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -74,7 +74,7 @@ impl Args {
                             return Err(format!(
                                 "unknown SpMV policy '{other}'; use auto, serial, or parallel"
                             )
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -84,29 +84,26 @@ impl Args {
                         "auto" => StructuralPreconditionerPolicy::Auto,
                         "serial" => StructuralPreconditionerPolicy::Serial,
                         "parallel" => StructuralPreconditionerPolicy::Parallel,
-                        other => {
-                            return Err(format!(
-                                "unknown preconditioner policy '{other}'; use auto, serial, or parallel"
-                            )
-                            .into())
-                        }
+                        other => return Err(format!(
+                            "unknown preconditioner policy '{other}'; use auto, serial, or parallel"
+                        )
+                        .into()),
                     };
                 }
                 "--pcg-vectors" => {
-                    pcg_vector_policy = match next_value(&mut it, "--pcg-vectors")?
-                        .to_ascii_lowercase()
-                        .as_str()
-                    {
-                        "auto" => StructuralPcgVectorPolicy::Auto,
-                        "serial" => StructuralPcgVectorPolicy::Serial,
-                        "parallel" => StructuralPcgVectorPolicy::Parallel,
-                        other => {
-                            return Err(format!(
+                    pcg_vector_policy =
+                        match next_value(&mut it, "--pcg-vectors")?
+                            .to_ascii_lowercase()
+                            .as_str()
+                        {
+                            "auto" => StructuralPcgVectorPolicy::Auto,
+                            "serial" => StructuralPcgVectorPolicy::Serial,
+                            "parallel" => StructuralPcgVectorPolicy::Parallel,
+                            other => return Err(format!(
                                 "unknown PCG vector policy '{other}'; use auto, serial, or parallel"
                             )
-                            .into())
+                            .into()),
                         }
-                    }
                 }
                 "-h" | "--help" => {
                     print_usage();
@@ -154,7 +151,9 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT structural-auto FEM benchmark");
-    println!("Usage: fem_structural_auto --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation auto|contiguous|graph] [--spmv auto|serial|parallel] [--precond auto|serial|parallel] [--pcg-vectors auto|serial|parallel]");
+    println!(
+        "Usage: fem_structural_auto --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation auto|contiguous|graph] [--spmv auto|serial|parallel] [--precond auto|serial|parallel] [--pcg-vectors auto|serial|parallel]"
+    );
 }
 
 fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {

@@ -6,11 +6,11 @@
 //! fields of one physical entity may have different owners.
 
 use crate::{
-    build_contiguous_halo_plans, partition_telemetry, prepare_rank_local_csrs, ContiguousPartition,
-    DistributedTopologyError, HaloPlan, PartitionAssignment, PartitionTelemetry, RankId,
-    RankLocalCsr,
+    ContiguousPartition, DistributedTopologyError, HaloPlan, PartitionAssignment,
+    PartitionTelemetry, RankId, RankLocalCsr, build_contiguous_halo_plans, partition_telemetry,
+    prepare_rank_local_csrs,
 };
-use hybit_matrix::{field_block_owners, Csr32Matrix, FieldAwareDofLayout};
+use hybit_matrix::{Csr32Matrix, FieldAwareDofLayout, field_block_owners};
 
 /// Validate an existing (possibly noncontiguous) owner assignment against
 /// variable-size physical field blocks. Returns one owner per block.
@@ -161,7 +161,7 @@ impl PreparedFieldAwareHalo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{simulate_halo_exchange, ContiguousPartition};
+    use crate::{ContiguousPartition, simulate_halo_exchange};
     use hybit_matrix::{DofBlock, DofEntityKind};
 
     fn layout() -> FieldAwareDofLayout {

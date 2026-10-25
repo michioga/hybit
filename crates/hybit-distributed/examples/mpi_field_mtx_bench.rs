@@ -6,15 +6,14 @@
 //! No SPD/PCG assumption is made; both general and symmetric inputs are valid.
 
 use hybit_distributed::mpi_backend::MpiRuntime;
-use hybit_distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
+use hybit_distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
 use hybit_distributed::{
-    build_contiguous_halo_plans, field_aligned_contiguous_partition,
-    field_graph_contiguous_partition, partition_telemetry, ContiguousPartition, HaloPlan,
-    PartitionTelemetry, RankLocalCsr,
+    ContiguousPartition, HaloPlan, PartitionTelemetry, RankLocalCsr, build_contiguous_halo_plans,
+    field_aligned_contiguous_partition, field_graph_contiguous_partition, partition_telemetry,
 };
 use hybit_matrix::{
-    read_matrix_market, Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout,
-    MatrixMarketSymmetry,
+    Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout, MatrixMarketSymmetry,
+    read_matrix_market,
 };
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
@@ -39,7 +38,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         (sorted[mid - 1] + sorted[mid]) * 0.5
     } else {
         sorted[mid]
@@ -308,7 +307,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let new_csv = !csv.exists() || std::fs::metadata(csv)?.len() == 0;
         let mut writer = OpenOptions::new().create(true).append(true).open(csv)?;
         if new_csv {
-            writeln!(writer, "matrix,format,ranks,n,input_nnz,expanded_csr_nnz,policy,graph_accepted,radius,warmups,repeats,read_max_ms,partition_max_ms,native_halo_max_ms,median_max_spmv_ms,min_max_spmv_ms,max_max_spmv_ms,ghosts,cut_nnz,peer_relations,owned_imbalance,nnz_imbalance,estimated_rank_operator_halo_sum_bytes,abs_error,rel_error,sent_f64_per_apply,received_f64_per_apply")?;
+            writeln!(
+                writer,
+                "matrix,format,ranks,n,input_nnz,expanded_csr_nnz,policy,graph_accepted,radius,warmups,repeats,read_max_ms,partition_max_ms,native_halo_max_ms,median_max_spmv_ms,min_max_spmv_ms,max_max_spmv_ms,ghosts,cut_nnz,peer_relations,owned_imbalance,nnz_imbalance,estimated_rank_operator_halo_sum_bytes,abs_error,rel_error,sent_f64_per_apply,received_f64_per_apply"
+            )?;
         }
         for case in &cases {
             let minimum = case
@@ -319,19 +321,40 @@ fn main() -> Result<(), Box<dyn Error>> {
             let maximum = case.samples_ms.iter().copied().fold(0.0f64, f64::max);
             let median_ms = median(&case.samples_ms);
             let stats = &case.telemetry;
-            writeln!(writer, "{label},{kind},{ranks},{n},{},{},{},{},{radius},{warmups},{repeats},{read_max_ms:.6},{:.6},{:.6},{median_ms:.6},{minimum:.6},{maximum:.6},{},{},{},{:.6},{:.6},{},{:.12e},{:.12e},{},{}",
-                info.input_entries, matrix.nnz(), case.label, comparison.candidate_accepted,
-                case.partition_prepare_max_ms, case.native_setup_max_ms,
-                stats.communication_volume, stats.cut_nnz, stats.directional_peer_relations,
-                stats.owned_dof_imbalance, stats.local_nnz_imbalance,
-                case.resident_bytes_estimate, case.worst_abs_error, case.worst_relative_error,
-                case.sent_per_apply, case.received_per_apply)?;
-            println!("PASS H1-C3B {label} ranks={ranks} policy={} accepted={} n={n} nnz={} ghosts={} cut={} peers={} owned_imbalance={:.3} nnz_imbalance={:.3} median_max_spmv_ms={median_ms:.6} partition_max_ms={:.6} halo_max_ms={:.6} rel_err={:.3e}",
-                case.label, comparison.candidate_accepted, matrix.nnz(),
-                stats.communication_volume, stats.cut_nnz, stats.directional_peer_relations,
-                stats.owned_dof_imbalance, stats.local_nnz_imbalance,
-                case.partition_prepare_max_ms, case.native_setup_max_ms,
-                case.worst_relative_error);
+            writeln!(
+                writer,
+                "{label},{kind},{ranks},{n},{},{},{},{},{radius},{warmups},{repeats},{read_max_ms:.6},{:.6},{:.6},{median_ms:.6},{minimum:.6},{maximum:.6},{},{},{},{:.6},{:.6},{},{:.12e},{:.12e},{},{}",
+                info.input_entries,
+                matrix.nnz(),
+                case.label,
+                comparison.candidate_accepted,
+                case.partition_prepare_max_ms,
+                case.native_setup_max_ms,
+                stats.communication_volume,
+                stats.cut_nnz,
+                stats.directional_peer_relations,
+                stats.owned_dof_imbalance,
+                stats.local_nnz_imbalance,
+                case.resident_bytes_estimate,
+                case.worst_abs_error,
+                case.worst_relative_error,
+                case.sent_per_apply,
+                case.received_per_apply
+            )?;
+            println!(
+                "PASS H1-C3B {label} ranks={ranks} policy={} accepted={} n={n} nnz={} ghosts={} cut={} peers={} owned_imbalance={:.3} nnz_imbalance={:.3} median_max_spmv_ms={median_ms:.6} partition_max_ms={:.6} halo_max_ms={:.6} rel_err={:.3e}",
+                case.label,
+                comparison.candidate_accepted,
+                matrix.nnz(),
+                stats.communication_volume,
+                stats.cut_nnz,
+                stats.directional_peer_relations,
+                stats.owned_dof_imbalance,
+                stats.local_nnz_imbalance,
+                case.partition_prepare_max_ms,
+                case.native_setup_max_ms,
+                case.worst_relative_error
+            );
         }
     }
     mpi.barrier();

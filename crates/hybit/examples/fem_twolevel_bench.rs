@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg, read_matrix_market, Csr32Matrix, SolverOptions,
-    TwoLevelBlockJacobiPreconditioner,
+    Csr32Matrix, SolverOptions, TwoLevelBlockJacobiPreconditioner, analyze_csr32, pcg,
+    read_matrix_market,
 };
 
 #[derive(Debug)]
@@ -79,7 +79,9 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT two-level block-Jacobi FEM benchmark");
-    println!("Usage: fem_twolevel_bench --matrix K.mtx [--tol 1e-8] [--max-iters 3000] [--dofs-per-node 3] [--aggregate-nodes 1024]");
+    println!(
+        "Usage: fem_twolevel_bench --matrix K.mtx [--tol 1e-8] [--max-iters 3000] [--dofs-per-node 3] [--aggregate-nodes 1024]"
+    );
 }
 
 fn norm2(x: &[f64]) -> f64 {

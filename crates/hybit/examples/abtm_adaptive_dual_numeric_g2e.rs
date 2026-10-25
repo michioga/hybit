@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit_matrix::{read_matrix_market, AbtmConfig, AbtmMatrix, Csr32Matrix, TileDesc, TileKind};
+use hybit_matrix::{AbtmConfig, AbtmMatrix, Csr32Matrix, TileDesc, TileKind, read_matrix_market};
 
 #[derive(Debug)]
 struct Args {

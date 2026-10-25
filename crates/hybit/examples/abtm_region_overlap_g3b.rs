@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit_matrix::{
-    grow_undirected_region, read_matrix_market, region_multiplicity, AbtmDualTopology, Csr32Matrix,
-    DofMask,
+    AbtmDualTopology, Csr32Matrix, DofMask, grow_undirected_region, read_matrix_market,
+    region_multiplicity,
 };
 
 #[derive(Debug)]

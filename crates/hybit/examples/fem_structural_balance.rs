@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg_with_workspace, read_matrix_market, recommend_rigid_body_aggregate_nodes,
     BalancedRigidBodyTwoLevelBlockJacobiPreconditioner, Csr32Matrix, PcgWorkspace,
-    RigidBodyAggregation, RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions,
+    RigidBodyAggregation, RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions, analyze_csr32,
+    pcg_with_workspace, read_matrix_market, recommend_rigid_body_aggregate_nodes,
 };
 
 #[derive(Debug)]
@@ -53,7 +53,7 @@ impl Args {
                             return Err(format!(
                                 "unknown aggregation '{other}'; use contiguous or graph"
                             )
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -100,7 +100,9 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT structural additive-vs-balanced FEM benchmark");
-    println!("Usage: fem_structural_balance --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous]");
+    println!(
+        "Usage: fem_structural_balance --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--target-coarse-dim 1536] [--aggregation graph|contiguous]"
+    );
 }
 
 fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {

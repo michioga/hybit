@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    read_matrix_market, GeneralSquareOptions, GeneralSquarePreconditionerPolicy, HybitSolver,
-    MatrixProblemClass, SolverOptions,
+    GeneralSquareOptions, GeneralSquarePreconditionerPolicy, HybitSolver, MatrixProblemClass,
+    SolverOptions, read_matrix_market,
 };
 
 #[derive(Debug)]

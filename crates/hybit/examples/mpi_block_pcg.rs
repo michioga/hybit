@@ -2,7 +2,7 @@
 //! The experimental policy is NOT a mathematical global SPD certificate.
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_input::prepare_owned_rows;
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_mtx::{MtxPcgPolicy, distribute_matrix_market_with_policy};
 use hybit::distributed::mpi_pcg::{
     DistributedPcg, DistributedPcgOptions, DistributedPcgPreconditioner, DistributedPcgStatus,
 };
@@ -24,7 +24,7 @@ fn max_f64(value: f64) -> f64 {
 fn median(values: &mut [f64]) -> f64 {
     values.sort_by(f64::total_cmp);
     let mid = values.len() / 2;
-    if values.len() % 2 == 0 {
+    if values.len().is_multiple_of(2) {
         (values[mid - 1] + values[mid]) / 2.0
     } else {
         values[mid]
@@ -74,7 +74,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let needs_header = !csv.exists() || std::fs::metadata(csv)?.len() == 0;
         if needs_header {
             let mut f = OpenOptions::new().create(true).append(true).open(csv)?;
-            writeln!(f, "case,policy,ranks,n,nnz,preconditioner,block_size,warmups,repeats,iterations,status,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,preconditioner_prepare_max_ms,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_precond_apply_ms")?;
+            writeln!(
+                f,
+                "case,policy,ranks,n,nnz,preconditioner,block_size,warmups,repeats,iterations,status,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,preconditioner_prepare_max_ms,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_precond_apply_ms"
+            )?;
         }
     }
     mpi.barrier();
@@ -162,8 +165,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         mpi.barrier();
         if mpi.rank() == 0 {
             let mut f = OpenOptions::new().append(true).open(csv)?;
-            writeln!(f, "{label},{policy_label},{expected},{},{},{name},{block_size},{warmups},{repeats},{last_iters},{last_status:?},{last_rel:.12e},{last_error:.12e},{last_spmvs},{last_reductions},{setup_ms:.6},{solve_median:.6},{spmv_median:.6},{reduction_median:.6},{precond_median:.6}", partition.global_dofs(), ingest.global_nnz)?;
-            println!("PASS G8-C6 {label}/{name}: ranks={expected} iters={last_iters} rel={last_rel:.3e} err={last_error:.3e} solve_med={solve_median:.4}ms reduce_med={reduction_median:.4}ms setup={setup_ms:.4}ms");
+            writeln!(
+                f,
+                "{label},{policy_label},{expected},{},{},{name},{block_size},{warmups},{repeats},{last_iters},{last_status:?},{last_rel:.12e},{last_error:.12e},{last_spmvs},{last_reductions},{setup_ms:.6},{solve_median:.6},{spmv_median:.6},{reduction_median:.6},{precond_median:.6}",
+                partition.global_dofs(),
+                ingest.global_nnz
+            )?;
+            println!(
+                "PASS G8-C6 {label}/{name}: ranks={expected} iters={last_iters} rel={last_rel:.3e} err={last_error:.3e} solve_med={solve_median:.4}ms reduce_med={reduction_median:.4}ms setup={setup_ms:.4}ms"
+            );
         }
         if name == "jacobi" {
             baseline_iters = Some(last_iters);

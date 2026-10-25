@@ -7,10 +7,9 @@
 //! Krylov/preconditioner routing is performed here.
 
 use crate::{
-    field_block_owners, grow_field_aware_region, prepare_local_numeric_plan, AbtmDualTopology,
-    AbtmDualTopologyStats, AbtmLocalNumericPlan, AbtmLocalNumericPlanStats,
+    AbtmDualTopology, AbtmDualTopologyStats, AbtmLocalNumericPlan, AbtmLocalNumericPlanStats,
     AbtmLocalSubmatrixPattern, Csr32Matrix, DofMask, FieldAwareDofLayout, FieldAwareRegionGrowth,
-    FieldAwareRegionStats,
+    FieldAwareRegionStats, field_block_owners, grow_field_aware_region, prepare_local_numeric_plan,
 };
 use hybit_core::HybitError;
 
@@ -254,9 +253,11 @@ mod tests {
         let (layout, a) = fixture();
         let prepared = PreparedFieldAwareTopology::new(&a, &layout).unwrap();
         assert!(prepared.prepare_region(&DofMask::new(8), 1).is_err());
-        assert!(prepared
-            .prepare_regions(&[DofMask::new(9), DofMask::new(8)], 1)
-            .is_err());
+        assert!(
+            prepared
+                .prepare_regions(&[DofMask::new(9), DofMask::new(8)], 1)
+                .is_err()
+        );
         let mut bad_owners = vec![0, 0, 0, 1, 1, 1, 2, 2, 2];
         assert_eq!(
             prepared.validate_block_owners(&bad_owners, 3).unwrap(),

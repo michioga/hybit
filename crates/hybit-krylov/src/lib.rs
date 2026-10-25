@@ -2,16 +2,16 @@ mod execution;
 mod fgmres;
 
 pub use execution::{
-    pcg_with_execution, resident_rayon_recommended, CpuKrylovExecution, KrylovExecutionBackend,
-    RayonKrylovExecution, ResidentPcgWorkspace, RESIDENT_RAYON_MIN_N, RESIDENT_RAYON_MIN_THREADS,
+    CpuKrylovExecution, KrylovExecutionBackend, RESIDENT_RAYON_MIN_N, RESIDENT_RAYON_MIN_THREADS,
+    RayonKrylovExecution, ResidentPcgWorkspace, pcg_with_execution, resident_rayon_recommended,
 };
 pub use fgmres::{
-    fgmres, fgmres_with_workspace, fgmres_with_workspace_and_restart_controller, FgmresOptions,
-    FgmresRestartProgress, FgmresWorkspace, FlexiblePreconditioner,
+    FgmresOptions, FgmresRestartProgress, FgmresWorkspace, FlexiblePreconditioner, fgmres,
+    fgmres_with_workspace, fgmres_with_workspace_and_restart_controller,
 };
 
 use hybit_core::{
-    dot, l2_norm, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions,
+    HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions, dot, l2_norm,
 };
 use rayon::prelude::*;
 

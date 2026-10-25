@@ -1,14 +1,10 @@
 use hybit_core::{HybitError, LinearOperator};
 
-use crate::{AbtmMatrix, Csr32Matrix, DofMask, TileKind, TILE_WIDTH};
+use crate::{AbtmMatrix, Csr32Matrix, DofMask, TILE_WIDTH, TileKind};
 
 #[inline(always)]
 fn bits_below(bit: usize) -> u64 {
-    if bit == 0 {
-        0
-    } else {
-        (1u64 << bit) - 1
-    }
+    if bit == 0 { 0 } else { (1u64 << bit) - 1 }
 }
 
 /// Explicit prepared operator for a fixed column restriction `A * M`.
@@ -561,8 +557,10 @@ mod tests {
         assert_close(&local_serial, &local_parallel);
         assert_close(&local_serial, &local_chunked);
 
-        assert!(local
-            .apply_parallel_with_tasks(&x_local, &mut local_chunked, 0)
-            .is_err());
+        assert!(
+            local
+                .apply_parallel_with_tasks(&x_local, &mut local_chunked, 0)
+                .is_err()
+        );
     }
 }

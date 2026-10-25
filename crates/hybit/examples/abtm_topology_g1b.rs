@@ -3,7 +3,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use hybit::{read_matrix_market, AbtmTopology, Csr32Matrix};
+use hybit::{AbtmTopology, Csr32Matrix, read_matrix_market};
 
 #[derive(Debug)]
 struct Args {

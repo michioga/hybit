@@ -55,7 +55,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .create(true)
                 .append(true)
                 .open(csv_path)?;
-            writeln!(f, "case,ranks,n,nnz,rhs,iterations,status,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,global_ghosts,global_operator_bytes,root_read_ms,max_distribution_ms,max_halo_prepare_ms,max_pcg_prepare_ms,max_solve_ms")?;
+            writeln!(
+                f,
+                "case,ranks,n,nnz,rhs,iterations,status,true_relative_residual,max_abs_error,spmv_calls,allreduce_calls,global_ghosts,global_operator_bytes,root_read_ms,max_distribution_ms,max_halo_prepare_ms,max_pcg_prepare_ms,max_solve_ms"
+            )?;
         }
     }
     mpi.barrier();
@@ -113,13 +116,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         mpi.barrier();
         if mpi.rank() == 0 {
             let mut f = OpenOptions::new().append(true).open(csv_path)?;
-            writeln!(f, "{label},{expected},{},{},{trial},{},{:?},{:.12e},{:.12e},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6}",
-                partition.global_dofs(), ingest.global_nnz, result.iterations,
-                result.status, result.true_relative_residual, global_error,
-                result.spmv_calls, result.allreduce_calls, global_ghosts, global_bytes,
-                root_read_ms, max_distribution_ms, max_halo_ms, max_pcg_prepare_ms, max_solve_ms)?;
-            println!("PASS C3 {label} rhs={trial}: ranks={expected} n={} nnz={} iter={} true_rel={:.3e} max_abs_error={global_error:.3e} ghosts={global_ghosts} max_solve_ms={max_solve_ms:.4}",
-                partition.global_dofs(), ingest.global_nnz, result.iterations, result.true_relative_residual);
+            writeln!(
+                f,
+                "{label},{expected},{},{},{trial},{},{:?},{:.12e},{:.12e},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6}",
+                partition.global_dofs(),
+                ingest.global_nnz,
+                result.iterations,
+                result.status,
+                result.true_relative_residual,
+                global_error,
+                result.spmv_calls,
+                result.allreduce_calls,
+                global_ghosts,
+                global_bytes,
+                root_read_ms,
+                max_distribution_ms,
+                max_halo_ms,
+                max_pcg_prepare_ms,
+                max_solve_ms
+            )?;
+            println!(
+                "PASS C3 {label} rhs={trial}: ranks={expected} n={} nnz={} iter={} true_rel={:.3e} max_abs_error={global_error:.3e} ghosts={global_ghosts} max_solve_ms={max_solve_ms:.4}",
+                partition.global_dofs(),
+                ingest.global_nnz,
+                result.iterations,
+                result.true_relative_residual
+            );
         }
         mpi.barrier();
     }

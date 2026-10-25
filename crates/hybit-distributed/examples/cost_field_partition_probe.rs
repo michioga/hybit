@@ -4,9 +4,9 @@
 //! MTX carries no physical field metadata: one DOF = one synthetic block.
 
 use hybit_distributed::{
-    cost_aware_contiguous_partition, CostAwarePartitionOptions, PartitionCostCalibration,
+    CostAwarePartitionOptions, PartitionCostCalibration, cost_aware_contiguous_partition,
 };
-use hybit_matrix::{read_matrix_market, DofBlock, DofEntityKind, FieldAwareDofLayout};
+use hybit_matrix::{DofBlock, DofEntityKind, FieldAwareDofLayout, read_matrix_market};
 use std::error::Error;
 use std::path::Path;
 
@@ -72,8 +72,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!(
         "selected={:?} baseline={:?} reason={:?} attempted_graph={} modeled_net_savings_ns={:?} actual_local_graph_prepare_ns={:?}",
-        report.selected_kind, report.baseline_kind, report.decision,
-        report.graph_candidate.is_some(), report.modeled_net_savings_ns,
+        report.selected_kind,
+        report.baseline_kind,
+        report.decision,
+        report.graph_candidate.is_some(),
+        report.modeled_net_savings_ns,
         report.local_graph_prepare_ns,
     );
     println!(

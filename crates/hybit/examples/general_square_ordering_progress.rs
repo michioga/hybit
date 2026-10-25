@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    fgmres_with_workspace_and_restart_controller, read_matrix_market, Csr32Matrix, FgmresOptions,
-    FgmresRestartProgress, FgmresWorkspace, HybitError, Ilu0Preconditioner, KrylovOutcome,
-    SolverOptions,
+    Csr32Matrix, FgmresOptions, FgmresRestartProgress, FgmresWorkspace, HybitError,
+    Ilu0Preconditioner, KrylovOutcome, SolverOptions, fgmres_with_workspace_and_restart_controller,
+    read_matrix_market,
 };
 
 #[derive(Debug)]

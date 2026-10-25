@@ -1,7 +1,7 @@
 use hybit_distributed::{
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
     abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
-    partition_telemetry_assignment, AbtmMultilevelOptions, ContiguousPartition,
-    PartitionAssignment, PartitionTelemetry,
+    partition_telemetry_assignment,
 };
 use hybit_matrix::read_matrix_market;
 use std::env;

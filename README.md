@@ -38,7 +38,9 @@ cargo add hybit@0.8.0
 
 HyBIT 0.8.0 is published on crates.io; the matching release source is tagged `v0.8.0`.
 
-Rust 1.73 or newer is required.
+Rust 1.73 or newer is required for the immutable 0.8.0 release.
+
+**0.9.0 development branch:** Rust 2024 Edition, Rust 1.99.1 or newer, Cargo resolver 3. MS-MPI development uses Windows MSVC; WSL is used only for external METIS/SCOTCH partition baselines.
 
 ## Quick start
 

@@ -1,5 +1,5 @@
 use hybit_core::{
-    dot, l2_norm, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions,
+    HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions, dot, l2_norm,
 };
 
 use crate::KrylovOutcome;
@@ -644,7 +644,11 @@ mod tests {
             output: &mut [f64],
         ) -> Result<(), HybitError> {
             self.calls.push(iteration);
-            let scale = if iteration % 2 == 0 { 0.5 } else { 1.5 };
+            let scale = if iteration.is_multiple_of(2) {
+                0.5
+            } else {
+                1.5
+            };
             for (out, &value) in output.iter_mut().zip(input) {
                 *out = scale * value;
             }
@@ -813,11 +817,7 @@ mod tests {
         let exact: Vec<f64> = (0..n)
             .map(|i| {
                 let magnitude = 0.5 + 0.1 * i as f64;
-                if i % 2 == 0 {
-                    magnitude
-                } else {
-                    -magnitude
-                }
+                if i % 2 == 0 { magnitude } else { -magnitude }
             })
             .collect();
 

@@ -109,7 +109,7 @@ impl DofMask {
     pub(crate) fn or_word(&mut self, word_index: usize, bits: u64) {
         if word_index < self.words.len() {
             self.words[word_index] |= bits;
-            if word_index + 1 == self.words.len() && self.len % 64 != 0 {
+            if word_index + 1 == self.words.len() && !self.len.is_multiple_of(64) {
                 let valid = self.len % 64;
                 self.words[word_index] &= (1u64 << valid) - 1;
             }

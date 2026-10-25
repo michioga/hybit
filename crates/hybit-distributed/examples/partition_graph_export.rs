@@ -1,4 +1,4 @@
-use hybit_matrix::{read_matrix_market, AbtmDualTopology};
+use hybit_matrix::{AbtmDualTopology, read_matrix_market};
 use std::env;
 use std::error::Error;
 use std::fs::File;
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_degree = max_degree.max(degree);
     }
 
-    if degree_sum % 2 != 0 {
+    if !degree_sum.is_multiple_of(2) {
         return Err("A union A^T produced an odd directed adjacency count".into());
     }
 

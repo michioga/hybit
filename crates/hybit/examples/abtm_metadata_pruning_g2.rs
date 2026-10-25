@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit_matrix::{
-    read_matrix_market, AbtmMetadataFirstMatrix, AbtmProductPruningStats, Csr32Matrix, DofMask,
+    AbtmMetadataFirstMatrix, AbtmProductPruningStats, Csr32Matrix, DofMask, read_matrix_market,
 };
 
 #[derive(Debug)]

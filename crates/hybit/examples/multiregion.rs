@@ -1,4 +1,4 @@
-use hybit::{pcg, Csr32Matrix, HybitSolver, JacobiPreconditioner, SolverOptions};
+use hybit::{Csr32Matrix, HybitSolver, JacobiPreconditioner, SolverOptions, pcg};
 
 fn two_hard_blocks() -> Result<Csr32Matrix, Box<dyn std::error::Error>> {
     let easy_before = 16usize;

@@ -40,34 +40,35 @@ mod robust_cost;
 pub use cost_consensus::verify_cost_partition_mpi_consensus;
 #[cfg(feature = "mpi")]
 pub use cost_distribution::{
-    broadcast_root_cost_selection_mpi, select_and_broadcast_cost_partition_mpi,
-    RootMpiCostSelection,
+    RootMpiCostSelection, broadcast_root_cost_selection_mpi,
+    select_and_broadcast_cost_partition_mpi,
 };
 pub use cost_guard::{
-    capture_partition_calibration, cost_aware_contiguous_partition_scoped,
-    cost_aware_contiguous_partition_scoped_prepared, prepare_cost_graph_candidate_scoped,
     CalibrationGuardDecision, PartitionCalibrationIdentity, PreparedCostGraphCandidate,
-    ScopedCostPartitionResult, ScopedPartitionCostCalibration,
+    ScopedCostPartitionResult, ScopedPartitionCostCalibration, capture_partition_calibration,
+    cost_aware_contiguous_partition_scoped, cost_aware_contiguous_partition_scoped_prepared,
+    prepare_cost_graph_candidate_scoped,
 };
 pub use cost_partition::{
-    cost_aware_contiguous_partition, CostAwarePartitionDecision, CostAwarePartitionKind,
-    CostAwarePartitionOptions, CostAwarePartitionReport, PartitionCostCalibration,
+    CostAwarePartitionDecision, CostAwarePartitionKind, CostAwarePartitionOptions,
+    CostAwarePartitionReport, PartitionCostCalibration, cost_aware_contiguous_partition,
 };
 pub use field_halo::{
-    field_aligned_contiguous_partition, validate_field_assignment,
-    validate_field_contiguous_partition, PreparedFieldAwareHalo,
+    PreparedFieldAwareHalo, field_aligned_contiguous_partition, validate_field_assignment,
+    validate_field_contiguous_partition,
 };
 pub use field_partition::{
-    field_graph_contiguous_partition, FieldGraphPartitionComparison, PreparedFieldGraphHalo,
+    FieldGraphPartitionComparison, PreparedFieldGraphHalo, field_graph_contiguous_partition,
 };
 use hybit_matrix::Csr32Matrix;
-pub use multilevel::{abtm_multilevel_partition, AbtmMultilevelOptions, AbtmMultilevelStats};
+pub use multilevel::{AbtmMultilevelOptions, AbtmMultilevelStats, abtm_multilevel_partition};
 pub use partition::{
+    AbtmMultisourceStats, AbtmPartitionStats, PartitionAssignment,
     abtm_balanced_multisource_partition, abtm_region_grow_partition,
-    partition_telemetry_assignment, AbtmMultisourceStats, AbtmPartitionStats, PartitionAssignment,
+    partition_telemetry_assignment,
 };
 pub use robust_cost::{
-    evaluate_robust_cost, RobustCostDecision, RobustCostInputs, RobustCostReport,
+    RobustCostDecision, RobustCostInputs, RobustCostReport, evaluate_robust_cost,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;

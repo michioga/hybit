@@ -7,7 +7,7 @@
 
 use hybit::distributed::mpi_backend::MpiRuntime;
 use hybit::distributed::mpi_input::prepare_owned_rows;
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_mtx::{MtxPcgPolicy, distribute_matrix_market_with_policy};
 use hybit::distributed::mpi_pcg::{
     DistributedPcg, DistributedPcgOptions, DistributedPcgPreconditioner, DistributedPcgStatus,
 };
@@ -42,7 +42,7 @@ fn max_u64(local: u64) -> u64 {
 fn median(items: &mut [f64]) -> f64 {
     items.sort_by(f64::total_cmp);
     let midpoint = items.len() / 2;
-    if items.len() % 2 == 0 {
+    if items.len().is_multiple_of(2) {
         0.5 * (items[midpoint - 1] + items[midpoint])
     } else {
         items[midpoint]
@@ -96,7 +96,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 && (!csv.exists() || std::fs::metadata(csv)?.len() == 0) {
         let mut file = OpenOptions::new().create(true).append(true).open(csv)?;
-        writeln!(file, "case,policy,ranks,n,nnz,preconditioner,requested_block_rows,max_effective_block_rows,global_blocks,factor_sum_bytes,factor_max_rank_bytes,factor_sum_values,warmups,repeats,setup_max_ms,iterations,status,true_relative_residual,max_abs_error,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_precond_apply_ms,estimated_one_rhs_ms,estimated_ten_rhs_ms,spmv_calls,allreduce_calls")?;
+        writeln!(
+            file,
+            "case,policy,ranks,n,nnz,preconditioner,requested_block_rows,max_effective_block_rows,global_blocks,factor_sum_bytes,factor_max_rank_bytes,factor_sum_values,warmups,repeats,setup_max_ms,iterations,status,true_relative_residual,max_abs_error,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_precond_apply_ms,estimated_one_rhs_ms,estimated_ten_rhs_ms,spmv_calls,allreduce_calls"
+        )?;
     }
     mpi.barrier();
     let (partition, owned, ingest) = distribute_matrix_market_with_policy(&mpi, matrix, policy)?;
@@ -213,9 +216,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         scores.push(score);
         if mpi.rank() == 0 {
             let mut f = OpenOptions::new().append(true).open(csv)?;
-            writeln!(f, "{label},{policy_name},{expected},{},{},{name},{block_size},{max_effective},{global_blocks},{sum_bytes},{max_bytes},{sum_values},{warmups},{repeats},{setup_ms:.6},{iterations},{status:?},{relative:.12e},{abs_error:.12e},{solve_ms:.6},{spmv_ms:.6},{reduce_ms:.6},{apply_ms:.6},{:.6},{:.6},{spmv_calls},{allreduce_calls}",
-                partition.global_dofs(), ingest.global_nnz, score.estimate(1.0), score.estimate(10.0))?;
-            println!("PASS G8-C8 {label}/{name}[{block_size}] ranks={expected}: iter={iterations}, rel={relative:.3e}, bytes={sum_bytes}, setup={setup_ms:.4}ms, solve={solve_ms:.4}ms, apply={apply_ms:.4}ms, 1rhs={:.4}ms, 10rhs={:.4}ms", score.estimate(1.0), score.estimate(10.0));
+            writeln!(
+                f,
+                "{label},{policy_name},{expected},{},{},{name},{block_size},{max_effective},{global_blocks},{sum_bytes},{max_bytes},{sum_values},{warmups},{repeats},{setup_ms:.6},{iterations},{status:?},{relative:.12e},{abs_error:.12e},{solve_ms:.6},{spmv_ms:.6},{reduce_ms:.6},{apply_ms:.6},{:.6},{:.6},{spmv_calls},{allreduce_calls}",
+                partition.global_dofs(),
+                ingest.global_nnz,
+                score.estimate(1.0),
+                score.estimate(10.0)
+            )?;
+            println!(
+                "PASS G8-C8 {label}/{name}[{block_size}] ranks={expected}: iter={iterations}, rel={relative:.3e}, bytes={sum_bytes}, setup={setup_ms:.4}ms, solve={solve_ms:.4}ms, apply={apply_ms:.4}ms, 1rhs={:.4}ms, 10rhs={:.4}ms",
+                score.estimate(1.0),
+                score.estimate(10.0)
+            );
         }
         mpi.barrier();
     }

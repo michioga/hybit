@@ -8,15 +8,16 @@
 //! Synthetic SPD surrogates and PCG iterations are not part of this probe.
 
 use hybit_distributed::mpi_assignment::{
-    prepare_assignment_owned_rows, spmv_assignment, AssignmentHaloPlan, AssignmentLocalCsr,
-    AssignmentOwnedCsrRows, AssignmentSpmvWorkspace,
+    AssignmentHaloPlan, AssignmentLocalCsr, AssignmentOwnedCsrRows, AssignmentSpmvWorkspace,
+    prepare_assignment_owned_rows, spmv_assignment,
 };
 use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::{
+    ContiguousPartition, PartitionAssignment, PartitionTelemetry,
     abtm_balanced_multisource_partition, abtm_region_grow_partition,
-    partition_telemetry_assignment, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
+    partition_telemetry_assignment,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::error::Error;
@@ -57,7 +58,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let i = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         0.5 * (sorted[i - 1] + sorted[i])
     } else {
         sorted[i]
@@ -336,10 +337,25 @@ fn main() -> BenchResult<()> {
         let estimated_total_ms = prep + projected_solve_ms;
         let s = &case.telemetry;
         if mpi.rank() == 0 {
-            println!("K5C NATIVE PASS method={} ranks={} n={} nnz={} order_slot={} ghosts={} cut={} partition_ms={:.3} extraction_ms={:.3} halo_setup_ms={:.3} median_spmv_ms={:.6} median_halo_ms={:.6} numeric_ms={:.6} measured_spmv_sum_ms={:.3} projected_total_ms={:.3} rel_err={:.3e}",
-                policy.label(), expected, n, matrix.nnz(), slot+1, s.communication_volume, s.cut_nnz,
-                case.partition_ms, case.extraction_ms, case.setup_ms, median_spmv_ms,
-                median_halo_ms, median_numeric_ms, sum_spmv_ms, estimated_total_ms, case.worst_rel);
+            println!(
+                "K5C NATIVE PASS method={} ranks={} n={} nnz={} order_slot={} ghosts={} cut={} partition_ms={:.3} extraction_ms={:.3} halo_setup_ms={:.3} median_spmv_ms={:.6} median_halo_ms={:.6} numeric_ms={:.6} measured_spmv_sum_ms={:.3} projected_total_ms={:.3} rel_err={:.3e}",
+                policy.label(),
+                expected,
+                n,
+                matrix.nnz(),
+                slot + 1,
+                s.communication_volume,
+                s.cut_nnz,
+                case.partition_ms,
+                case.extraction_ms,
+                case.setup_ms,
+                median_spmv_ms,
+                median_halo_ms,
+                median_numeric_ms,
+                sum_spmv_ms,
+                estimated_total_ms,
+                case.worst_rel
+            );
         }
         records.push(format!("{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{},{:.6},{:.6},{},{},{},{},{:.8},{:.8},{},{:.12e}",
             path.display(), expected, n, info.input_entries, matrix.nnz(),
@@ -355,7 +371,10 @@ fn main() -> BenchResult<()> {
     mpi.barrier();
     if mpi.rank() == 0 {
         let mut out = OpenOptions::new().create_new(true).write(true).open(csv)?;
-        writeln!(out, "matrix,ranks,n,input_nnz,csr_nnz,global_csr_bytes_per_rank,method,order_slot,warmups,repeats,projected_spmv_calls,read_max_ms,partition_max_ms,extraction_max_ms,halo_setup_max_ms,median_max_spmv_ms,median_max_halo_ms,median_max_numeric_ms,measured_spmv_sum_ms,measured_halo_sum_ms,measured_calls,measured_numeric_sum_ms,projected_prepared_total_ms,ghosts,cut_nnz,peer_relations,operator_halo_sum_bytes,owned_imbalance,nnz_imbalance,sent_f64,worst_rel_error")?;
+        writeln!(
+            out,
+            "matrix,ranks,n,input_nnz,csr_nnz,global_csr_bytes_per_rank,method,order_slot,warmups,repeats,projected_spmv_calls,read_max_ms,partition_max_ms,extraction_max_ms,halo_setup_max_ms,median_max_spmv_ms,median_max_halo_ms,median_max_numeric_ms,measured_spmv_sum_ms,measured_halo_sum_ms,measured_calls,measured_numeric_sum_ms,projected_prepared_total_ms,ghosts,cut_nnz,peer_relations,operator_halo_sum_bytes,owned_imbalance,nnz_imbalance,sent_f64,worst_rel_error"
+        )?;
         for record in records {
             writeln!(out, "{record}")?;
         }
@@ -364,7 +383,9 @@ fn main() -> BenchResult<()> {
             "=== K5-C SINGLE-NODE NATIVE MPI ORIGINAL-COEFFICIENT SpMV PASS: {} ===",
             csv.display()
         );
-        println!("NOTE: projected_prepared_total_ms is an extrapolation, not a measured solve-many time; global CSR is replicated on every rank.");
+        println!(
+            "NOTE: projected_prepared_total_ms is an extrapolation, not a measured solve-many time; global CSR is replicated on every rank."
+        );
     }
     Ok(())
 }

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg, read_matrix_market, BlockJacobiPreconditioner, Csr32Matrix, SolverOptions,
+    BlockJacobiPreconditioner, Csr32Matrix, SolverOptions, analyze_csr32, pcg, read_matrix_market,
 };
 
 #[derive(Debug)]

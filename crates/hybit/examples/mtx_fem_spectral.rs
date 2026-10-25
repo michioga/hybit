@@ -3,7 +3,7 @@
 //! A negative Ritz value is evidence of a negative Rayleigh direction; a
 //! nonnegative minimum Ritz value NEVER certifies global SPD.  Every result
 //! is a finite-step diagnostic, not a complete inertia calculation.
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -275,7 +275,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .write(true)
         .create_new(true)
         .open(destination)?;
-    writeln!(output, "file,status,reason,n,nnz,lanczos_steps,min_ritz,max_ritz,terminal_beta,negative_threshold,elapsed_ms")?;
+    writeln!(
+        output,
+        "file,status,reason,n,nnz,lanczos_steps,min_ritz,max_ritz,terminal_beta,negative_threshold,elapsed_ms"
+    )?;
     for arg in args.iter().skip(3) {
         let path = Path::new(arg);
         let timer = Instant::now();
@@ -346,10 +349,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         let elapsed = timer.elapsed().as_secs_f64() * 1000.0;
-        writeln!(output, "{},{},{},{n},{nnz},{iterations},{min_ritz:.12e},{max_ritz:.12e},{beta:.12e},{threshold:.12e},{elapsed:.4}",
-            csv(arg), csv(&status), csv(&reason))?;
+        writeln!(
+            output,
+            "{},{},{},{n},{nnz},{iterations},{min_ritz:.12e},{max_ritz:.12e},{beta:.12e},{threshold:.12e},{elapsed:.4}",
+            csv(arg),
+            csv(&status),
+            csv(&reason)
+        )?;
         output.flush()?;
-        println!("G8-C10 SPECTRAL {} {status}: n={n} nnz={nnz} steps={iterations} min_ritz={min_ritz:.6e} max_ritz={max_ritz:.6e}", path.display());
+        println!(
+            "G8-C10 SPECTRAL {} {status}: n={n} nnz={nnz} steps={iterations} min_ritz={min_ritz:.6e} max_ritz={max_ritz:.6e}",
+            path.display()
+        );
     }
     println!("=== G8-C10 SPECTRAL DIAGNOSTIC COMPLETE: NO SPD CERTIFICATION ===");
     Ok(())

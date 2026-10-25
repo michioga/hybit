@@ -4,17 +4,17 @@
 //! Collective MPI errors are synchronized where possible. Experimental only.
 
 use hybit_distributed::mpi_assignment::{
-    prepare_assignment_owned_rows_sparse, spmv_assignment, AssignmentHaloPlan, AssignmentLocalCsr,
-    AssignmentOwnedCsrRows,
+    AssignmentHaloPlan, AssignmentLocalCsr, AssignmentOwnedCsrRows,
+    prepare_assignment_owned_rows_sparse, spmv_assignment,
 };
 use hybit_distributed::mpi_assignment_sparse::scatter_sparse_owners_from_root;
 use hybit_distributed::mpi_assignment_sparse_verify::verify_sparse_assignment_scatter_exact;
 use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::{
-    abtm_balanced_multisource_partition, abtm_region_grow_partition, ContiguousPartition,
-    PartitionAssignment,
+    ContiguousPartition, PartitionAssignment, abtm_balanced_multisource_partition,
+    abtm_region_grow_partition,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::error::Error;
@@ -533,19 +533,60 @@ fn main() -> BenchResult<()> {
     let root_verify_ms = world_max(root_started.elapsed().as_secs_f64() * 1000.0);
     let solve_median = median(&solve_times);
     if mpi.rank() == 0 {
-        println!("K8-A ORIGINAL-COEFFICIENT PCG PASS method={} ranks={} n={} nnz={} iterations={} median_solve_ms={:.6} true_rel={:.3e} root_original_rel={:.3e} root_solution_error={:.3e} scatter_ms={:.3} halo_setup_ms={:.3} sparse_owner_bytes_sum={} ghosts={} exact_original=true",
-            policy.label(), ranks, n, nnz, observed_iters.unwrap_or(0), solve_median,
-            worst_true_rel, root_rel, root_err, scatter_ms, halo_ms, sparse_owner_bytes, ghosts);
+        println!(
+            "K8-A ORIGINAL-COEFFICIENT PCG PASS method={} ranks={} n={} nnz={} iterations={} median_solve_ms={:.6} true_rel={:.3e} root_original_rel={:.3e} root_solution_error={:.3e} scatter_ms={:.3} halo_setup_ms={:.3} sparse_owner_bytes_sum={} ghosts={} exact_original=true",
+            policy.label(),
+            ranks,
+            n,
+            nnz,
+            observed_iters.unwrap_or(0),
+            solve_median,
+            worst_true_rel,
+            root_rel,
+            root_err,
+            scatter_ms,
+            halo_ms,
+            sparse_owner_bytes,
+            ghosts
+        );
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(output)?;
-        writeln!(file,"matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified")?;
-        writeln!(file,"{},{},{},{},{},symmetric_strict_diagonal_dominance,jacobi,{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true",
-            path.display(), ranks, policy.label(), n, nnz, warmups, repeats, max_iters, tol,
-            observed_iters.unwrap_or(0),solve_median,read_ms,partition_ms,scatter_ms,verify_ms,
-            halo_ms,rhs_ms,root_verify_ms,worst_true_rel,root_rel,worst_err,root_err,sparse_owner_bytes,
-            ghosts,calls,reductions)?;
+        writeln!(
+            file,
+            "matrix,ranks,method,n,nnz,spd_certificate,preconditioner,warmups,repeats,max_iters,tol,iterations,median_solve_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,rhs_setup_ms,root_residual_verification_ms,distributed_true_rel,root_original_true_rel,max_solution_error,root_solution_error,sparse_owner_bytes_sum,ghosts,spmv_calls,dot_reductions,exact_original_verified"
+        )?;
+        writeln!(
+            file,
+            "{},{},{},{},{},symmetric_strict_diagonal_dominance,jacobi,{},{},{},{:.3e},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.12e},{:.12e},{:.12e},{:.12e},{},{},{},{},true",
+            path.display(),
+            ranks,
+            policy.label(),
+            n,
+            nnz,
+            warmups,
+            repeats,
+            max_iters,
+            tol,
+            observed_iters.unwrap_or(0),
+            solve_median,
+            read_ms,
+            partition_ms,
+            scatter_ms,
+            verify_ms,
+            halo_ms,
+            rhs_ms,
+            root_verify_ms,
+            worst_true_rel,
+            root_rel,
+            worst_err,
+            root_err,
+            sparse_owner_bytes,
+            ghosts,
+            calls,
+            reductions
+        )?;
     }
     mpi.barrier();
     Ok(())
@@ -555,7 +596,7 @@ fn median(data: &[f64]) -> f64 {
     let mut sorted = data.to_vec();
     sorted.sort_by(f64::total_cmp);
     let m = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         0.5 * (sorted[m - 1] + sorted[m])
     } else {
         sorted[m]

@@ -10,9 +10,9 @@
 //! root drops the original matrix. All MPI payloads are bounded by FRAME_LEN.
 //! No production solver/preconditioner path is modified by this module.
 
+use crate::PartitionAssignment;
 use crate::mpi_assignment::AssignmentOwnedCsrRows;
 use crate::mpi_backend::MpiRuntime;
-use crate::PartitionAssignment;
 use hybit_matrix::Csr32Matrix;
 use mpi::traits::*;
 use std::io;
@@ -280,7 +280,7 @@ pub fn verify_assignment_scatter_exact(
             ));
         }
     }
-    let verified_nnz = lengths.chunks_exact(2).map(|pair| pair[1]).sum();
+    let verified_nnz = lengths.as_chunks::<2>().0.iter().map(|pair| pair[1]).sum();
     Ok(AssignmentExactVerifyStats {
         verified_rows: assignment.global_dofs(),
         verified_nnz,

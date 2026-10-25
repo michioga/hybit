@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg, read_matrix_market, AlgebraicCoarseOptions, BackendPolicy, Csr32Matrix,
-    HybitSolver, JacobiPreconditioner, LocalFactorSelectionPolicy, MatrixBackend, SolverOptions,
-    TwoLevelAggregation, TwoLevelBasis, TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy,
-    TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
+    AlgebraicCoarseOptions, BackendPolicy, Csr32Matrix, HybitSolver, JacobiPreconditioner,
+    LocalFactorSelectionPolicy, MatrixBackend, SolverOptions, TwoLevelAggregation, TwoLevelBasis,
+    TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy, TwoLevelTransferStoragePolicy,
+    TwoLevelTransferValueStoragePolicy, analyze_csr32, pcg, read_matrix_market,
 };
 
 #[derive(Debug)]
@@ -150,7 +150,7 @@ impl Args {
                             return Err(format!(
                                 "unknown coarse basis '{other}'; use piecewise|smoothed"
                             )
-                            .into())
+                            .into());
                         }
                     };
                 }
@@ -163,37 +163,35 @@ impl Args {
                             return Err(format!(
                                 "unknown coarse transfer policy '{other}'; use serial|parallel"
                             )
-                            .into())
+                            .into());
                         }
                     };
                 }
                 "--coarse-transfer-storage" => {
                     let value = next_value(&mut it, "--coarse-transfer-storage")?;
-                    algebraic_coarse_transfer_storage_policy = match value.as_str() {
-                        "wide" | "legacy" => TwoLevelTransferStoragePolicy::Wide,
-                        "compact" => TwoLevelTransferStoragePolicy::Compact,
-                        "auto" => TwoLevelTransferStoragePolicy::Auto,
-                        other => {
-                            return Err(format!(
+                    algebraic_coarse_transfer_storage_policy =
+                        match value.as_str() {
+                            "wide" | "legacy" => TwoLevelTransferStoragePolicy::Wide,
+                            "compact" => TwoLevelTransferStoragePolicy::Compact,
+                            "auto" => TwoLevelTransferStoragePolicy::Auto,
+                            other => return Err(format!(
                                 "unknown coarse transfer storage '{other}'; use wide|compact|auto"
                             )
-                            .into())
-                        }
-                    };
+                            .into()),
+                        };
                 }
                 "--coarse-transfer-values" => {
                     let value = next_value(&mut it, "--coarse-transfer-values")?;
-                    algebraic_coarse_transfer_value_storage_policy = match value.as_str() {
-                        "f64" | "double" => TwoLevelTransferValueStoragePolicy::F64,
-                        "f32" | "float" => TwoLevelTransferValueStoragePolicy::F32,
-                        "auto" => TwoLevelTransferValueStoragePolicy::Auto,
-                        other => {
-                            return Err(format!(
+                    algebraic_coarse_transfer_value_storage_policy =
+                        match value.as_str() {
+                            "f64" | "double" => TwoLevelTransferValueStoragePolicy::F64,
+                            "f32" | "float" => TwoLevelTransferValueStoragePolicy::F32,
+                            "auto" => TwoLevelTransferValueStoragePolicy::Auto,
+                            other => return Err(format!(
                                 "unknown coarse transfer value storage '{other}'; use f64|f32|auto"
                             )
-                            .into())
-                        }
-                    };
+                            .into()),
+                        };
                 }
                 "--coarse-apply" => {
                     let value = next_value(&mut it, "--coarse-apply")?;
@@ -207,7 +205,7 @@ impl Args {
                             return Err(format!(
                                 "unknown coarse apply policy '{other}'; use auto|factor|inverse"
                             )
-                            .into())
+                            .into());
                         }
                     };
                 }
@@ -220,7 +218,7 @@ impl Args {
                         other => {
                             return Err(
                                 format!("unknown backend '{other}'; use auto|csr|abtm").into()
-                            )
+                            );
                         }
                     }
                 }

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hybit::{
-    analyze_csr32, pcg, read_matrix_market, Csr32Matrix,
-    RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions,
+    Csr32Matrix, RigidBodyTwoLevelBlockJacobiPreconditioner, SolverOptions, analyze_csr32, pcg,
+    read_matrix_market,
 };
 
 #[derive(Debug)]
@@ -81,7 +81,9 @@ fn next_value<I: Iterator<Item = String>>(
 
 fn print_usage() {
     println!("HyBIT rigid-body two-level FEM benchmark");
-    println!("Usage: fem_rigid_bench --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--aggregate-nodes 1024]");
+    println!(
+        "Usage: fem_rigid_bench --matrix K.mtx [--coords K.coords] [--rhs b.txt] [--tol 1e-8] [--max-iters 3000] [--aggregate-nodes 1024]"
+    );
 }
 
 fn read_coordinates(path: &Path) -> Result<Vec<[f64; 3]>, Box<dyn Error>> {

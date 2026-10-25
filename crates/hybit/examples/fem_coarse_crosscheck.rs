@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    pcg, read_matrix_market, JacobiPreconditioner, SolverOptions, TwoLevelAggregation,
-    TwoLevelBasis, TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy,
-    TwoLevelTransferApplyPolicy, TwoLevelTransferOptions, TwoLevelTransferStoragePolicy,
-    TwoLevelTransferValueStoragePolicy,
+    JacobiPreconditioner, SolverOptions, TwoLevelAggregation, TwoLevelBasis,
+    TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy,
+    TwoLevelTransferOptions, TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
+    pcg, read_matrix_market,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,7 +57,7 @@ impl Args {
                         other => {
                             return Err(
                                 format!("unknown mode '{other}'; use direct|probe-coarse").into()
-                            )
+                            );
                         }
                     }
                 }

@@ -6,8 +6,8 @@
 //! CSV medians of per-run maxima are independent and must not be summed.
 
 use hybit::distributed::mpi_backend::MpiRuntime;
-use hybit::distributed::mpi_input::{prepare_owned_rows, OwnedCsrRows};
-use hybit::distributed::mpi_mtx::{distribute_matrix_market_with_policy, MtxPcgPolicy};
+use hybit::distributed::mpi_input::{OwnedCsrRows, prepare_owned_rows};
+use hybit::distributed::mpi_mtx::{MtxPcgPolicy, distribute_matrix_market_with_policy};
 use hybit::distributed::mpi_pcg::{DistributedPcg, DistributedPcgOptions, DistributedPcgStatus};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
@@ -40,7 +40,7 @@ fn min_f64(v: f64) -> f64 {
 fn median(v: &mut [f64]) -> f64 {
     v.sort_by(f64::total_cmp);
     let middle = v.len() / 2;
-    if v.len() % 2 == 0 {
+    if v.len().is_multiple_of(2) {
         (v[middle - 1] + v[middle]) * 0.5
     } else {
         v[middle]
@@ -106,7 +106,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if mpi.rank() == 0 && (!csv.exists() || std::fs::metadata(csv)?.len() == 0) {
         let mut file = OpenOptions::new().append(true).create(true).open(csv)?;
-        writeln!(file, "case,policy,ranks,n,nnz,strict_dd_rows,min_diag_margin,iterations,status,true_relative_residual,max_abs_error,ghosts,root_read_ms,max_distribution_ms,max_halo_prepare_ms,max_pcg_prepare_ms,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_halo_wait_ms,median_max_interior_ms,median_max_boundary_ms,median_max_unattributed_ms,median_max_over_mean,spmv_calls,allreduce_calls")?;
+        writeln!(
+            file,
+            "case,policy,ranks,n,nnz,strict_dd_rows,min_diag_margin,iterations,status,true_relative_residual,max_abs_error,ghosts,root_read_ms,max_distribution_ms,max_halo_prepare_ms,max_pcg_prepare_ms,median_max_solve_ms,median_max_spmv_ms,median_max_allreduce_ms,median_max_halo_wait_ms,median_max_interior_ms,median_max_boundary_ms,median_max_unattributed_ms,median_max_over_mean,spmv_calls,allreduce_calls"
+        )?;
     }
     mpi.barrier();
     let (partition, owned, ingest) = distribute_matrix_market_with_policy(&mpi, matrix, policy)?;
@@ -207,15 +210,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     mpi.barrier();
     if mpi.rank() == 0 {
         let mut file = OpenOptions::new().append(true).open(csv)?;
-        writeln!(file, "{label},{policy_name},{expected},{},{},{dd_rows},{min_margin:.12e},{iter_count},{status:?},{residual:.12e},{error:.12e},{ghosts},{read_ms:.6},{distribute_ms:.6},{halo_setup_ms:.6},{pcg_setup_ms:.6},{median_solve:.6},{median_spmv:.6},{median_reduce:.6},{median_wait:.6},{median_interior:.6},{median_boundary:.6},{median_other:.6},{median_imbalance:.6},{spmv_calls},{allreduce_calls}", partition.global_dofs(), ingest.global_nnz)?;
+        writeln!(
+            file,
+            "{label},{policy_name},{expected},{},{},{dd_rows},{min_margin:.12e},{iter_count},{status:?},{residual:.12e},{error:.12e},{ghosts},{read_ms:.6},{distribute_ms:.6},{halo_setup_ms:.6},{pcg_setup_ms:.6},{median_solve:.6},{median_spmv:.6},{median_reduce:.6},{median_wait:.6},{median_interior:.6},{median_boundary:.6},{median_other:.6},{median_imbalance:.6},{spmv_calls},{allreduce_calls}",
+            partition.global_dofs(),
+            ingest.global_nnz
+        )?;
         let verdict = if success {
             "CONVERGED"
         } else {
             "NOT_CONVERGED"
         };
-        println!("G8-C5 {verdict} {label}: ranks={expected} policy={policy_name} n={} strict_dd={dd_rows} iters={iter_count} rel={residual:.3e} maxerr={error:.3e} solve={median_solve:.4}ms spmv={median_spmv:.4}ms allreduce={median_reduce:.4}ms halo_wait={median_wait:.4}ms", partition.global_dofs());
+        println!(
+            "G8-C5 {verdict} {label}: ranks={expected} policy={policy_name} n={} strict_dd={dd_rows} iters={iter_count} rel={residual:.3e} maxerr={error:.3e} solve={median_solve:.4}ms spmv={median_spmv:.4}ms allreduce={median_reduce:.4}ms halo_wait={median_wait:.4}ms",
+            partition.global_dofs()
+        );
         if policy == MtxPcgPolicy::ExperimentalUnverified {
-            println!("G8-C5 WARNING: experimental input does not certify SPD; convergence is not a proof");
+            println!(
+                "G8-C5 WARNING: experimental input does not certify SPD; convergence is not a proof"
+            );
         }
     }
     mpi.barrier();

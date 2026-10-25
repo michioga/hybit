@@ -200,7 +200,7 @@ impl LocalBlockIc0 {
 mod tests {
     use super::*;
     use crate::mpi_block_jacobi::LocalBlockCholesky;
-    use crate::{build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition};
+    use crate::{ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr};
     use hybit_matrix::Csr32Matrix;
 
     fn local_chain(n: usize, diagonal: f64) -> RankLocalCsr {

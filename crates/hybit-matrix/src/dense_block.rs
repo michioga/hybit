@@ -283,7 +283,7 @@ impl DenseBlockCsrOperator {
             y[row + 2] = y2;
         }
 
-        if self.nrows % 3 != 0 {
+        if !self.nrows.is_multiple_of(3) {
             self.apply_partial_last_row(x, y, full_rows, 3);
         }
     }
@@ -391,7 +391,7 @@ impl DenseBlockCsrOperator {
             y[row + 5] = y5;
         }
 
-        if self.nrows % 6 != 0 {
+        if !self.nrows.is_multiple_of(6) {
             self.apply_partial_last_row(x, y, full_rows, 6);
         }
     }

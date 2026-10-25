@@ -5,16 +5,16 @@
 //! No production solver routing, PCG, field-aware ownership or ABI change.
 
 use hybit_distributed::mpi_assignment::{
-    prepare_assignment_owned_rows, spmv_assignment, AssignmentHaloPlan, AssignmentLocalCsr,
-    AssignmentOwnedCsrRows, AssignmentSpmvWorkspace,
+    AssignmentHaloPlan, AssignmentLocalCsr, AssignmentOwnedCsrRows, AssignmentSpmvWorkspace,
+    prepare_assignment_owned_rows, spmv_assignment,
 };
 use hybit_distributed::mpi_backend::MpiRuntime;
 use hybit_distributed::{
+    AbtmMultilevelOptions, ContiguousPartition, PartitionAssignment, PartitionTelemetry,
     abtm_balanced_multisource_partition, abtm_multilevel_partition, abtm_region_grow_partition,
-    field_graph_contiguous_partition, partition_telemetry_assignment, AbtmMultilevelOptions,
-    ContiguousPartition, PartitionAssignment, PartitionTelemetry,
+    field_graph_contiguous_partition, partition_telemetry_assignment,
 };
-use hybit_matrix::{read_matrix_market, Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout};
+use hybit_matrix::{Csr32Matrix, DofBlock, DofEntityKind, FieldAwareDofLayout, read_matrix_market};
 use mpi::collective::SystemOperation;
 use mpi::traits::*;
 use std::error::Error;
@@ -59,7 +59,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let i = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         0.5 * (sorted[i - 1] + sorted[i])
     } else {
         sorted[i]
@@ -348,23 +348,53 @@ fn main() -> BenchResult<()> {
     mpi.barrier();
     if mpi.rank() == 0 {
         let mut out = OpenOptions::new().create_new(true).write(true).open(csv)?;
-        writeln!(out, "matrix,ranks,n,input_nnz,expanded_nnz,method,radius,warmups,repeats,partition_max_ms,halo_setup_max_ms,median_max_spmv_ms,median_max_exchange_ms,median_max_numeric_ms,ghosts,cut_nnz,peers,owned_imbalance,nnz_imbalance,operator_halo_sum_bytes,abs_error,rel_error,sent_f64,received_f64,scope")?;
+        writeln!(
+            out,
+            "matrix,ranks,n,input_nnz,expanded_nnz,method,radius,warmups,repeats,partition_max_ms,halo_setup_max_ms,median_max_spmv_ms,median_max_exchange_ms,median_max_numeric_ms,ghosts,cut_nnz,peers,owned_imbalance,nnz_imbalance,operator_halo_sum_bytes,abs_error,rel_error,sent_f64,received_f64,scope"
+        )?;
         for case in &cases {
             let s = &case.telemetry;
             let median_total = median(&case.samples);
             let median_halo = median(&case.halo_samples);
             let median_numeric = median(&case.compute_samples);
-            writeln!(out, "{},{},{},{},{},{},{},{},{},{:.6},{:.6},{median_total:.6},{median_halo:.6},{median_numeric:.6},{},{},{},{:.8},{:.8},{},{:.12e},{:.12e},{},{},native_noncontiguous_spmv_experiment",
-                path.display(), expected, n,
-                info.input_entries, matrix.nnz(), case.policy.label(), radius, warmups, repeats,
-                case.partition_ms, case.setup_ms, s.communication_volume, s.cut_nnz,
-                s.directional_peer_relations, s.owned_dof_imbalance, s.local_nnz_imbalance,
-                case.resident_bytes_sum, case.worst_abs, case.worst_rel,
-                case.sent_total, case.received_total)?;
-            println!("K3 NATIVE PASS method={} ranks={expected} n={n} nnz={} cut={} ghosts={} peers={} partition_ms={:.3} setup_ms={:.3} median_max_spmv_ms={median_total:.6} median_max_exchange_ms={median_halo:.6} rel_err={:.3e} sent_f64={} recv_f64={}",
-                case.policy.label(), matrix.nnz(), s.cut_nnz, s.communication_volume,
-                s.directional_peer_relations, case.partition_ms, case.setup_ms, case.worst_rel,
-                case.sent_total, case.received_total);
+            writeln!(
+                out,
+                "{},{},{},{},{},{},{},{},{},{:.6},{:.6},{median_total:.6},{median_halo:.6},{median_numeric:.6},{},{},{},{:.8},{:.8},{},{:.12e},{:.12e},{},{},native_noncontiguous_spmv_experiment",
+                path.display(),
+                expected,
+                n,
+                info.input_entries,
+                matrix.nnz(),
+                case.policy.label(),
+                radius,
+                warmups,
+                repeats,
+                case.partition_ms,
+                case.setup_ms,
+                s.communication_volume,
+                s.cut_nnz,
+                s.directional_peer_relations,
+                s.owned_dof_imbalance,
+                s.local_nnz_imbalance,
+                case.resident_bytes_sum,
+                case.worst_abs,
+                case.worst_rel,
+                case.sent_total,
+                case.received_total
+            )?;
+            println!(
+                "K3 NATIVE PASS method={} ranks={expected} n={n} nnz={} cut={} ghosts={} peers={} partition_ms={:.3} setup_ms={:.3} median_max_spmv_ms={median_total:.6} median_max_exchange_ms={median_halo:.6} rel_err={:.3e} sent_f64={} recv_f64={}",
+                case.policy.label(),
+                matrix.nnz(),
+                s.cut_nnz,
+                s.communication_volume,
+                s.directional_peer_relations,
+                case.partition_ms,
+                case.setup_ms,
+                case.worst_rel,
+                case.sent_total,
+                case.received_total
+            );
         }
         out.flush()?;
         println!(

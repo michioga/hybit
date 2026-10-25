@@ -207,7 +207,7 @@ impl LocalBlockCholesky {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{build_contiguous_halo_plans, prepare_rank_local_csr, ContiguousPartition};
+    use crate::{ContiguousPartition, build_contiguous_halo_plans, prepare_rank_local_csr};
     use hybit_matrix::Csr32Matrix;
 
     fn local_matrix(diag: [f64; 3]) -> RankLocalCsr {

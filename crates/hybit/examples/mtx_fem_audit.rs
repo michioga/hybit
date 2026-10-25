@@ -4,7 +4,7 @@
 //! a general SPD proof. Certificates below rely on EXACT symmetry of the
 //! assembled floating-point CSR and strictly/irreducibly diagonally dominant
 //! sufficient conditions. No MPI, Cholesky, or Krylov solve occurs here.
-use hybit_matrix::{read_matrix_market, Csr32Matrix};
+use hybit_matrix::{Csr32Matrix, read_matrix_market};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -260,7 +260,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("max_expanded_nnz must be in 1..=100000000".into());
     }
     let mut out = OpenOptions::new().create_new(true).write(true).open(csv)?;
-    writeln!(out, "file,status,reason,field,symmetry,nrows,ncols,declared_entries,csr_nnz,strict_dd_rows,weak_dd_rows,positive_diag_rows,nonpositive_or_missing_diag_rows,missing_transpose_entries,asymmetric_exact_entries,asymmetric_tol_entries,components,max_row_nnz,max_band_offset,min_dd_margin,csr_storage_bytes,parse_and_audit_ms,pcg_gate")?;
+    writeln!(
+        out,
+        "file,status,reason,field,symmetry,nrows,ncols,declared_entries,csr_nnz,strict_dd_rows,weak_dd_rows,positive_diag_rows,nonpositive_or_missing_diag_rows,missing_transpose_entries,asymmetric_exact_entries,asymmetric_tol_entries,components,max_row_nnz,max_band_offset,min_dd_margin,csr_storage_bytes,parse_and_audit_ms,pcg_gate"
+    )?;
     for arg in args.iter().skip(2) {
         let path = Path::new(arg);
         let start = Instant::now();
@@ -352,12 +355,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        writeln!(out,
+        writeln!(
+            out,
             "{},{},{},{},{},{nrows},{ncols},{entries},{nnz},{strict_rows},{weak_rows},{positive},{nonpositive},{missing},{asym_exact},{asym_tol},{components},{max_row},{max_band},{margin:.12e},{csr_bytes},{elapsed_ms:.4},{}",
-            csv_field(arg), csv_field(&status), csv_field(&reason), csv_field(&field), csv_field(&symmetry), csv_field(gate)
+            csv_field(arg),
+            csv_field(&status),
+            csv_field(&reason),
+            csv_field(&field),
+            csv_field(&symmetry),
+            csv_field(gate)
         )?;
         out.flush()?;
-        println!("G8-C9 AUDIT {} {status}: n={nrows} nnz={nnz} strict_dd={strict_rows} asymmetric={asym_tol} components={components} ({elapsed_ms:.1} ms)", path.display());
+        println!(
+            "G8-C9 AUDIT {} {status}: n={nrows} nnz={nnz} strict_dd={strict_rows} asymmetric={asym_tol} components={components} ({elapsed_ms:.1} ms)",
+            path.display()
+        );
     }
     println!("=== HYBIT 0.9 G8-C9 FEM MATRIX AUDIT COMPLETE: NO SOLVES PERFORMED ===");
     Ok(())

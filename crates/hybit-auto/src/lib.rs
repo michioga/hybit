@@ -2,26 +2,26 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use hybit_core::{
-    l2_norm, ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator,
-    MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport,
-    SolveStatus, SolverKind, SolverOptions,
+    ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
+    MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind,
+    SolverOptions, l2_norm,
 };
 use hybit_krylov::{
-    fgmres_with_workspace, fgmres_with_workspace_and_restart_controller,
-    parallel_vector_worker_count, pcg_continue_with_workspace, pcg_start_with_workspace,
-    pcg_with_execution, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
     CpuKrylovExecution, FgmresOptions, FgmresRestartProgress, FgmresWorkspace, KrylovOutcome,
-    PcgSession, PcgWorkspace, RayonKrylovExecution, ResidentPcgWorkspace,
+    PcgSession, PcgWorkspace, RayonKrylovExecution, ResidentPcgWorkspace, fgmres_with_workspace,
+    fgmres_with_workspace_and_restart_controller, parallel_vector_worker_count,
+    pcg_continue_with_workspace, pcg_start_with_workspace, pcg_with_execution, pcg_with_workspace,
+    pcg_with_workspace_parallel_vectors,
 };
 use hybit_matrix::{
-    analyze_csr32, AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile,
-    ParallelCsr32Operator,
+    AbtmConfig, AbtmMatrix, Csr32Matrix, DofMask, MatrixProfile, ParallelCsr32Operator,
+    analyze_csr32,
 };
 use hybit_precond::{
-    recommend_rigid_body_aggregate_nodes, HybridPreconditioner, IdentityPreconditioner,
-    Ilu0Preconditioner, JacobiPreconditioner, ParallelJacobiPreconditioner,
-    ParallelRigidBodyTwoLevelPreconditioner, RigidBodyTwoLevelBlockJacobiPreconditioner,
-    TwoLevelBlockJacobiPreconditioner,
+    HybridPreconditioner, IdentityPreconditioner, Ilu0Preconditioner, JacobiPreconditioner,
+    ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
+    RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelBlockJacobiPreconditioner,
+    recommend_rigid_body_aggregate_nodes,
 };
 pub use hybit_precond::{
     RigidBodyAggregation, TwoLevelAggregation, TwoLevelBasis, TwoLevelCoarseApplyPolicy,
@@ -597,7 +597,7 @@ fn recommend_algebraic_aggregate_nodes(
     matrix_rows: usize,
     options: AlgebraicCoarseOptions,
 ) -> Result<usize, HybitError> {
-    if matrix_rows % options.dofs_per_node != 0 {
+    if !matrix_rows.is_multiple_of(options.dofs_per_node) {
         return Err(HybitError::InvalidArgument(
             "matrix dimension must be divisible by algebraic coarse dofs_per_node",
         ));
@@ -927,7 +927,9 @@ impl HybitPreparedSystem {
             ));
         }
         if values != self.value_signature {
-            return Err(HybitError::InvalidArgument("prepared context matrix values changed; prepare again before reusing local factors"));
+            return Err(HybitError::InvalidArgument(
+                "prepared context matrix values changed; prepare again before reusing local factors",
+            ));
         }
         Ok(())
     }

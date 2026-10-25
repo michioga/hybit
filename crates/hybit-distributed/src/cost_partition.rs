@@ -7,9 +7,9 @@
 //! derived from fewer ghosts. No automatic solver routing is changed.
 
 use crate::{
+    ContiguousPartition, DistributedTopologyError, PartitionTelemetry, RankId,
     build_contiguous_halo_plans, field_aligned_contiguous_partition,
     field_graph_contiguous_partition, partition_telemetry, validate_field_contiguous_partition,
-    ContiguousPartition, DistributedTopologyError, PartitionTelemetry, RankId,
 };
 use hybit_matrix::{Csr32Matrix, FieldAwareDofLayout};
 use std::time::Instant;
@@ -153,12 +153,12 @@ pub(crate) fn cost_aware_contiguous_partition_with_graph(
             "cost-aware imbalance caps must be finite and >= 1.0",
         ));
     }
-    if let Some(calibration) = options.calibration {
-        if calibration.baseline_spmv_ns == 0 || calibration.graph_spmv_ns == 0 {
-            return Err(DistributedTopologyError::InvalidPartition(
-                "calibrated SpMV timings must be positive",
-            ));
-        }
+    if let Some(calibration) = options.calibration
+        && (calibration.baseline_spmv_ns == 0 || calibration.graph_spmv_ns == 0)
+    {
+        return Err(DistributedTopologyError::InvalidPartition(
+            "calibrated SpMV timings must be positive",
+        ));
     }
 
     let field = field_aligned_contiguous_partition(layout, ranks)?;

@@ -10,8 +10,8 @@ use std::sync::OnceLock;
 use hybit_auto::{BackendPolicy, HybitPreparedSystem, HybitSolver};
 use hybit_core::{MatrixBackend, PreconditionerKind, SolveStatus, SolverKind};
 use hybit_matrix::{
-    close_to_field_blocks, grow_field_aware_region, AbtmDualTopology, Csr32Matrix, DofBlock,
-    DofEntityKind, DofMask, FieldAwareDofLayout,
+    AbtmDualTopology, Csr32Matrix, DofBlock, DofEntityKind, DofMask, FieldAwareDofLayout,
+    close_to_field_blocks, grow_field_aware_region,
 };
 
 const HYBIT_OK: c_int = 0;
@@ -30,10 +30,10 @@ fn parse_positive_thread_count(value: &str) -> Option<usize> {
 }
 
 fn configured_thread_count_from_env() -> Option<usize> {
-    if let Ok(value) = env::var("RAYON_NUM_THREADS") {
-        if let Some(threads) = parse_positive_thread_count(&value) {
-            return Some(threads);
-        }
+    if let Ok(value) = env::var("RAYON_NUM_THREADS")
+        && let Some(threads) = parse_positive_thread_count(&value)
+    {
+        return Some(threads);
     }
     env::var("OMP_NUM_THREADS")
         .ok()
@@ -42,12 +42,12 @@ fn configured_thread_count_from_env() -> Option<usize> {
 
 fn configure_rayon_threads(requested: Option<usize>) -> Result<usize, hybit_core::HybitError> {
     if let Some(&configured) = HYBIT_RAYON_THREADS.get() {
-        if let Some(requested) = requested {
-            if requested != configured {
-                return Err(hybit_core::HybitError::InvalidArgument(
-                    "HyBIT Rayon pool is already initialized with a different thread count",
-                ));
-            }
+        if let Some(requested) = requested
+            && requested != configured
+        {
+            return Err(hybit_core::HybitError::InvalidArgument(
+                "HyBIT Rayon pool is already initialized with a different thread count",
+            ));
         }
         return Ok(configured);
     }
@@ -259,7 +259,7 @@ fn ffi_report(result: &hybit_core::SolveReport) -> HybitSolveReport {
 ///
 /// C/C++/Fortran OpenMP callers that use `omp_set_num_threads` should pass
 /// `omp_get_max_threads()` here before creating a HyBIT solver.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hybit_set_num_threads(threads: u32) -> c_int {
     if threads == 0 {
         set_last_error("threads must be greater than zero");
@@ -275,7 +275,7 @@ pub extern "C" fn hybit_set_num_threads(threads: u32) -> c_int {
 ///
 /// The first call initializes the pool using `RAYON_NUM_THREADS` when present,
 /// otherwise the first value of `OMP_NUM_THREADS`, otherwise Rayon's default.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hybit_num_threads() -> u32 {
     match configure_rayon_threads(None) {
         Ok(threads) => u32::try_from(threads).unwrap_or(u32::MAX),
@@ -291,15 +291,15 @@ fn package_version_component(value: &'static str) -> u32 {
         .expect("Cargo package version component must be a valid u32")
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hybit_version_major() -> u32 {
     package_version_component(env!("CARGO_PKG_VERSION_MAJOR"))
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hybit_version_minor() -> u32 {
     package_version_component(env!("CARGO_PKG_VERSION_MINOR"))
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hybit_version_patch() -> u32 {
     package_version_component(env!("CARGO_PKG_VERSION_PATCH"))
 }
@@ -310,20 +310,22 @@ pub extern "C" fn hybit_version_patch() -> u32 {
 /// If `buffer` is non-null and `capacity > 0`, it must point to at least `capacity`
 /// writable bytes for the duration of this call. A null `buffer` is permitted when
 /// the caller only wants to query the required byte count.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_last_error_message(buffer: *mut c_char, capacity: usize) -> usize {
-    LAST_ERROR.with(|slot| {
-        let borrowed = slot.borrow();
-        let bytes = borrowed.as_bytes_with_nul();
-        if !buffer.is_null() && capacity > 0 {
-            let n = bytes.len().min(capacity);
-            ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, buffer, n);
-            if n == capacity {
-                *buffer.add(capacity - 1) = 0;
+    unsafe {
+        LAST_ERROR.with(|slot| {
+            let borrowed = slot.borrow();
+            let bytes = borrowed.as_bytes_with_nul();
+            if !buffer.is_null() && capacity > 0 {
+                let n = bytes.len().min(capacity);
+                ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, buffer, n);
+                if n == capacity {
+                    *buffer.add(capacity - 1) = 0;
+                }
             }
-        }
-        bytes.len()
-    })
+            bytes.len()
+        })
+    }
 }
 
 /// Creates a solver handle.
@@ -332,20 +334,22 @@ pub unsafe extern "C" fn hybit_last_error_message(buffer: *mut c_char, capacity:
 /// `out_solver` must be non-null, properly aligned, and valid for writing one
 /// `*mut HybitSolverHandle`. The pointed-to storage must remain writable for the
 /// duration of this call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHandle) -> c_int {
-    if out_solver.is_null() {
-        set_last_error("out_solver is null");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if out_solver.is_null() {
+            set_last_error("out_solver is null");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            configure_rayon_threads(None)?;
+            let handle = Box::new(HybitSolverHandle {
+                solver: HybitSolver::new(),
+            });
+            *out_solver = Box::into_raw(handle);
+            Ok(())
+        })
     }
-    ffi_guard(|| {
-        configure_rayon_threads(None)?;
-        let handle = Box::new(HybitSolverHandle {
-            solver: HybitSolver::new(),
-        });
-        *out_solver = Box::into_raw(handle);
-        Ok(())
-    })
 }
 
 /// Destroys a solver handle created by [`hybit_solver_create`].
@@ -354,10 +358,12 @@ pub unsafe extern "C" fn hybit_solver_create(out_solver: *mut *mut HybitSolverHa
 /// `solver` must either be null or be a live handle returned by
 /// [`hybit_solver_create`] that has not already been destroyed. After this call,
 /// the handle must not be used again.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_destroy(solver: *mut HybitSolverHandle) {
-    if !solver.is_null() {
-        drop(Box::from_raw(solver));
+    unsafe {
+        if !solver.is_null() {
+            drop(Box::from_raw(solver));
+        }
     }
 }
 
@@ -367,23 +373,25 @@ pub unsafe extern "C" fn hybit_solver_destroy(solver: *mut HybitSolverHandle) {
 /// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
 /// The caller must have exclusive access to that handle for the duration of this
 /// call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_set_tolerances(
     solver: *mut HybitSolverHandle,
     relative_tolerance: f64,
     absolute_tolerance: f64,
 ) -> c_int {
-    if solver.is_null() {
-        set_last_error("solver is null");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if solver.is_null() {
+            set_last_error("solver is null");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let handle = &mut *solver;
+            let mut options = handle.solver.options();
+            options.relative_tolerance = relative_tolerance;
+            options.absolute_tolerance = absolute_tolerance;
+            handle.solver.set_options(options)
+        })
     }
-    ffi_guard(|| {
-        let handle = &mut *solver;
-        let mut options = handle.solver.options();
-        options.relative_tolerance = relative_tolerance;
-        options.absolute_tolerance = absolute_tolerance;
-        handle.solver.set_options(options)
-    })
 }
 
 /// Updates the solver iteration limit.
@@ -392,25 +400,27 @@ pub unsafe extern "C" fn hybit_solver_set_tolerances(
 /// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
 /// The caller must have exclusive access to that handle for the duration of this
 /// call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_set_max_iterations(
     solver: *mut HybitSolverHandle,
     max_iterations: u64,
 ) -> c_int {
-    if solver.is_null() {
-        set_last_error("solver is null");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if solver.is_null() {
+            set_last_error("solver is null");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        if max_iterations > usize::MAX as u64 {
+            set_last_error("max_iterations is too large");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let handle = &mut *solver;
+            let mut options = handle.solver.options();
+            options.max_iterations = max_iterations as usize;
+            handle.solver.set_options(options)
+        })
     }
-    if max_iterations > usize::MAX as u64 {
-        set_last_error("max_iterations is too large");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let handle = &mut *solver;
-        let mut options = handle.solver.options();
-        options.max_iterations = max_iterations as usize;
-        handle.solver.set_options(options)
-    })
 }
 
 /// Selects the sparse-matrix backend used by a solver handle.
@@ -419,26 +429,28 @@ pub unsafe extern "C" fn hybit_solver_set_max_iterations(
 /// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
 /// The caller must have exclusive access to that handle for the duration of this
 /// call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_set_backend(
     solver: *mut HybitSolverHandle,
     backend: c_int,
 ) -> c_int {
-    if solver.is_null() {
-        set_last_error("solver is null");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    let policy = match backend {
-        0 => BackendPolicy::Auto,
-        1 => BackendPolicy::Csr32,
-        2 => BackendPolicy::Abtm,
-        _ => {
-            set_last_error("backend must be 0 (auto), 1 (CSR32), or 2 (ABTM)");
+    unsafe {
+        if solver.is_null() {
+            set_last_error("solver is null");
             return HYBIT_INVALID_ARGUMENT;
         }
-    };
-    (*solver).solver.set_backend_policy(policy);
-    HYBIT_OK
+        let policy = match backend {
+            0 => BackendPolicy::Auto,
+            1 => BackendPolicy::Csr32,
+            2 => BackendPolicy::Abtm,
+            _ => {
+                set_last_error("backend must be 0 (auto), 1 (CSR32), or 2 (ABTM)");
+                return HYBIT_INVALID_ARGUMENT;
+            }
+        };
+        (*solver).solver.set_backend_policy(policy);
+        HYBIT_OK
+    }
 }
 
 /// Enables or disables the hybrid solver policy.
@@ -447,25 +459,27 @@ pub unsafe extern "C" fn hybit_solver_set_backend(
 /// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
 /// The caller must have exclusive access to that handle for the duration of this
 /// call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(
     solver: *mut HybitSolverHandle,
     enabled: c_int,
 ) -> c_int {
-    if solver.is_null() {
-        set_last_error("solver is null");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if solver.is_null() {
+            set_last_error("solver is null");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        if enabled != 0 && enabled != 1 {
+            set_last_error("enabled must be 0 or 1");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let handle = &mut *solver;
+            let mut options = handle.solver.hybrid_options();
+            options.enabled = enabled != 0;
+            handle.solver.set_hybrid_options(options)
+        })
     }
-    if enabled != 0 && enabled != 1 {
-        set_last_error("enabled must be 0 or 1");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let handle = &mut *solver;
-        let mut options = handle.solver.hybrid_options();
-        options.enabled = enabled != 0;
-        handle.solver.set_hybrid_options(options)
-    })
 }
 
 /// Updates the hybrid overlap-layer setting.
@@ -474,25 +488,27 @@ pub unsafe extern "C" fn hybit_solver_set_hybrid_enabled(
 /// `solver` must be a non-null, live handle returned by [`hybit_solver_create`].
 /// The caller must have exclusive access to that handle for the duration of this
 /// call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solver_set_overlap_layers(
     solver: *mut HybitSolverHandle,
     layers: u64,
 ) -> c_int {
-    if solver.is_null() {
-        set_last_error("solver is null");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if solver.is_null() {
+            set_last_error("solver is null");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        if layers > usize::MAX as u64 {
+            set_last_error("overlap_layers is too large");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let handle = &mut *solver;
+            let mut options = handle.solver.hybrid_options();
+            options.overlap_layers = layers as usize;
+            handle.solver.set_hybrid_options(options)
+        })
     }
-    if layers > usize::MAX as u64 {
-        set_last_error("overlap_layers is too large");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let handle = &mut *solver;
-        let mut options = handle.solver.hybrid_options();
-        options.overlap_layers = layers as usize;
-        handle.solver.set_hybrid_options(options)
-    })
 }
 
 /// Creates an owned CSR matrix by copying caller-provided arrays.
@@ -504,7 +520,7 @@ pub unsafe extern "C" fn hybit_solver_set_overlap_layers(
 /// elements of their respective types; when `nnz == 0`, those two pointers may be
 /// null. All non-null pointers must be properly aligned and valid for the duration
 /// of this call. The output storage must not overlap the input arrays.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
     nrows: u32,
     ncols: u32,
@@ -515,52 +531,54 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
     index_base: c_int,
     out_matrix: *mut *mut HybitMatrixHandle,
 ) -> c_int {
-    if out_matrix.is_null()
-        || row_ptr.is_null()
-        || (nnz > 0 && (col_idx.is_null() || values.is_null()))
-    {
-        set_last_error("null pointer passed to hybit_matrix_create_csr_f64");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    if index_base != 0 && index_base != 1 {
-        set_last_error("index_base must be 0 or 1");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let rp_src = slice::from_raw_parts(row_ptr, nrows as usize + 1);
-        let ci_src: &[u32] = if nnz == 0 {
-            &[]
-        } else {
-            slice::from_raw_parts(col_idx, nnz as usize)
-        };
-        let va_src: &[f64] = if nnz == 0 {
-            &[]
-        } else {
-            slice::from_raw_parts(values, nnz as usize)
-        };
-        let base = index_base as u32;
-        let mut rp = Vec::with_capacity(rp_src.len());
-        let mut ci = Vec::with_capacity(ci_src.len());
-        for &v in rp_src {
-            rp.push(
-                v.checked_sub(base)
-                    .ok_or(hybit_core::HybitError::InvalidMatrix(
-                        "row_ptr contains index below index_base",
-                    ))?,
-            );
+    unsafe {
+        if out_matrix.is_null()
+            || row_ptr.is_null()
+            || (nnz > 0 && (col_idx.is_null() || values.is_null()))
+        {
+            set_last_error("null pointer passed to hybit_matrix_create_csr_f64");
+            return HYBIT_INVALID_ARGUMENT;
         }
-        for &v in ci_src {
-            ci.push(
-                v.checked_sub(base)
-                    .ok_or(hybit_core::HybitError::InvalidMatrix(
-                        "col_idx contains index below index_base",
-                    ))?,
-            );
+        if index_base != 0 && index_base != 1 {
+            set_last_error("index_base must be 0 or 1");
+            return HYBIT_INVALID_ARGUMENT;
         }
-        let matrix = Csr32Matrix::new(nrows as usize, ncols as usize, rp, ci, va_src.to_vec())?;
-        *out_matrix = Box::into_raw(Box::new(HybitMatrixHandle { matrix }));
-        Ok(())
-    })
+        ffi_guard(|| {
+            let rp_src = slice::from_raw_parts(row_ptr, nrows as usize + 1);
+            let ci_src: &[u32] = if nnz == 0 {
+                &[]
+            } else {
+                slice::from_raw_parts(col_idx, nnz as usize)
+            };
+            let va_src: &[f64] = if nnz == 0 {
+                &[]
+            } else {
+                slice::from_raw_parts(values, nnz as usize)
+            };
+            let base = index_base as u32;
+            let mut rp = Vec::with_capacity(rp_src.len());
+            let mut ci = Vec::with_capacity(ci_src.len());
+            for &v in rp_src {
+                rp.push(
+                    v.checked_sub(base)
+                        .ok_or(hybit_core::HybitError::InvalidMatrix(
+                            "row_ptr contains index below index_base",
+                        ))?,
+                );
+            }
+            for &v in ci_src {
+                ci.push(
+                    v.checked_sub(base)
+                        .ok_or(hybit_core::HybitError::InvalidMatrix(
+                            "col_idx contains index below index_base",
+                        ))?,
+                );
+            }
+            let matrix = Csr32Matrix::new(nrows as usize, ncols as usize, rp, ci, va_src.to_vec())?;
+            *out_matrix = Box::into_raw(Box::new(HybitMatrixHandle { matrix }));
+            Ok(())
+        })
+    }
 }
 
 /// Destroys a matrix handle created by [`hybit_matrix_create_csr_f64`].
@@ -569,10 +587,12 @@ pub unsafe extern "C" fn hybit_matrix_create_csr_f64(
 /// `matrix` must either be null or be a live handle returned by
 /// [`hybit_matrix_create_csr_f64`] that has not already been destroyed. After this
 /// call, the handle must not be used again.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_matrix_destroy(matrix: *mut HybitMatrixHandle) {
-    if !matrix.is_null() {
-        drop(Box::from_raw(matrix));
+    unsafe {
+        if !matrix.is_null() {
+            drop(Box::from_raw(matrix));
+        }
     }
 }
 
@@ -582,72 +602,78 @@ pub unsafe extern "C" fn hybit_matrix_destroy(matrix: *mut HybitMatrixHandle) {
 /// `out_layout` must point to one writable pointer and must not alias `blocks`.
 /// `blocks` must point to `nblocks` readable elements. `nblocks==0` is rejected.
 /// The caller must not concurrently mutate the input or access a live handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_create(
     blocks: *const HybitDofBlock,
     nblocks: usize,
     out_layout: *mut *mut HybitDofLayoutHandle,
 ) -> c_int {
-    if out_layout.is_null() {
-        set_last_error("null output pointer passed to hybit_dof_layout_create");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    *out_layout = ptr::null_mut();
-    if blocks.is_null()
-        || nblocks == 0
-        || nblocks > isize::MAX as usize / std::mem::size_of::<HybitDofBlock>()
-    {
-        set_last_error("invalid DOF block pointer or count");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let src = slice::from_raw_parts(blocks, nblocks);
-        let mut validated = Vec::with_capacity(nblocks);
-        for item in src {
-            validated.push(DofBlock {
-                entity_kind: DofEntityKind::from_code(item.entity_kind)?,
-                entity_id: item.entity_id,
-                field_id: item.field_id,
-                components: item.components,
-            });
+    unsafe {
+        if out_layout.is_null() {
+            set_last_error("null output pointer passed to hybit_dof_layout_create");
+            return HYBIT_INVALID_ARGUMENT;
         }
-        let layout = FieldAwareDofLayout::new(validated)?;
-        *out_layout = Box::into_raw(Box::new(HybitDofLayoutHandle { layout }));
-        Ok(())
-    })
+        *out_layout = ptr::null_mut();
+        if blocks.is_null()
+            || nblocks == 0
+            || nblocks > isize::MAX as usize / std::mem::size_of::<HybitDofBlock>()
+        {
+            set_last_error("invalid DOF block pointer or count");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let src = slice::from_raw_parts(blocks, nblocks);
+            let mut validated = Vec::with_capacity(nblocks);
+            for item in src {
+                validated.push(DofBlock {
+                    entity_kind: DofEntityKind::from_code(item.entity_kind)?,
+                    entity_id: item.entity_id,
+                    field_id: item.field_id,
+                    components: item.components,
+                });
+            }
+            let layout = FieldAwareDofLayout::new(validated)?;
+            *out_layout = Box::into_raw(Box::new(HybitDofLayoutHandle { layout }));
+            Ok(())
+        })
+    }
 }
 
 /// # Safety
 /// `layout` must be null or a live, exclusively owned pointer from
 /// `hybit_dof_layout_create`. Do not destroy it more than once.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_destroy(layout: *mut HybitDofLayoutHandle) {
-    if !layout.is_null() {
-        drop(Box::from_raw(layout));
+    unsafe {
+        if !layout.is_null() {
+            drop(Box::from_raw(layout));
+        }
     }
 }
 
 /// # Safety
 /// `layout` must refer to a live handle; `out_dofs` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_num_dofs(
     layout: *const HybitDofLayoutHandle,
     out_dofs: *mut u64,
 ) -> c_int {
-    if layout.is_null() || out_dofs.is_null() {
-        set_last_error("null pointer in hybit_dof_layout_num_dofs");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if layout.is_null() || out_dofs.is_null() {
+            set_last_error("null pointer in hybit_dof_layout_num_dofs");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            *out_dofs = (*layout).layout.total_dofs();
+            Ok(())
+        })
     }
-    ffi_guard(|| {
-        *out_dofs = (*layout).layout.total_dofs();
-        Ok(())
-    })
 }
 
 /// # Safety
 /// `layout` must be live, and all three output locations must be writable,
 /// nonoverlapping and not alias the handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_block(
     layout: *const HybitDofLayoutHandle,
     index: usize,
@@ -655,29 +681,31 @@ pub unsafe extern "C" fn hybit_dof_layout_block(
     out_start: *mut u64,
     out_end: *mut u64,
 ) -> c_int {
-    if layout.is_null() || out_block.is_null() || out_start.is_null() || out_end.is_null() {
-        set_last_error("null pointer in hybit_dof_layout_block");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if layout.is_null() || out_block.is_null() || out_start.is_null() || out_end.is_null() {
+            set_last_error("null pointer in hybit_dof_layout_block");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let l = &(*layout).layout;
+            let block = l
+                .blocks()
+                .get(index)
+                .ok_or(hybit_core::HybitError::InvalidArgument(
+                    "DOF block index out of range",
+                ))?;
+            let range = l.block_range(index).expect("validated block index");
+            *out_block = HybitDofBlock {
+                entity_kind: block.entity_kind as u32,
+                entity_id: block.entity_id,
+                field_id: block.field_id,
+                components: block.components,
+            };
+            *out_start = range.start;
+            *out_end = range.end;
+            Ok(())
+        })
     }
-    ffi_guard(|| {
-        let l = &(*layout).layout;
-        let block = l
-            .blocks()
-            .get(index)
-            .ok_or(hybit_core::HybitError::InvalidArgument(
-                "DOF block index out of range",
-            ))?;
-        let range = l.block_range(index).expect("validated block index");
-        *out_block = HybitDofBlock {
-            entity_kind: block.entity_kind as u32,
-            entity_id: block.entity_id,
-            field_id: block.field_id,
-            components: block.components,
-        };
-        *out_start = range.start;
-        *out_end = range.end;
-        Ok(())
-    })
 }
 
 /// Locate a global DOF's block and local component (both zero-based).
@@ -685,29 +713,31 @@ pub unsafe extern "C" fn hybit_dof_layout_block(
 /// # Safety
 /// `layout` must be live; output pointers must refer to writable,
 /// nonoverlapping storage and must not alias the handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_locate(
     layout: *const HybitDofLayoutHandle,
     dof: u64,
     out_block_index: *mut usize,
     out_component: *mut u32,
 ) -> c_int {
-    if layout.is_null() || out_block_index.is_null() || out_component.is_null() {
-        set_last_error("null pointer in hybit_dof_layout_locate");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if layout.is_null() || out_block_index.is_null() || out_component.is_null() {
+            set_last_error("null pointer in hybit_dof_layout_locate");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let address =
+                (*layout)
+                    .layout
+                    .locate(dof)
+                    .ok_or(hybit_core::HybitError::InvalidArgument(
+                        "global DOF out of range",
+                    ))?;
+            *out_block_index = address.block_index;
+            *out_component = address.component;
+            Ok(())
+        })
     }
-    ffi_guard(|| {
-        let address =
-            (*layout)
-                .layout
-                .locate(dof)
-                .ok_or(hybit_core::HybitError::InvalidArgument(
-                    "global DOF out of range",
-                ))?;
-        *out_block_index = address.block_index;
-        *out_component = address.component;
-        Ok(())
-    })
 }
 
 /// H1-B: expand selected zero-based DOFs to complete physical field blocks.
@@ -718,7 +748,7 @@ pub unsafe extern "C" fn hybit_dof_layout_locate(
 /// u64s when nonempty; `out_words` must point to `word_count` writable u64s.
 /// Input and output buffers must not overlap or alias handles. Caller must
 /// ensure pointers are valid and properly aligned for the full call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_expand_blocks(
     layout: *const HybitDofLayoutHandle,
     seed_dofs: *const u64,
@@ -726,41 +756,43 @@ pub unsafe extern "C" fn hybit_dof_layout_expand_blocks(
     out_words: *mut u64,
     word_count: usize,
 ) -> c_int {
-    if layout.is_null()
-        || out_words.is_null()
-        || (nseeds > 0 && seed_dofs.is_null())
-        || nseeds > isize::MAX as usize / std::mem::size_of::<u64>()
-    {
-        set_last_error("invalid pointer or seed count in hybit_dof_layout_expand_blocks");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let l = &(*layout).layout;
-        let n =
-            usize::try_from(l.total_dofs()).map_err(|_| hybit_core::HybitError::SizeOverflow)?;
-        if word_count != n.div_ceil(64) {
-            return Err(hybit_core::HybitError::InvalidArgument(
-                "output word count does not match DOF layout",
-            ));
+    unsafe {
+        if layout.is_null()
+            || out_words.is_null()
+            || (nseeds > 0 && seed_dofs.is_null())
+            || nseeds > isize::MAX as usize / std::mem::size_of::<u64>()
+        {
+            set_last_error("invalid pointer or seed count in hybit_dof_layout_expand_blocks");
+            return HYBIT_INVALID_ARGUMENT;
         }
-        let seeds = if nseeds == 0 {
-            &[][..]
-        } else {
-            slice::from_raw_parts(seed_dofs, nseeds)
-        };
-        let indices: Vec<usize> = seeds
-            .iter()
-            .map(|&dof| {
-                usize::try_from(dof).map_err(|_| {
-                    hybit_core::HybitError::InvalidArgument("seed DOF index out of range")
+        ffi_guard(|| {
+            let l = &(*layout).layout;
+            let n = usize::try_from(l.total_dofs())
+                .map_err(|_| hybit_core::HybitError::SizeOverflow)?;
+            if word_count != n.div_ceil(64) {
+                return Err(hybit_core::HybitError::InvalidArgument(
+                    "output word count does not match DOF layout",
+                ));
+            }
+            let seeds = if nseeds == 0 {
+                &[][..]
+            } else {
+                slice::from_raw_parts(seed_dofs, nseeds)
+            };
+            let indices: Vec<usize> = seeds
+                .iter()
+                .map(|&dof| {
+                    usize::try_from(dof).map_err(|_| {
+                        hybit_core::HybitError::InvalidArgument("seed DOF index out of range")
+                    })
                 })
-            })
-            .collect::<Result<_, _>>()?;
-        let selected = DofMask::from_indices(n, &indices)?;
-        let mask = close_to_field_blocks(l, &selected)?;
-        ptr::copy_nonoverlapping(mask.words().as_ptr(), out_words, word_count);
-        Ok(())
-    })
+                .collect::<Result<_, _>>()?;
+            let selected = DofMask::from_indices(n, &indices)?;
+            let mask = close_to_field_blocks(l, &selected)?;
+            ptr::copy_nonoverlapping(mask.words().as_ptr(), out_words, word_count);
+            Ok(())
+        })
+    }
 }
 
 /// H1-B: one or more undirected ABTM structural hops with block closure.
@@ -773,7 +805,7 @@ pub unsafe extern "C" fn hybit_dof_layout_expand_blocks(
 /// # Safety
 /// `layout` and `matrix` must be live, and the array/pointer contracts of
 /// `hybit_dof_layout_expand_blocks` apply. Never destroy handles concurrently.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_dof_layout_grow_region(
     layout: *const HybitDofLayoutHandle,
     matrix: *const HybitMatrixHandle,
@@ -783,45 +815,47 @@ pub unsafe extern "C" fn hybit_dof_layout_grow_region(
     out_words: *mut u64,
     word_count: usize,
 ) -> c_int {
-    if layout.is_null()
-        || matrix.is_null()
-        || out_words.is_null()
-        || (nseeds > 0 && seed_dofs.is_null())
-        || nseeds > isize::MAX as usize / std::mem::size_of::<u64>()
-    {
-        set_last_error("invalid pointer or seed count in hybit_dof_layout_grow_region");
-        return HYBIT_INVALID_ARGUMENT;
-    }
-    ffi_guard(|| {
-        let l = &(*layout).layout;
-        let matrix = &(*matrix).matrix;
-        l.validate_square_matrix_size(matrix.nrows(), matrix.ncols())?;
-        let n =
-            usize::try_from(l.total_dofs()).map_err(|_| hybit_core::HybitError::SizeOverflow)?;
-        if word_count != n.div_ceil(64) {
-            return Err(hybit_core::HybitError::InvalidArgument(
-                "output word count does not match DOF layout",
-            ));
+    unsafe {
+        if layout.is_null()
+            || matrix.is_null()
+            || out_words.is_null()
+            || (nseeds > 0 && seed_dofs.is_null())
+            || nseeds > isize::MAX as usize / std::mem::size_of::<u64>()
+        {
+            set_last_error("invalid pointer or seed count in hybit_dof_layout_grow_region");
+            return HYBIT_INVALID_ARGUMENT;
         }
-        let seeds = if nseeds == 0 {
-            &[][..]
-        } else {
-            slice::from_raw_parts(seed_dofs, nseeds)
-        };
-        let indices: Vec<usize> = seeds
-            .iter()
-            .map(|&dof| {
-                usize::try_from(dof).map_err(|_| {
-                    hybit_core::HybitError::InvalidArgument("seed DOF index out of range")
+        ffi_guard(|| {
+            let l = &(*layout).layout;
+            let matrix = &(*matrix).matrix;
+            l.validate_square_matrix_size(matrix.nrows(), matrix.ncols())?;
+            let n = usize::try_from(l.total_dofs())
+                .map_err(|_| hybit_core::HybitError::SizeOverflow)?;
+            if word_count != n.div_ceil(64) {
+                return Err(hybit_core::HybitError::InvalidArgument(
+                    "output word count does not match DOF layout",
+                ));
+            }
+            let seeds = if nseeds == 0 {
+                &[][..]
+            } else {
+                slice::from_raw_parts(seed_dofs, nseeds)
+            };
+            let indices: Vec<usize> = seeds
+                .iter()
+                .map(|&dof| {
+                    usize::try_from(dof).map_err(|_| {
+                        hybit_core::HybitError::InvalidArgument("seed DOF index out of range")
+                    })
                 })
-            })
-            .collect::<Result<_, _>>()?;
-        let selected = DofMask::from_indices(n, &indices)?;
-        let topo = AbtmDualTopology::from_csr32(matrix)?;
-        let growth = grow_field_aware_region(&topo, l, &selected, hops)?;
-        ptr::copy_nonoverlapping(growth.region().words().as_ptr(), out_words, word_count);
-        Ok(())
-    })
+                .collect::<Result<_, _>>()?;
+            let selected = DofMask::from_indices(n, &indices)?;
+            let topo = AbtmDualTopology::from_csr32(matrix)?;
+            let growth = grow_field_aware_region(&topo, l, &selected, hops)?;
+            ptr::copy_nonoverlapping(growth.region().words().as_ptr(), out_words, word_count);
+            Ok(())
+        })
+    }
 }
 
 /// Prepares reusable solver state for a matrix.
@@ -832,24 +866,26 @@ pub unsafe extern "C" fn hybit_dof_layout_grow_region(
 /// the call. `out_prepared` must be non-null, properly aligned, and valid for
 /// writing one `*mut HybitPreparedHandle`. These objects must not alias in a way
 /// that violates Rust's mutable-access rules.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_prepare(
     solver: *mut HybitSolverHandle,
     matrix: *const HybitMatrixHandle,
     out_prepared: *mut *mut HybitPreparedHandle,
 ) -> c_int {
-    if solver.is_null() || matrix.is_null() || out_prepared.is_null() {
-        set_last_error("null pointer passed to hybit_prepare");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if solver.is_null() || matrix.is_null() || out_prepared.is_null() {
+            set_last_error("null pointer passed to hybit_prepare");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let solver = &mut *solver;
+            let matrix = &*matrix;
+            let analysis = solver.solver.analyze_csr32(&matrix.matrix)?;
+            let prepared = solver.solver.prepare_csr32(&matrix.matrix, &analysis)?;
+            *out_prepared = Box::into_raw(Box::new(HybitPreparedHandle { prepared }));
+            Ok(())
+        })
     }
-    ffi_guard(|| {
-        let solver = &mut *solver;
-        let matrix = &*matrix;
-        let analysis = solver.solver.analyze_csr32(&matrix.matrix)?;
-        let prepared = solver.solver.prepare_csr32(&matrix.matrix, &analysis)?;
-        *out_prepared = Box::into_raw(Box::new(HybitPreparedHandle { prepared }));
-        Ok(())
-    })
 }
 
 /// Destroys a prepared handle created by [`hybit_prepare`].
@@ -858,10 +894,12 @@ pub unsafe extern "C" fn hybit_prepare(
 /// `prepared` must either be null or be a live handle returned by [`hybit_prepare`]
 /// that has not already been destroyed. After this call, the handle must not be
 /// used again.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_prepared_destroy(prepared: *mut HybitPreparedHandle) {
-    if !prepared.is_null() {
-        drop(Box::from_raw(prepared));
+    unsafe {
+        if !prepared.is_null() {
+            drop(Box::from_raw(prepared));
+        }
     }
 }
 
@@ -874,7 +912,7 @@ pub unsafe extern "C" fn hybit_prepared_destroy(prepared: *mut HybitPreparedHand
 /// to at least `matrix.ncols()` writable `f64` values. The `b` and `x` ranges must
 /// not overlap. If `report` is non-null, it must be properly aligned and writable
 /// for one `HybitSolveReport`, and it must not overlap any other live argument.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solve_prepared(
     prepared: *mut HybitPreparedHandle,
     matrix: *const HybitMatrixHandle,
@@ -882,30 +920,32 @@ pub unsafe extern "C" fn hybit_solve_prepared(
     x: *mut f64,
     report: *mut HybitSolveReport,
 ) -> c_int {
-    if prepared.is_null() || matrix.is_null() || b.is_null() || x.is_null() {
-        set_last_error("null pointer passed to hybit_solve_prepared");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if prepared.is_null() || matrix.is_null() || b.is_null() || x.is_null() {
+            set_last_error("null pointer passed to hybit_solve_prepared");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let prepared = &mut *prepared;
+            let matrix = &*matrix;
+            let nrows = matrix.matrix.nrows();
+            let ncols = matrix.matrix.ncols();
+            let b_slice = slice::from_raw_parts(b, nrows);
+            let x_slice = slice::from_raw_parts_mut(x, ncols);
+            let result = prepared.prepared.solve(&matrix.matrix, b_slice, x_slice)?;
+            if !report.is_null() {
+                *report = ffi_report(&result);
+            }
+            if result.converged() {
+                Ok(())
+            } else {
+                Err(hybit_core::HybitError::NotConverged {
+                    iterations: result.iterations,
+                    residual: result.final_residual,
+                })
+            }
+        })
     }
-    ffi_guard(|| {
-        let prepared = &mut *prepared;
-        let matrix = &*matrix;
-        let nrows = matrix.matrix.nrows();
-        let ncols = matrix.matrix.ncols();
-        let b_slice = slice::from_raw_parts(b, nrows);
-        let x_slice = slice::from_raw_parts_mut(x, ncols);
-        let result = prepared.prepared.solve(&matrix.matrix, b_slice, x_slice)?;
-        if !report.is_null() {
-            *report = ffi_report(&result);
-        }
-        if result.converged() {
-            Ok(())
-        } else {
-            Err(hybit_core::HybitError::NotConverged {
-                iterations: result.iterations,
-                residual: result.final_residual,
-            })
-        }
-    })
 }
 
 /// Solves a system using a solver handle.
@@ -917,7 +957,7 @@ pub unsafe extern "C" fn hybit_solve_prepared(
 /// `matrix.ncols()` writable `f64` values. The `b` and `x` ranges must not overlap.
 /// If `report` is non-null, it must be properly aligned and writable for one
 /// `HybitSolveReport`, and it must not overlap any other live argument.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hybit_solve(
     solver: *mut HybitSolverHandle,
     matrix: *const HybitMatrixHandle,
@@ -925,32 +965,34 @@ pub unsafe extern "C" fn hybit_solve(
     x: *mut f64,
     report: *mut HybitSolveReport,
 ) -> c_int {
-    if solver.is_null() || matrix.is_null() || b.is_null() || x.is_null() {
-        set_last_error("null pointer passed to hybit_solve");
-        return HYBIT_INVALID_ARGUMENT;
+    unsafe {
+        if solver.is_null() || matrix.is_null() || b.is_null() || x.is_null() {
+            set_last_error("null pointer passed to hybit_solve");
+            return HYBIT_INVALID_ARGUMENT;
+        }
+        ffi_guard(|| {
+            let solver = &mut *solver;
+            let matrix = &*matrix;
+            let nrows = matrix.matrix.nrows();
+            let ncols = matrix.matrix.ncols();
+            let b_slice = slice::from_raw_parts(b, nrows);
+            let x_slice = slice::from_raw_parts_mut(x, ncols);
+            let result = solver
+                .solver
+                .solve_csr32(&matrix.matrix, b_slice, x_slice)?;
+            if !report.is_null() {
+                *report = ffi_report(&result);
+            }
+            if result.converged() {
+                Ok(())
+            } else {
+                Err(hybit_core::HybitError::NotConverged {
+                    iterations: result.iterations,
+                    residual: result.final_residual,
+                })
+            }
+        })
     }
-    ffi_guard(|| {
-        let solver = &mut *solver;
-        let matrix = &*matrix;
-        let nrows = matrix.matrix.nrows();
-        let ncols = matrix.matrix.ncols();
-        let b_slice = slice::from_raw_parts(b, nrows);
-        let x_slice = slice::from_raw_parts_mut(x, ncols);
-        let result = solver
-            .solver
-            .solve_csr32(&matrix.matrix, b_slice, x_slice)?;
-        if !report.is_null() {
-            *report = ffi_report(&result);
-        }
-        if result.converged() {
-            Ok(())
-        } else {
-            Err(hybit_core::HybitError::NotConverged {
-                iterations: result.iterations,
-                residual: result.final_residual,
-            })
-        }
-    })
 }
 
 #[cfg(test)]

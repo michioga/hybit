@@ -520,7 +520,10 @@ fn main() -> ResultT<()> {
         std::process::exit(2);
     }
     let mut out = BufWriter::new(File::create(&args[1])?);
-    writeln!(out, "case,n,ranks,interior,interface,exact_build_ms,matrixfree_apply_ms,solve_ms,action_rel_error,solution_rel_error,original_rel_residual")?;
+    writeln!(
+        out,
+        "case,n,ranks,interior,interface,exact_build_ms,matrixfree_apply_ms,solve_ms,action_rel_error,solution_rel_error,original_rel_residual"
+    )?;
     for case in CASES {
         let (matrix, owners) = case.build()?;
         let result = evaluate(&matrix, &owners)?;

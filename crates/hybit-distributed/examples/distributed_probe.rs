@@ -1,6 +1,6 @@
 use hybit_distributed::{
-    build_contiguous_halo_plans, build_contiguous_halo_plans_abtm, partition_telemetry,
-    prepare_rank_local_csrs, simulated_distributed_spmv, ContiguousPartition,
+    ContiguousPartition, build_contiguous_halo_plans, build_contiguous_halo_plans_abtm,
+    partition_telemetry, prepare_rank_local_csrs, simulated_distributed_spmv,
 };
 use hybit_matrix::read_matrix_market;
 use std::env;

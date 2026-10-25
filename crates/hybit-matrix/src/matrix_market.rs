@@ -225,17 +225,18 @@ pub fn read_matrix_market_from_reader<R: BufRead>(
     let mut duplicate_entries_combined = 0usize;
     let mut compact: Vec<(u32, u32, f64)> = Vec::with_capacity(entries.len());
     for (row, col, value) in entries {
-        if let Some(last) = compact.last_mut() {
-            if last.0 == row && last.1 == col {
-                last.2 += value;
-                if !last.2.is_finite() {
-                    return Err(MatrixMarketError::Format(
-                        "duplicate summation produced NaN/Inf".into(),
-                    ));
-                }
-                duplicate_entries_combined += 1;
-                continue;
+        if let Some(last) = compact.last_mut()
+            && last.0 == row
+            && last.1 == col
+        {
+            last.2 += value;
+            if !last.2.is_finite() {
+                return Err(MatrixMarketError::Format(
+                    "duplicate summation produced NaN/Inf".into(),
+                ));
             }
+            duplicate_entries_combined += 1;
+            continue;
         }
         compact.push((row, col, value));
     }

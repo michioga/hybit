@@ -36,10 +36,10 @@ pub use hybit_auto::{
     AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions,
     GeneralSquarePreconditionerPolicy, GeneralSquareRestartPolicy, HybitAnalysis,
     HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver, HybridOptions,
-    LocalFactorSelectionPolicy, StructuralOptions, StructuralPcgVectorPolicy,
-    StructuralPreconditionerPolicy, StructuralSpmvPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
+    LocalFactorSelectionPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
     STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS, STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ,
-    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
+    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ, StructuralOptions, StructuralPcgVectorPolicy,
+    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
@@ -51,36 +51,36 @@ pub use hybit_core::{
 #[cfg(feature = "mpi")]
 pub use hybit_distributed as distributed;
 pub use hybit_krylov::{
-    fgmres, fgmres_with_workspace, fgmres_with_workspace_and_restart_controller,
-    parallel_vector_worker_count, pcg, pcg_with_execution, pcg_with_workspace,
-    pcg_with_workspace_parallel_vectors, resident_rayon_recommended, CpuKrylovExecution,
-    FgmresOptions, FgmresRestartProgress, FgmresWorkspace, FlexiblePreconditioner,
-    KrylovExecutionBackend, KrylovOutcome, PcgWorkspace, RayonKrylovExecution,
-    ResidentPcgWorkspace, PARALLEL_PCG_VECTOR_CHUNK, RESIDENT_RAYON_MIN_N,
-    RESIDENT_RAYON_MIN_THREADS,
+    CpuKrylovExecution, FgmresOptions, FgmresRestartProgress, FgmresWorkspace,
+    FlexiblePreconditioner, KrylovExecutionBackend, KrylovOutcome, PARALLEL_PCG_VECTOR_CHUNK,
+    PcgWorkspace, RESIDENT_RAYON_MIN_N, RESIDENT_RAYON_MIN_THREADS, RayonKrylovExecution,
+    ResidentPcgWorkspace, fgmres, fgmres_with_workspace,
+    fgmres_with_workspace_and_restart_controller, parallel_vector_worker_count, pcg,
+    pcg_with_execution, pcg_with_workspace, pcg_with_workspace_parallel_vectors,
+    resident_rayon_recommended,
 };
 pub use hybit_matrix::{
+    ABTM_TOPOLOGY_WORD_BITS, AbtmConfig, AbtmMatrix, AbtmStats, AbtmTopology, AbtmTopologyRow,
+    AbtmTopologyStats, AbtmTopologyWord, Csr32Matrix, DenseBlockCsrOperator, DenseBlockSize,
+    DofAddress, DofBlock, DofEntityKind, DofMask, FieldAwareDofLayout, MatrixMarketError,
+    MatrixMarketInfo, MatrixMarketSymmetry, MatrixProfile, ParallelCsr32Operator,
+    PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator, TILE_WIDTH, TileDesc, TileKind,
     analyze_csr32, read_matrix_market, read_matrix_market_from_reader, write_matrix_market_general,
-    AbtmConfig, AbtmMatrix, AbtmStats, AbtmTopology, AbtmTopologyRow, AbtmTopologyStats,
-    AbtmTopologyWord, Csr32Matrix, DenseBlockCsrOperator, DenseBlockSize, DofAddress, DofBlock,
-    DofEntityKind, DofMask, FieldAwareDofLayout, MatrixMarketError, MatrixMarketInfo,
-    MatrixMarketSymmetry, MatrixProfile, ParallelCsr32Operator,
-    PreparedColumnRestrictedCsrOperator, PreparedLocalCsrOperator, TileDesc, TileKind,
-    ABTM_TOPOLOGY_WORD_BITS, TILE_WIDTH,
 };
 pub use hybit_matrix::{
-    close_to_field_blocks, field_block_owners, grow_field_aware_region, FieldAwareRegionGrowth,
-    FieldAwareRegionStats, PreparedFieldAwareLocalRegion, PreparedFieldAwareTopology,
+    FieldAwareRegionGrowth, FieldAwareRegionStats, PreparedFieldAwareLocalRegion,
+    PreparedFieldAwareTopology, close_to_field_blocks, field_block_owners, grow_field_aware_region,
 };
 pub use hybit_precond::{
-    recommend_rigid_body_aggregate_nodes, BalancedRigidBodyTwoLevelBlockJacobiPreconditioner,
-    BlockJacobiPreconditioner, HybridPreconditioner, IdentityPreconditioner, Ilu0Preconditioner,
-    JacobiPreconditioner, LocalCholeskyRegion, ParallelJacobiPreconditioner,
-    ParallelRigidBodyTwoLevelPreconditioner, RigidBodyAggregation, RigidBodyApplyProfile,
-    RigidBodyTwoLevelBlockJacobiPreconditioner, TwoLevelAggregation, TwoLevelBasis,
-    TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy,
-    TwoLevelTransferOptions, TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
-    EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION, ILU0_RELATIVE_PIVOT_FLOOR, PARALLEL_JACOBI_CHUNK,
+    BalancedRigidBodyTwoLevelBlockJacobiPreconditioner, BlockJacobiPreconditioner,
+    EXPLICIT_INVERSE_AUTO_MIN_COARSE_DIMENSION, HybridPreconditioner, ILU0_RELATIVE_PIVOT_FLOOR,
+    IdentityPreconditioner, Ilu0Preconditioner, JacobiPreconditioner, LocalCholeskyRegion,
+    PARALLEL_JACOBI_CHUNK, ParallelJacobiPreconditioner, ParallelRigidBodyTwoLevelPreconditioner,
+    RigidBodyAggregation, RigidBodyApplyProfile, RigidBodyTwoLevelBlockJacobiPreconditioner,
+    TwoLevelAggregation, TwoLevelBasis, TwoLevelBlockJacobiPreconditioner,
+    TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy, TwoLevelTransferOptions,
+    TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
+    recommend_rigid_body_aggregate_nodes,
 };
 
 pub fn solve(matrix: &Csr32Matrix, b: &[f64]) -> Result<(Vec<f64>, SolveReport), HybitError> {

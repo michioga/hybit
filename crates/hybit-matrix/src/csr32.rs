@@ -215,7 +215,8 @@ impl Csr32Matrix {
             return Ok(());
         }
 
-        let row_chunk = self.nrows / target_tasks + usize::from(self.nrows % target_tasks != 0);
+        let row_chunk =
+            self.nrows / target_tasks + usize::from(!self.nrows.is_multiple_of(target_tasks));
 
         y.par_chunks_mut(row_chunk)
             .enumerate()
