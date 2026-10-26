@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for crate in hybit-core hybit-matrix hybit-krylov hybit-precond hybit-auto hybit; do
+          for crate in hybit-core hybit-matrix hybit-krylov hybit-precond hybit-distributed hybit-auto hybit; do
             echo "== $crate =="
             cargo +1.99.1 package -p "$crate" --list
           done

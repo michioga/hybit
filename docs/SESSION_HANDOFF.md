@@ -570,3 +570,32 @@ license and FFI checks; local package/dry-run validation; then another
 source-integrity gate. GitHub tagging and any crates.io publication must
 remain separate explicit release actions. No 0.9.0 release tag was made by
 P1–P3-C. This checkpoint records test evidence only.
+
+## 2026-10-26 P4-A publication readiness audit and P4-A-FIX1 documentation/CI candidate
+
+- Canonical audited branch/HEAD: `develop/0.9.0` at
+  `a59387b8841d2a45745e124e878b13dfc429b898`, clean source tree.
+  P1–P3C numerical/affinity evidence remains unchanged by P4-A-FIX1.
+- P4-A source integrity: **374 manifest entries / 372 SHA-256 files PASS**.
+  Cargo metadata and seven package file lists PASS, mdBook 0.5.4 PASS,
+  and `hybit-core` `cargo publish --dry-run` PASS without upload.
+- P4-A summary: **30 PASS / 4 BLOCKER / 7 WARN / 2 PENDING**.
+  Exactly four blockers: no 0.9.0 release notes; no 0.9.0 CHANGELOG;
+  0.9.0 publication instructions absent; CI package loop excludes
+  `hybit-distributed`.
+- All seven warnings concern absent `LICENSE` in package file lists.
+  **Do not** treat the warnings as resolved solely because Cargo metadata
+  declares MIT; release qualification must decide and verify the packaging
+  policy separately.
+- PENDING: actual Windows MSVC C/C++/Fortran ABI runtime (P4-B native
+  follow-up), plus dependent-crate dry-runs after 0.9.0 registry
+  prerequisites exist. Neither has passed yet.
+- User-side evidence CSV: `D:\Work\hybit_0_9_release_p4a_20261026_summary.csv`;
+  SHA-256 `faa39d5d563636760eceaeacf3f1fee1e5029fe00aa929b78e5de5e58b1119b4`.
+- Proposed P4-A-FIX1 change scope is **documentation, CI package inventory and
+  source manifests only**, with no Rust or numerical algorithm changes.
+  Re-test after application and checkpoint separately before proceeding.
+
+**Next single prioritized action:** apply/review the guarded P4-A-FIX1
+documentation/CI patch on exactly the audited commit, then run integrity,
+format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.

@@ -1,5 +1,68 @@
 # Publishing HyBIT
 
+## HyBIT 0.9.0 release procedure (candidate; NOT YET AUTHORIZED)
+
+HyBIT 0.8.0 remains the current published version. Release 0.9.0 targets
+Rust 2024 Edition and MSRV 1.99.1. The public Cargo packages are seven
+crates, in dependency order:
+
+```text
+hybit-core -> hybit-matrix -> hybit-krylov -> hybit-precond
+           -> hybit-distributed -> hybit-auto -> hybit
+```
+
+This is **publication order**, not a claim that every adjacent crate has
+a direct dependency on its predecessor. Check the actual dependency graph
+with locked Cargo metadata before uploading anything. `hybit-ffi` has
+`publish = false` and is released only as repository source/bindings.
+
+### Gates before approval
+
+1. Confirm branch, expected HEAD, a clean worktree, manifest/file inventory
+   and `SOURCE_SHA256.txt` hashes. Freeze the exact candidate source.
+2. Run rustfmt, strict Clippy, workspace release tests, all-feature tests,
+   MPI example tests, CI and mdBook 0.5.4; check both supported default and
+   optional MPI feature configurations. Windows MPI testing uses native
+   MSVC/LLVM plus **Microsoft MS-MPI** only.
+3. Verify independent true residual and manufactured-solution error against
+   original CSR with both P2P/Alltoallv and Equal/Multilevel policies on
+   the documented release matrix set. Do not silently relax certificate
+   thresholds or omit difficult matrices after a failed gate.
+4. Review runtime characteristics: original-CSR solve-many, scaling,
+   instrumented setup-versus-batch time, rank skew and placement evidence.
+   An unverified solver-thread affinity or overlap remains an explicit
+   limitation, even when numerical/scaling diagnostics pass.
+5. Execute real Windows MSVC **C, C++ and Fortran** ABI build/runtime tests.
+   File existence and Rust FFI tests alone do not qualify native consumers.
+6. Confirm MIT license-text distribution requirements in all seven `.crate`
+   archives; P4-A flagged missing `LICENSE` entries as **warnings** even
+   though each crate declares `license = "MIT"`.
+7. Run locked metadata and `cargo package --list` for all seven packages.
+   Run `cargo publish --dry-run` for `hybit-core` first; downstream 0.9.0
+   crates must be checked in dependency order when their exact-version
+   registry dependencies become resolvable. Record unrun dependent dry-runs
+   as **PENDING**, never PASS.
+8. Review release notes and CHANGELOG; rerun integrity and CI on the exact
+   candidate commit. After review, fast-forward/merge that exact validated
+   source to `main` and rerun the release gate on `main`.
+
+### External publication (requires explicit user approval)
+
+Only after all blockers have been closed and the user separately approves
+publication, publish the seven crates sequentially, confirming crates.io
+index visibility of each version before uploading its dependents. Then
+create immutable annotated tag `v0.9.0` on the actual published commit and
+the matching GitHub Release using `RELEASE_NOTES_0.9.0.md`. Never force
+push or retarget a published version tag. Credentials are secret and must
+not appear in logs or source. A patch preflight, package list or dry-run
+must never perform uploads, tagging or release creation.
+
+P1/P2/P3 evidence is recorded in `docs/SESSION_HANDOFF.md`. The P4-A
+publication audit on 2026-10-26 found four documentation/CI blockers,
+seven crate-license-file warnings and two pending checks (native ABI,
+dependent crate dry-runs); those remain open until individually verified.
+
+
 Public repository: `https://github.com/michioga/hybit`
 
 User-facing Rust crate: `https://crates.io/crates/hybit`

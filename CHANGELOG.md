@@ -1,4 +1,25 @@
 # Changelog
+## 0.9.0 release candidate (unpublished)
+
+- Prepare Rust 2024 Edition / Rust 1.99.1 and seven proposed crates.io
+  packages: `hybit-core`, `hybit-matrix`, `hybit-krylov`, `hybit-precond`,
+  `hybit-distributed`, `hybit-auto` and `hybit`; retain `hybit-ffi` as a
+  repository-only native binding crate.
+- Extend distributed owner/ghost/Halo, topology-aware partition and
+  prepared original-CSR multi-RHS evaluation, keeping MPI an opt-in feature.
+- Retain ABTM as a useful symbolic/topology layer and prepared CSR as a
+  strong numerical execution path; no universal ABTM SpMV speed claim.
+- Release P1 source/tests and P2 12/12 native MS-MPI numerical matrix
+  cross-checks passed. P3-A/P3-C instrumented rank scaling and placement
+  crossovers passed their numerical checks, subject to unverified solver
+  thread affinity and production-speed limitations.
+- Document strict PCG true-residual and manufactured-solution certificates;
+  in particular, the `cant` D9-C8G 3000-iteration run did not pass its
+  forward-error check even though its true residual was small.
+- Keep Windows native ABI verification, seven-crate license distribution
+  review, registry-dependent dry-runs and publication authorization as
+  outstanding release gates. Do not tag or publish based on this entry.
+
 ## 0.8.0 release
 
 - Freeze the validated GeneralSquare FGMRES/ILU(0), ABTM G1-G7, prepared restricted/local execution, and explicit Rayon paths as the 0.8 release line.
