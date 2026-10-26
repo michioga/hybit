@@ -409,3 +409,48 @@ FAIL gates とログへのリンク/パス:
 - AMD official CPU specifications: https://www.amd.com/en/products/processors/desktops/ryzen/7000-series/amd-ryzen-7-7800X3d.html
 - Microsoft mpiexec command and affinity options: https://learn.microsoft.com/en-us/powershell/high-performance-computing/mpiexec?view=hpc19-ps
 - MPI Forum nonblocking communication and progress semantics: https://www.mpi-forum.org/docs/mpi-5.0/mpi50-report/node77.htm
+
+## 2026-10-26 H1-C3K8-D9-C8G: native MS-MPI PCG certification and iteration-limit checkpoint
+
+### Source, validation, and intended scope
+
+- Branch `develop/0.9.0`, base HEAD `bd72afa5a1c17556f63095c3ab0f0ce9283dffc4` before this checkpoint. The modified D7 example is `crates/hybit-distributed/examples/mpi_k8d7_prepared_p2p.rs`, SHA-256 `328797c3a2765885a0afba6e7349126176e552dc76b153c359617f5a7872422b`. The accompanying `SOURCE_SHA256.txt` entry is updated.
+- D9-C8D introduced per-rank solve-many phase reporting (rank numeric/exchange skew). On `thermal1.mtx`, the four native P2P cases (Equal/Multilevel x RHS8/16) passed; profiled batches in milliseconds were Equal 2160.992/4441.752 and Multilevel 1923.392/3936.087. Profiling alone does not establish physical-core placement, overlap, or a cross-launch production speedup.
+- D9-C8E added failure-only post-PCG certification metrics. The two original-CSR candidates `cant.mtx` and `boneS01.mtx`, with Jacobi-PCG 8 ranks, `tol=1e-8`, `max-iters=3000`, had acceptable true residual but failed the independent absolute manufactured-solution error gate (`1e-5`): `cant` iteration 1871, true relative residual `4.725116546447e-9`, max absolute error `9.643888811329e-3`; `boneS01` iteration 1324, `4.934922631861e-9`, `1.255478137705e-4`.
+- D9-C8F diagnostic: `boneS01` **passed both gates** at `tol=1e-10`, `max-iters=3000`, Jacobi, after 2147 iterations (true relative residual `4.886327334525e-11`, max error `9.123679092782e-8`). The initial `max-iters=6000` trial was rejected by an existing K8-B guard and is **not** a convergence result. `cant` at `tol=1e-10` did not converge within 3000 iterations.
+- D9-C8G adds a **failure-only** global recursive/independent true residual and manufactured-solution error census at the iteration cap. The successful solver path, algorithm, target tolerance, acceptance policy, original CSR and selected preconditioner implementations remain unchanged. Extra MPI reductions on the failure path make that diagnostic path invalid for speed benchmarking.
+- Native Windows Rust 1.99.1/MSVC/MS-MPI source integrity `374 manifest / 372 verified` PASS, Rustfmt PASS, strict workspace all-target/all-feature Clippy PASS, and D7 example `20/20` release tests PASS after D9-C8G. The three native MPI diagnostic launches were completed with their expected failure classification `ITERATION_LIMIT_MEASURED`. They are **not** successful certified solves.
+
+### D9-C8G original CSR numerical evidence — `cant.mtx`
+
+Common conditions: Windows native Microsoft MS-MPI (not MinGW or Open MPI), 8 ranks, Equal partition, P2P halo, original MatrixMarket CSR, one manufactured RHS (`rhs_id=0`), `--experimental-large-spd` opt-in, max iterations 3000, target relative tolerance `1e-10`.
+
+| Preconditioner | Iterations | Recursive relative residual | Independent true relative residual | Maximum absolute error | Status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Jacobi | 3000 | 6.996658372331e-11 | 6.996658368670e-11 | 1.179879512210e-3 | Iteration limit; certification not met |
+| Rank-local IC(0), block 4 | 3000 | 3.401287201384e-9 | 3.401287217356e-9 | 8.913498652824e-3 | Iteration limit; certification not met |
+| Rank-local dense block Cholesky, block 32 | 3000 | 2.386277485730e-9 | 2.386277501762e-9 | 3.181249016524e-3 | Iteration limit; certification not met |
+
+Evidence: `D:\Work\k8d8g_cant_iter_limit_summary.csv`, exact observed SHA-256 `d201a7ca5bf00923da2b574a6d497307b79ef64aed5d824af9d9f1d011d1854e`. Native three-rank-group logs are retained in `D:\Work` with the prefix `k8d8g_cant_iter_limit`; the CSV/logs are not included as source-controlled files.
+
+Interpretation: the recursive and independently computed true residuals agree within a few parts in `1e9`; there is no evidence of material *residual drift* in these three experiments. Jacobi has the smallest residual and smallest maximum error of the tested arms, but its residual `6.997e-11` still exceeds the implementation's internal stopping threshold `0.5 * tol = 5e-11`, and its max error exceeds `1e-5` by about 118 times. IC(0) block 32 previously failed on a nonpositive local pivot; block Cholesky 32 prepared successfully but failed to converge. Larger local blocks must not be assumed automatically better or production-ready. This is matrix/configuration-specific evidence, not a proof of global SPD or non-SPD.
+
+The `--experimental-large-spd` curvature screen is not an unrestricted SPD certificate. Do **not** make the current `cant` run pass by relaxing the forward-error gate, replacing the original matrix, silently raising the iteration limit beyond the guarded maximum, or conflating residual and solution error.
+
+### CPU topology and performance caveats still open
+
+- Host AMD Ryzen 7 7800X3D: 8 physical cores / 16 hardware threads, 96 MB L3. D9-C8C observed 8 MPI worker PIDs and OS process-affinity masks of `0x000000000000FFFF`, including with requested `seq:P` and `spr:P:L` layouts, but **did not** prove rank-to-PID mapping, actual CPU residency, or successful physical-core pinning. Do not cite the affinity probes as speedups; they intentionally sampled during computation.
+- D9-C8B original-CSR ABBA showed P2P advantages over Alltoallv in multiple eight-rank/RHS configurations, but Equal versus ABTM Multilevel prepared-time *winner changed* with order of policy campaigns. Cross-launch absolute superiority is not established.
+- Communication/calculation overlap has not been validated in the D7 halo+SpMV path. Nonblocking MPI alone does not demonstrate overlap. Optimize after correctness gates and controlled rankwise timing, not as an unmeasured release claim.
+- Time labels remain distinct: `profiled_batch` includes diagnostic collectives; `estimated_prepared_total` is setup plus median profiled batch, not whole-process wall. Native C8G failure-only diagnostics cannot be compared as solver speed benchmarks.
+
+### 0.9.0 release-gate priorities (not yet a release PASS)
+
+1. **P0 — source and regression quality:** source integrity, Rustfmt, strict Clippy, release workspace tests/doc tests, MPI-enabled D7 20 tests; negative SPD/parameter/preconditioner failure tests; check Rust-2024 FFI unsafe/ABI contracts and package/version/CI consistency. Re-run gates at the release candidate SHA.
+2. **P0 — numerical matrix contract:** maintain independent root/original-CSR and distributed true residual + manufactured-solution gates. Classify `thermal1`, synthetic FEM, and `boneS01` with their exact passing matrix/rank/tolerance/iteration conditions. Keep `cant` as a documented **known nonconvergent configuration**, not a production PASS or blanket unsupported matrix classification. Test both P2P and Alltoallv numerically.
+3. **P1 — measured absolute MPI performance:** baseline 1-rank against 2/4/8 ranks (and applicable CPU-thread baseline) on several eligible original-CSR matrices, then compare Equal, ABTM and external labels fairly. Report whole-process wall, setup, solver-only, profiled batch, memory, accuracy, iteration count, per-rank skew, and policy launch order. No claim based only on halo cut/ghost reduction.
+4. **P1 — CPU placement control:** map rank -> PID -> allowed logical CPU -> actual scheduling, validate a supported MS-MPI affinity policy, and repeat balanced randomized/crossover launches in the controlled configuration. AMD L3/cache and Windows scheduling remain possible confounders until measured.
+5. **P2 — optional optimization after release correctness:** assess interior/boundary row split, actual communication progress and numerical overlap; consider global coarse correction / AMG for slow low-frequency components on harder matrices. Preserve current production defaults until independent correctness and absolute-time improvements justify promotion.
+6. **P0 — publication gate:** verify public README/API, features, license, changelog, mdBook, source-manifest, clean Git tree, CI, crate dry-run, and release notes; preserve 0.8.0 stability and avoid announcing a 0.9.0 production speedup without the above evidence. Final tagging/publishing is a separate explicit step.
+
+Checkpoint action: append this evidence to the existing `docs/SESSION_HANDOFF.md`, update its SHA-256 entry, verify exactly the three modified files (handoff, SHA manifest, D7 Rust example), then run native-enabled source/test gates and make a focused commit/push. The checkpoint is not a 0.9.0 release approval.

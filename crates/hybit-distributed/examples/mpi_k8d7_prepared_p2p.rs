@@ -815,7 +815,47 @@ fn solve_pcg(
         rz = next;
     }
     if !converged {
-        return Err("Jacobi-PCG failed to converge within max_iters".into());
+        // D9-C8G: failure-only exact residual / manufactured-error census.
+        // Every rank reaches this path together (recursive rr is a global
+        // reduction). No success-path timing, collective, or algorithm change.
+        let recursive_sq = world_dot_profile(&r, &r, &mut phases);
+        spmv_profile(mpi, halo, op, &x, &mut scratch, &mut ap, &mut phases)?;
+        let true_residual = rhs
+            .iter()
+            .zip(&ap)
+            .map(|(&b, &ax)| b - ax)
+            .collect::<Vec<_>>();
+        let true_sq = world_dot_profile(&true_residual, &true_residual, &mut phases);
+        let true_rel = if true_sq.is_finite() && true_sq >= 0.0 {
+            (true_sq / norm_b2).sqrt()
+        } else {
+            f64::NAN
+        };
+        let local_err = x
+            .iter()
+            .zip(&halo.owned_globals)
+            .map(|(&v, &g)| (v - x_exact_rhs(g, rhs_id)).abs())
+            .fold(0.0_f64, f64::max);
+        let max_err = world_max(local_err);
+        let precond_name = match precond {
+            FixedPreconditioner::Jacobi(_) => "jacobi",
+            FixedPreconditioner::Ic0(_) => "ic0",
+            FixedPreconditioner::Block(_) => "block",
+        };
+        if mpi.rank() == 0 {
+            eprintln!(
+                "D9C8G_ITER_LIMIT rhs={} precond={} iters={} max_iters={} recursive_rel={:.12e} true_rel={:.12e} max_abs_err={:.12e} tol={:.12e}",
+                rhs_id,
+                precond_name,
+                iters,
+                options.max_iters,
+                (recursive_sq / norm_b2).sqrt(),
+                true_rel,
+                max_err,
+                options.tol,
+            );
+        }
+        return Err("PCG failed to converge within max_iters".into());
     }
     spmv_profile(mpi, halo, op, &x, &mut scratch, &mut ap, &mut phases)?;
     spmvs += 1;
@@ -833,6 +873,21 @@ fn solve_pcg(
         .fold(0.0f64, f64::max);
     let max_err = world_max(local_err);
     if !rel.is_finite() || rel > options.tol || !max_err.is_finite() || max_err > 1.0e-5 {
+        // D9-C8E: single-rank diagnostic of the two independent final gates.
+        // Both values are already globally reduced above. The diagnostic is
+        // emitted only on failure and does not alter PCG or acceptance policy.
+        if mpi.rank() == 0 {
+            eprintln!(
+                "D9C8E_CERT_DIAG rhs={} iters={} true_rel={:.12e} rel_limit={:.12e} max_abs_err={:.12e} err_limit=1.000000000000e-5 true_rel_failed={} abs_err_failed={}",
+                rhs_id,
+                iters,
+                rel,
+                options.tol,
+                max_err,
+                !rel.is_finite() || rel > options.tol,
+                !max_err.is_finite() || max_err > 1.0e-5,
+            );
+        }
         return Err("PCG true residual or manufactured solution certification failed".into());
     }
     // Stop before diagnostic reductions so timing excludes instrumentation reporting.
