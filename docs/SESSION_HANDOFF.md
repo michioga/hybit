@@ -454,3 +454,119 @@ The `--experimental-large-spd` curvature screen is not an unrestricted SPD certi
 6. **P0 — publication gate:** verify public README/API, features, license, changelog, mdBook, source-manifest, clean Git tree, CI, crate dry-run, and release notes; preserve 0.8.0 stability and avoid announcing a 0.9.0 production speedup without the above evidence. Final tagging/publishing is a separate explicit step.
 
 Checkpoint action: append this evidence to the existing `docs/SESSION_HANDOFF.md`, update its SHA-256 entry, verify exactly the three modified files (handoff, SHA manifest, D7 Rust example), then run native-enabled source/test gates and make a focused commit/push. The checkpoint is not a 0.9.0 release approval.
+
+## 2026-10-26 HyBIT 0.9.0 release gates P1–P3C (MS-MPI)
+
+Checkpoint base: `develop/0.9.0` at
+`b51d84c68653b41f729b1080d4ba6f5fc14b183f`. The tested D7 example
+(`crates/hybit-distributed/examples/mpi_k8d7_prepared_p2p.rs`) has SHA-256
+`328797c3a2765885a0afba6e7349126176e552dc76b153c359617f5a7872422b`.
+No solver algorithm or source files were changed for P1–P3C release gates.
+Windows toolchain was MSVC + LLVM + native MS-MPI; no MinGW/Open MPI.
+
+### Release P1: static quality
+
+All four gates passed: Rustfmt, workspace-wide all-features Clippy with
+`-D warnings`, release workspace tests, and release MPI D7 example tests.
+The source integrity gate reported 374 manifest files, 372 SHA-256 checks,
+and PASS.
+
+### Release P2: original CSR numerical validation
+
+All 12 MS-MPI cases passed independent root/distributed numerical gates:
+`k8d1_fem64_shift002` at tolerance `1e-8`, `thermal1` at `1e-11`, and
+`boneS01` at `1e-10`; 8 ranks, 1 RHS, Jacobi PCG; for both `equal` and
+`multilevel` partition policies, and both P2P and Alltoallv transports.
+The specified tests required the original coefficients of each supplied
+matrix (without adding a benchmark-time surrogate shift), and verified true
+residual and manufactured-solution error.
+
+### Release P3-A: single-node rank scaling, native-default layout
+
+`thermal1.mtx`, SHA-256
+`260f4a65c7dd22ce6e87b1035169c14d53fbe44639f0005e46207e057fce70ee`,
+8 manufactured RHS, P2P, 1/2/4/8 MS-MPI ranks, four observations per
+policy/rank configuration, all 32 numerical/profiling cases passed.
+The median **instrumented prepared-batch** times (ms) were:
+
+| Policy | 1 rank | 2 ranks | 4 ranks | 8 ranks | 1-to-8 rank batch ratio |
+|---|---:|---:|---:|---:|---:|
+| equal | 10422.12 | 7091.69 | 3889.61 | 2156.48 | 4.83 |
+| multilevel | 10597.51 | 6898.31 | 3770.44 | 1939.96 | 5.46 |
+
+These ratios are rank-scaling diagnostics with instrumentation, not proof of
+production speedup; CPU affinity was unverified.
+
+### Release P3-B: 8-rank CPU sampling, NOT solver-thread residency
+
+Each MPI launch captured unique PMI rank-to-PID mappings. All three layouts
+reported broad process masks `0x000000000000FFFF` and zero singleton process
+masks. However, the **PowerShell sampler main thread** visited 14–15 logical
+CPUs per rank with `NativeDefault`, versus exactly one distinct logical CPU
+per rank for all 300 samples under either `seq:P:L` or `spr:P:L`.
+For ranks 0–7, observed CPU numbers were:
+
+- `seq:P:L`: 14, 12, 10, 8, 6, 4, 2, 0.
+- `spr:P:L`: 14, 6, 10, 2, 12, 4, 8, 0.
+
+The observed sampler placement is meaningful but is **not** a hardware
+physical-core mapping, an enforced process-mask proof, or proof of where
+HyBIT's Rust solver threads ran. P3-B completed diagnostically, with
+`RANK_PID_CAPTURED_AFFINITY_UNVERIFIED` classifications.
+
+### Release P3-C: 8-rank MS-MPI placement crossover
+
+24/24 MS-MPI runs passed `PASS_PROFILED_NUMERICAL` (four observations for
+each of six configurations), with the same `thermal1.mtx` input, Jacobi PCG,
+P2P, 8 ranks, 8 RHS, 1 warmup and 3 repeats per launch. All runs had
+MPI exit code 0 and identical iteration counts by RHS. Root true relative
+residuals were in `[4.97445e-12, 4.99651e-12]`, and original solution
+errors in `[4.83478e-9, 4.83898e-9]`.
+
+| Partition | MS-MPI layout | Median profiled batch (ms) | Ratio vs same-policy native default | Median setup + one batch (ms) | Median full instrumented launch (ms) |
+|---|---|---:|---:|---:|---:|
+| equal | native-default | 2145.87 | 1.000 | 2275.04 | 8812.75 |
+| equal | `seq:P:L` | 1979.40 | 1.084 | 2107.64 | 8151.84 |
+| equal | `spr:P:L` | 1647.20 | 1.303 | 1775.83 | 7134.66 |
+| multilevel | native-default | 1908.48 | 1.000 | 2242.29 | 7977.11 |
+| multilevel | `seq:P:L` | 1417.41 | 1.346 | 1736.38 | 6333.09 |
+| multilevel | `spr:P:L` | 1441.82 | 1.324 | 1751.84 | 6146.75 |
+
+`equal`/`seq:P:L` had substantial batch variance (1602.80–2638.13 ms,
+22.7% sample CV). `equal`/`spr:P:L` was much steadier (1623.07–1682.80 ms,
+1.8% sample CV). Under `multilevel`, the 1.7% median batch difference between
+`seq:P:L` and `spr:P:L` is not a robust win given four samples per option.
+`spr:P:L` was the lowest median full-launch time for the multilevel policy.
+
+**Scope limits:** P3-C compares instrumented prepared-batch timing and full
+launch timing within a controlled, single-node, pinned-code experiment.
+Individual HyBIT solver thread CPU residency was not captured; neither hard
+physical-core binding, actual communication/computation overlap, a portable
+best layout nor production speedup was established. These results support
+`spr:P:L` as an opt-in candidate for benchmarking this 8C/16T host, not a
+portable default policy. Do not extrapolate the P3-A rank-scaling ratios to
+P3-C layouts without matched baseline measurements.
+
+### Evidence files (external to the repository)
+
+The files were verified by SHA-256 before this handoff was appended. They
+remain outside Git in `D:\Work` and are not part of the crates.io package.
+
+| File | SHA-256 |
+|---|---|
+| `hybit_0_9_release_p1_20261026_summary.csv` | `7faa4f88045b39459de88759c07866e9a61a9d1680ac9b7df2c5f3c6d13b2d60` |
+| `hybit_0_9_release_p2_matrix_20261026_summary.csv` | `710b6720f22828b2be5a4751539bb037160051e9f6c547a3ce5017808ef3ca33` |
+| `hybit_0_9_release_p3a_thermal1_20261026_scaling_comparison.csv` | `b274fb8fe0ced2617104408a2ed15dcada3e929f4b2f14235c239ab91ffd1192` |
+| `hybit_0_9_release_p3b_affinity_20261026_summary.csv` | `e328f5f903736298d6fa614e1b516553b107014401e92178c00e187afb7f79ab` |
+| `hybit_0_9_release_p3b_affinity_20261026_rank_samples.csv` | `6adea5002bb1239beb81a5af6768e943c6c7fdb58460c3b134714419d6e1d879` |
+| `hybit_0_9_release_p3c_affinity_20261026_comparison.csv` | `d2bd131245123b9f27f852fcf0ad0a4d158a26de42eb9a739736c90edf610b2c` |
+| `hybit_0_9_release_p3c_affinity_20261026_raw.csv` | `6ecb02057fd48b4f12d641c9000677846c693176e93eb50dca3f7e521b2fb001` |
+
+### Remaining 0.9.0 release gates
+
+P4: README, CHANGELOG, documented support boundaries, feature/API surface,
+mdBook build and navigation; Cargo package metadata and file inclusion;
+license and FFI checks; local package/dry-run validation; then another
+source-integrity gate. GitHub tagging and any crates.io publication must
+remain separate explicit release actions. No 0.9.0 release tag was made by
+P1–P3-C. This checkpoint records test evidence only.
