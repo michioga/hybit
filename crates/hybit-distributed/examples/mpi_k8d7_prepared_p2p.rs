@@ -633,6 +633,47 @@ impl RankTelemetry {
     }
 }
 
+// D9-C8D: aggregate the ALREADY-GATHERED rank telemetry across the RHS of one
+// measured solve-many batch. This work runs after all timed batches and does
+// not add MPI collectives or timers inside the PCG iteration.
+fn sum_rank_phase(
+    rhs_reports: &[RankTelemetry],
+    ranks: usize,
+    select: fn(&RankTelemetry) -> &[f64],
+) -> BenchResult<Vec<f64>> {
+    if rhs_reports.is_empty() || ranks == 0 {
+        return Err("D9-C8D missing RHS reports or MPI ranks".into());
+    }
+    let mut totals = vec![0.0_f64; ranks];
+    for report in rhs_reports {
+        let values = select(report);
+        if values.len() != ranks || values.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err("D9-C8D invalid rank phase telemetry".into());
+        }
+        for (total, value) in totals.iter_mut().zip(values) {
+            *total += value;
+        }
+    }
+    if totals.iter().any(|v| !v.is_finite()) {
+        return Err("D9-C8D rank phase totals are nonfinite".into());
+    }
+    Ok(totals)
+}
+
+fn rank_skew(values: &[f64]) -> f64 {
+    let low = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = values.iter().copied().fold(0.0_f64, f64::max);
+    if low.is_finite() { high - low } else { 0.0 }
+}
+
+fn slowest_rank(values: &[f64]) -> usize {
+    values
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map_or(0, |(rank, _)| rank)
+}
+
 struct Solution {
     x: Vec<f64>,
     iterations: usize,
@@ -1192,6 +1233,7 @@ fn main() -> BenchResult<()> {
         let mut iterations = vec![None::<usize>; rhs_count];
         let mut measured_wall_ms = Vec::with_capacity(repeats);
         let mut measured_solver_ms = Vec::with_capacity(repeats);
+        let mut measured_rank_reports = Vec::with_capacity(repeats);
         let mut last_solutions = Vec::new();
         let mut max_distributed_rel = 0.0_f64;
         let mut max_distributed_err = 0.0_f64;
@@ -1202,6 +1244,7 @@ fn main() -> BenchResult<()> {
             let batch_started = Instant::now();
             let mut sum_solver_only_ms = 0.0_f64;
             let mut solutions = Vec::with_capacity(rhs_count);
+            let mut trial_rank_reports = Vec::with_capacity(rhs_count);
             let mut trial_spmvs = 0_usize;
             let mut trial_dots = 0_usize;
             for (rhs_id, rhs) in rhs_vectors.iter().enumerate() {
@@ -1218,11 +1261,14 @@ fn main() -> BenchResult<()> {
                     max_distributed_err = max_distributed_err.max(result.max_error);
                 }
                 solutions.push(result.x);
+                // No new MPI or timers: move the already-collected diagnostics.
+                trial_rank_reports.push(result.rank_telemetry);
             }
             let batch_profiled_wall_ms = world_max(batch_started.elapsed().as_secs_f64() * 1000.0);
             if trial >= warmups {
                 measured_wall_ms.push(batch_profiled_wall_ms);
                 measured_solver_ms.push(sum_solver_only_ms);
+                measured_rank_reports.push(trial_rank_reports);
                 batch_spmv_calls = trial_spmvs;
                 batch_dot_reductions = trial_dots;
             }
@@ -1250,6 +1296,22 @@ fn main() -> BenchResult<()> {
         let root_verify_ms = world_max(root_started.elapsed().as_secs_f64() * 1000.0);
         let batch_wall_median = median(&measured_wall_ms);
         let solver_only_sum_median = median(&measured_solver_ms);
+        // D9-C8D reports one real trial closest to the batch median, summing
+        // each rank's phases across all RHS in that SAME trial. Do not mix
+        // unrelated per-rank maxima, independent phase medians or warmups.
+        let profile_index = closest_to_median_trial(&measured_wall_ms)?;
+        let profile_reports = &measured_rank_reports[profile_index];
+        if profile_reports.len() != rhs_count {
+            return Err("D9-C8D selected trial RHS telemetry count mismatch".into());
+        }
+        let nranks = usize::try_from(ranks)?;
+        let rank_numeric = sum_rank_phase(profile_reports, nranks, |r| &r.spmv_numeric_ms)?;
+        let rank_exchange = sum_rank_phase(profile_reports, nranks, |r| &r.exchange_ms)?;
+        let rank_pack = sum_rank_phase(profile_reports, nranks, |r| &r.spmv_pack_ms)?;
+        let rank_unpack = sum_rank_phase(profile_reports, nranks, |r| &r.spmv_unpack_ms)?;
+        let rank_dots = sum_rank_phase(profile_reports, nranks, |r| &r.dot_collective_ms)?;
+        let rank_precond = sum_rank_phase(profile_reports, nranks, |r| &r.precond_ms)?;
+        let rank_elapsed = sum_rank_phase(profile_reports, nranks, |r| &r.local_elapsed_ms)?;
         // A controlled estimate for one prepared batch, not the measured
         // full program elapsed time with benchmark warmups/repetitions.
         let estimated_prepared_total_ms = prepared_setup_total_ms + batch_wall_median;
@@ -1271,7 +1333,7 @@ fn main() -> BenchResult<()> {
                 .open(output)?;
             writeln!(
                 file,
-                "matrix,ranks,method,d7_transport,n,nnz,rhs_count,warmups,repeats,max_iters,tol,preconditioner,block_size,spd_screen,iterations_per_rhs,median_batch_profiled_wall_ms,median_sum_solver_only_ms,prepared_setup_total_ms,estimated_prepared_time_to_solution_ms,estimated_prepared_per_rhs_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,precond_setup_ms,rhs_gen_verify_ms,root_verify_ms,root_original_true_rel_max,root_solution_error_max,distributed_true_rel_max,distributed_solution_error_max,ghosts,factor_bytes,sparse_owner_bytes,rank_owned_dofs,rank_owned_nnz,spmv_calls_per_batch,dot_reductions_per_batch,exact_original_verified,d7_halo_bitwise,reference_scope"
+                "matrix,ranks,method,d7_transport,n,nnz,rhs_count,warmups,repeats,max_iters,tol,preconditioner,block_size,spd_screen,iterations_per_rhs,median_batch_profiled_wall_ms,median_sum_solver_only_ms,prepared_setup_total_ms,estimated_prepared_time_to_solution_ms,estimated_prepared_per_rhs_ms,read_ms,partition_ms,scatter_ms,verify_csr_ms,halo_setup_ms,precond_setup_ms,rhs_gen_verify_ms,root_verify_ms,root_original_true_rel_max,root_solution_error_max,distributed_true_rel_max,distributed_solution_error_max,ghosts,factor_bytes,sparse_owner_bytes,rank_owned_dofs,rank_owned_nnz,spmv_calls_per_batch,dot_reductions_per_batch,exact_original_verified,d7_halo_bitwise,reference_scope,d9c8d_profile_scope,d9c8d_profile_trial_index,d9c8d_profile_batch_wall_ms,d9c8d_rank_numeric_sum_ms,d9c8d_rank_exchange_sum_ms,d9c8d_rank_pack_sum_ms,d9c8d_rank_unpack_sum_ms,d9c8d_rank_dot_collective_sum_ms,d9c8d_rank_precond_sum_ms,d9c8d_rank_elapsed_sum_ms,d9c8d_numeric_skew_ms,d9c8d_exchange_skew_ms,d9c8d_slowest_numeric_rank,d9c8d_slowest_exchange_rank"
             )?;
             let iteration_counts = iterations
                 .iter()
@@ -1321,6 +1383,20 @@ fn main() -> BenchResult<()> {
                 "true".to_string(),
                 "true".to_string(),
                 "original_matrix_coefficients".to_string(),
+                "one_measured_batch_closest_to_median_all_rhs_summed_per_rank".to_string(),
+                (profile_index + 1).to_string(),
+                format!("{:.6}", measured_wall_ms[profile_index]),
+                RankTelemetry::f64_vector_csv(&rank_numeric),
+                RankTelemetry::f64_vector_csv(&rank_exchange),
+                RankTelemetry::f64_vector_csv(&rank_pack),
+                RankTelemetry::f64_vector_csv(&rank_unpack),
+                RankTelemetry::f64_vector_csv(&rank_dots),
+                RankTelemetry::f64_vector_csv(&rank_precond),
+                RankTelemetry::f64_vector_csv(&rank_elapsed),
+                format!("{:.6}", rank_skew(&rank_numeric)),
+                format!("{:.6}", rank_skew(&rank_exchange)),
+                slowest_rank(&rank_numeric).to_string(),
+                slowest_rank(&rank_exchange).to_string(),
             ];
             writeln!(file, "{}", fields.join(","))?;
         }
@@ -1526,9 +1602,57 @@ fn median(data: &[f64]) -> f64 {
     }
 }
 
+// A per-rank report must describe one ACTUAL solve-many trial. The existing
+// published batch median may be an average of two samples for even repeats;
+// in that case choose the first measured trial closest to that median.
+fn closest_to_median_trial(data: &[f64]) -> BenchResult<usize> {
+    if data.is_empty() || data.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+        return Err("D9-C8D invalid measured batch times".into());
+    }
+    let target = median(data);
+    let mut closest = 0_usize;
+    let mut distance = (data[0] - target).abs();
+    for (index, &value) in data.iter().enumerate().skip(1) {
+        let candidate = (value - target).abs();
+        if candidate < distance {
+            closest = index;
+            distance = candidate;
+        }
+    }
+    Ok(closest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn d9c8d_rank_phase_sum_is_per_rank_and_rejects_mismatch() {
+        let r0 = RankTelemetry {
+            spmv_numeric_ms: vec![1.0, 2.0, 3.0],
+            ..RankTelemetry::default()
+        };
+        let r1 = RankTelemetry {
+            spmv_numeric_ms: vec![0.5, 4.0, 1.0],
+            ..RankTelemetry::default()
+        };
+        let summed = sum_rank_phase(&[r0, r1], 3, |p| &p.spmv_numeric_ms).unwrap();
+        assert_eq!(summed, vec![1.5, 6.0, 4.0]);
+        assert_eq!(slowest_rank(&summed), 1);
+        assert!((rank_skew(&summed) - 4.5).abs() < 1.0e-12);
+        let bad = RankTelemetry {
+            spmv_numeric_ms: vec![0.0],
+            ..RankTelemetry::default()
+        };
+        assert!(sum_rank_phase(&[bad], 3, |p| &p.spmv_numeric_ms).is_err());
+    }
+
+    #[test]
+    fn d9c8d_profile_trial_tracks_real_batch_nearest_median() {
+        assert_eq!(closest_to_median_trial(&[7.0, 3.0, 5.0]).unwrap(), 2);
+        assert_eq!(closest_to_median_trial(&[2.0, 9.0]).unwrap(), 0);
+        assert!(closest_to_median_trial(&[]).is_err());
+        assert!(closest_to_median_trial(&[f64::NAN]).is_err());
+    }
     #[test]
     fn d9c8b_rhs_zero_preserves_d7_manufactured_solution() {
         for global in [0, 1, 127, 1_000, 82_653] {
