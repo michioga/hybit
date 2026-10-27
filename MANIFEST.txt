@@ -110,10 +110,13 @@ benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
 book.toml
 crates/hybit-auto/Cargo.toml
+crates/hybit-auto/LICENSE
 crates/hybit-auto/src/lib.rs
 crates/hybit-core/Cargo.toml
+crates/hybit-core/LICENSE
 crates/hybit-core/src/lib.rs
 crates/hybit-distributed/Cargo.toml
+crates/hybit-distributed/LICENSE
 crates/hybit-distributed/examples/abtm_affinity_ab.rs
 crates/hybit-distributed/examples/cost_field_partition_probe.rs
 crates/hybit-distributed/examples/distributed_probe.rs
@@ -178,10 +181,12 @@ crates/hybit-distributed/tests/graph_candidate_reuse.rs
 crates/hybit-ffi/Cargo.toml
 crates/hybit-ffi/src/lib.rs
 crates/hybit-krylov/Cargo.toml
+crates/hybit-krylov/LICENSE
 crates/hybit-krylov/src/execution.rs
 crates/hybit-krylov/src/fgmres.rs
 crates/hybit-krylov/src/lib.rs
 crates/hybit-matrix/Cargo.toml
+crates/hybit-matrix/LICENSE
 crates/hybit-matrix/src/abtm.rs
 crates/hybit-matrix/src/csr32.rs
 crates/hybit-matrix/src/dense_block.rs
@@ -198,8 +203,10 @@ crates/hybit-matrix/src/region.rs
 crates/hybit-matrix/src/restricted.rs
 crates/hybit-matrix/src/topology.rs
 crates/hybit-precond/Cargo.toml
+crates/hybit-precond/LICENSE
 crates/hybit-precond/src/lib.rs
 crates/hybit/Cargo.toml
+crates/hybit/LICENSE
 crates/hybit/examples/abtm_adaptive_dual_numeric_g2e.rs
 crates/hybit/examples/abtm_dual_numeric_g2d.rs
 crates/hybit/examples/abtm_dual_topology_g2c.rs
