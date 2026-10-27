@@ -1,8 +1,8 @@
 # ABTM topology algebra and metadata-first execution
 
-> Development architecture direction for `develop/0.8.0`. This document
-> describes a planned execution model; it does not claim that ABTM is already
-> the production default or universally faster than CSR.
+> Architecture reference retained in HyBIT 0.9.0. It describes both validated
+> topology primitives and future execution directions; it does not claim ABTM
+> numerical kernels are universally faster than CSR.
 
 ## Purpose
 

@@ -9,11 +9,21 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
-> **Project status:** HyBIT 0.8.0 is the current published release. It is available from crates.io and tagged as `v0.8.0`. The SPD automatic path uses PCG/Hybrid/structural policies; GeneralSquare uses prepared FGMRES with Jacobi by default and explicit ILU(0) options. ABTM is retained as a topology/symbolic/preparation layer, while repeated numerical execution uses target-appropriate prepared representations. APIs may evolve before 1.0.
+> **Project status:** HyBIT **0.9.0** is published on crates.io and tagged
+> [`v0.9.0`](https://github.com/michioga/hybit/releases/tag/v0.9.0).
+> Seven Rust crates are public, including the opt-in `hybit-distributed`
+> package; `hybit-ffi` remains repository-only. The SPD path uses
+> PCG/Hybrid/structural policies; GeneralSquare uses prepared FGMRES with
+> Jacobi by default and explicit ILU(0). ABTM remains a topology/symbolic/
+> preparation layer, not a universal replacement for CSR. APIs may evolve
+> before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
-> **Post-0.8 direction:** distributed topology/partition/halo work is the next priority. GPU/CubeCL integration remains planned but is deferred until the CubeCL API is sufficiently stable for HyBIT's production boundary.
+> **Post-0.9 direction:** strengthen real-FEM numerical certificates, multi-node
+> MPI validation, and reliable placement-aware end-to-end performance evidence.
+> The 0.9 rank-scaling ratios are diagnostics, not certified application
+> speedups. GPU/CubeCL remains future work.
 ## Highlights
 
 - Rust-first implementation with a stable C ABI for C, C++, and Fortran consumers.
@@ -30,17 +40,19 @@ HyBIT starts from a low-cost iterative path, observes convergence, identifies nu
 
 ## Install
 
-The HyBIT 0.8.0 release uses the `hybit` facade crate together with its internal Rust crates:
+The HyBIT 0.9.0 release uses the `hybit` facade crate together with its internal Rust crates:
 
 ```bash
-cargo add hybit@0.8.0
+cargo add hybit@0.9.0
 ```
 
-HyBIT 0.8.0 is published on crates.io; the matching release source is tagged `v0.8.0`.
+HyBIT 0.9.0 is published on crates.io; the matching release source is tagged `v0.9.0`.
 
-Rust 1.73 or newer is required for the immutable 0.8.0 release.
+Rust **1.99.1** or newer is required for the 0.9.0 release (Rust 2024 Edition).
 
-**0.9.0 development branch:** Rust 2024 Edition, Rust 1.99.1 or newer, Cargo resolver 3. MS-MPI development uses Windows MSVC; WSL is used only for external METIS/SCOTCH partition baselines.
+Optional MPI support uses native Microsoft MS-MPI on Windows MSVC; it is not
+enabled by default. This is distinct from experimental METIS/SCOTCH label
+generation and does not require MinGW or Open MPI.
 
 ## Quick start
 
@@ -253,7 +265,9 @@ tools/release/    retained version-specific release qualification tooling
 ## Documentation
 
 The release documentation is built with mdBook and published at
-<https://michioga.github.io/hybit/>. The 0.8 site is generated from the Markdown sources under `docs/` and deployed from `main`.
+<https://michioga.github.io/hybit/>. The 0.9 site is generated from Markdown
+under `docs/` and deployed from `main`; post-release documentation corrections
+never move the immutable `v0.9.0` source tag.
 
 Build it locally on Windows with:
 
@@ -301,7 +315,7 @@ cargo run --release -p hybit --example fem_bench -- --matrix benchmarks/data/poi
 
 Near-term work is focused on real FEM validation, separation of symbolic reuse from numerical refactorization, broader Krylov coverage, stronger diagnostics, and scalable local/coarse corrections. Parallel CPU, GPU, and distributed-memory backends are longer-term directions.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for post-0.8 work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current published-release status.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for post-0.9 work and [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the current published-release status.
 
 ## Contributing
 

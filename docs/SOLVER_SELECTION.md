@@ -1,6 +1,6 @@
 # Solver selection and Krylov theory
 
-> Development documentation for `develop/0.8.0`.
+> Numerical reference for the published HyBIT 0.9.0 API (SPD/GeneralSquare).
 >
 > This document describes the mathematical contracts behind HyBIT's current
 > square-system routing. It distinguishes implemented paths from future routes.

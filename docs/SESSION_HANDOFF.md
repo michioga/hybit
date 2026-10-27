@@ -599,3 +599,33 @@ P1–P3-C. This checkpoint records test evidence only.
 **Next single prioritized action:** apply/review the guarded P4-A-FIX1
 documentation/CI patch on exactly the audited commit, then run integrity,
 format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
+
+## 2026-10-27 HyBIT 0.9.0 publication and post-release documentation
+
+- The immutable 0.9.0 source is commit
+  `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`. P5 final technical
+  sign-off reported 7 PASS / 0 FAIL and a clean 382-entry / 380-hash source
+  inventory. `main` and `develop/0.9.0` both pointed to that release source.
+- P4-B-FIX1 native Windows MSVC C/C++/Fortran ABI runtime: 9/9 PASS;
+  P4-C MIT license packaging: 7/7 PASS; P4-D seven-crate publication dry-run:
+  PASS. The `hybit-ffi` source/bindings are repository-only.
+- P6-B *live* `cargo publish` completed on 2026-10-27, returning exit 0 and
+  confirming all seven 0.9.0 crates registry-visible: `hybit-core`,
+  `hybit-matrix`, `hybit-krylov`, `hybit-precond`, `hybit-distributed`,
+  `hybit-auto`, `hybit`. No version is to be published again.
+- P6-C created and pushed the annotated `v0.9.0` tag and public GitHub
+  Release: <https://github.com/michioga/hybit/releases/tag/v0.9.0>.
+  Do not move this tag or merge documentation-only updates into it.
+- P3-B solver-thread affinity/physical-core pinning remains unverified;
+  P3-A/P3-C rank-timing ratios do not certify application speedup. The
+  `cant` forward-error failure remains an important non-pass.
+- P6-D is a **documentation-only post-release update** to `main` intended to
+  replace stale 0.7/0.8 current-release text in mdBook and public READMEs,
+  record accurate 0.9 status, and trigger the existing GitHub Pages workflow.
+  Until the Windows patch, integrity, mdBook, commit/push and website checks
+  are performed, this P6-D step is **PENDING**, not passed.
+
+**Next single prioritized action:** run guarded P6-D docs patch preflight on
+the unchanged release source, review the exact files, validate mdBook and
+source hashes, then checkpoint to `main` without changing `v0.9.0`; finally
+verify the public Pages site displays HyBIT 0.9.0.

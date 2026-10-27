@@ -1,6 +1,7 @@
 # GeneralSquare FGMRES and ILU(0)
 
-> Development documentation for `develop/0.8.0`, current through F7.
+> GeneralSquare FGMRES/ILU(0) reference for the published HyBIT 0.9.0 API;
+> this solver work was validated in the earlier 0.8 F7 milestone.
 
 ## Purpose
 

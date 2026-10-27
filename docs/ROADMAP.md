@@ -4,8 +4,21 @@ This roadmap describes direction, not guaranteed dates.
 
 ## Published baseline
 
-HyBIT 0.8.0 is published at immutable tag `v0.8.0`, commit
-`2eddfe1551f5a11aa0c07ee8d50d6cac4372e400`.
+HyBIT **0.9.0** is published at immutable tag
+[`v0.9.0`](https://github.com/michioga/hybit/releases/tag/v0.9.0), commit
+`0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`.
+
+## Completed in 0.9.0
+
+- Rust 2024 Edition / MSRV 1.99.1.
+- Seventh public crate `hybit-distributed`, with opt-in MPI support.
+- Distributed ownership, partition/halo, ABTM topology and prepared
+  numerical-validation experiments, including native MS-MPI reference checks.
+- Nine native C/C++/Fortran ABI runtime tests and seven-package publication
+  qualification, license inclusion and crates.io upload.
+- Documented affinity/placement uncertainty and the accuracy limits of
+  difficult real-matrix solves. No universal MPI speedup or whole-system
+  direct-solver fallback is claimed.
 
 ## Completed in 0.7
 
@@ -72,7 +85,7 @@ symbolic/topology layer rather than assuming it must replace CSR everywhere.
 5. G5 (validated): 3x3/6x6 block-topology characterization and explicit fixed-size dense block-CSR numerical operator; automatic CSR/B3/B6 routing deferred pending broader positive held-out evidence.
 6. G6 (validated): ordinary scalar ABTM SpMV remains diagnostic; fixed column restrictions and graph-local restrictions use explicit prepared compact CSR, with direct or ABTM-assisted preparation selected explicitly by workload.
 7. G7 (validated): explicit full-Rayon and task-limited prepared CSR execution; serial gather retained; automatic hardware-specific size routing deferred.
-8. G8 (active in 0.9): A1 reference partition/halo topology; A2 rank-local operator preparation and ABTM halo cross-check; A3 ABTM arbitrary-owner region partition prototype and external-label quality harness; A4 balanced multi-source ABTM growth after rejecting expensive pair-swap refinement; A5 external METIS/SCOTCH baseline export and identical HyBIT telemetry (boneS01 shows a substantial cut/halo gap while ABTM keeps competitive load balance); A6 multilevel ABTM coarsening/refinement, F12/F13 adjacency stream-merge equivalence and F14 merged production-default with explicit reference rollback; then B transport/MPI boundary, C distributed Krylov, and D real FEM MPI-host validation.
+8. G8 (0.9 milestone): A1 reference partition/halo topology; A2 rank-local operator preparation and ABTM halo cross-check; A3 ABTM arbitrary-owner region partition prototype and external-label quality harness; A4 balanced multi-source ABTM growth after rejecting expensive pair-swap refinement; A5 external METIS/SCOTCH baseline export and identical HyBIT telemetry (boneS01 shows a substantial cut/halo gap while ABTM keeps competitive load balance); A6 multilevel ABTM coarsening/refinement, F12/F13 adjacency stream-merge equivalence and F14 merged production-default with explicit reference rollback. MPI transport, distributed Krylov and real-FEM numerical gates followed in 0.9. Further multi-node and performance qualification remains future work.
 9. G9: GPU/CubeCL-specific prepared execution after the CubeCL API stabilizes.
 
 Track occupancy, metadata bytes, rank/select cost, bitmap operations,

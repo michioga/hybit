@@ -1,15 +1,16 @@
-# HyBIT 0.9.0 — release candidate notes (DRAFT, NOT PUBLISHED)
+# HyBIT 0.9.0 — release notes (published 2026-10-27)
 
-This document describes the proposed 0.9.0 source line. It is **not** a
-publication announcement. HyBIT 0.8.0 remains the published release until
-the 0.9.0 release gates, explicit approval, crate uploads and GitHub Release
-have all completed.
+HyBIT 0.9.0 was published to crates.io as seven crates and tagged
+[`v0.9.0`](https://github.com/michioga/hybit/releases/tag/v0.9.0) at source
+commit `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`. The tag is immutable.
+This public-status correction is a later documentation update to `main` and
+does not modify the tagged source archive.
 
 ## Main changes since 0.8.0
 
 - Advance the 0.9 development workspace to Rust 2024 Edition and minimum
   Rust 1.99.1.
-- Add `hybit-distributed` to the proposed public crate set, providing
+- Add `hybit-distributed` to the public crate set, providing
   explicit distributed sparse-matrix, ownership, partition and Halo-related
   building blocks. MPI remains an **opt-in** feature, not a default.
 - Extend ABTM-based sparse topology, symbolic region and field-aware
@@ -52,7 +53,7 @@ poorly-conditioned matrix. These limitations are retained and documented.
 
 ## Packaging and supported boundaries
 
-The intended crates.io publication sequence is:
+The completed crates.io publication sequence was:
 
 1. `hybit-core`
 2. `hybit-matrix`
@@ -62,24 +63,26 @@ The intended crates.io publication sequence is:
 6. `hybit-auto`
 7. `hybit`
 
-`hybit-ffi` remains repository-only (`publish = false`). Its C/C++/Fortran
-runtime compatibility must be checked separately on Windows/MSVC before
-the release is accepted. Native MPI qualification uses Microsoft MS-MPI,
-not MinGW or Open MPI.
+`hybit-ffi` remains repository-only (`publish = false`). Nine native
+C/C++/Fortran ABI runtime checks passed under Windows MSVC/LLVM Flang. Native
+MPI qualification uses Microsoft MS-MPI, not MinGW or Open MPI.
 
-## Outstanding publication conditions
+## Completed publication qualification
 
-- P4-B: real Windows MSVC C/C++/Fortran ABI/runtime tests.
-- Confirm MIT license-text inclusion/distribution policy for every
-  published crate. Root MIT metadata alone did not suppress the seven
-  package-list warnings in P4-A.
-- Verify dependent crate archive/dry-run steps when matching 0.9.0
-  dependencies are available in the crates.io registry. A successful
-  `hybit-core` dry-run does **not** establish seven-crate dry-run success.
-- Re-run release gates for the exact commit on the chosen release branch;
-  check clean source integrity, CI, docs and reproducible numerical output.
-- Obtain explicit approval before any registry upload, annotated tag or
-  public GitHub Release. Published artifacts and version tags are immutable.
+- P4-A documentation/CI blockers resolved and checkpointed.
+- P4-B native ABI: **9/9 PASS** after the prepared-Jacobi reuse-report fix.
+- P4-C all seven published crate packages include the MIT license text.
+- P4-D dependency-aware seven-crate `cargo publish --dry-run`: **PASS**.
+- P5 final technical gate: **7 PASS / 0 FAIL** (source hashes, remote source,
+  formatting, strict Clippy, workspace release tests, mdBook and evidence).
+- P6-B seven crates published to crates.io: **7/7 registry-visible**.
+- P6-C immutable annotated tag and GitHub Release: **PASS**.
+
+The P3-B CPU placement limitation is not closed by publication. Exact
+solver-thread affinity, physical-core pinning, and general application
+speedups remain unverified; do not turn rank-scaling diagnostics into
+production performance claims. Publication does not certify arbitrary
+ill-conditioned systems or a universal sparse direct fallback.
 
 See `docs/PUBLISHING.md` for the release process and
 `docs/SESSION_HANDOFF.md` for detailed measurements and limits.

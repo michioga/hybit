@@ -1,9 +1,19 @@
 # HyBIT documentation
 
-HyBIT 0.8.0 is the current published release. The immutable release source is tagged `v0.8.0`.
+**HyBIT 0.9.0 is the current published release.** Its immutable source is
+tagged [`v0.9.0`](https://github.com/michioga/hybit/releases/tag/v0.9.0) at
+commit `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`.
+Seven Rust crates are published on crates.io; `hybit-ffi` remains
+repository-only. The 0.9.0 release requires Rust 1.99.1 or newer.
 Rendered documentation: <https://michioga.github.io/hybit/>
 
-The site is built with mdBook from the Markdown files in this directory and GitHub Pages deploys the frozen release documentation from `main`.
+The site is built with mdBook from the Markdown files in this directory and
+deployed from `main`. The release tag preserves exact source; post-release
+documentation corrections may advance `main` without moving the tag.
+
+Version 0.9.0 adds the opt-in `hybit-distributed` crate and native MS-MPI
+validation. The reported single-node rank-scaling measurements are diagnostics,
+not proof of a production speedup: solver-thread CPU affinity is unverified.
 
 ## Start here
 
@@ -37,11 +47,12 @@ For numerical background:
 
 For project status:
 
+- [HyBIT 0.9.0 release notes](https://github.com/michioga/hybit/blob/main/RELEASE_NOTES_0.9.0.md) — published status, qualification and limitations (the source tag remains frozen).
 - [Development status](DEVELOPMENT_STATUS.md) — published release versus the
   current development branch.
 - [Roadmap](ROADMAP.md) — completed and planned work.
 - [FEM benchmark](FEM_BENCHMARK.md) and
-  [benchmark README](https://github.com/michioga/hybit/blob/develop/0.8.0/benchmarks/README.md) — reproducible validation.
+  [benchmark README](https://github.com/michioga/hybit/blob/v0.9.0/benchmarks/README.md) — reproducible validation.
 - [Publishing](PUBLISHING.md) — release discipline and immutable release tags.
 
 ## Documentation layers

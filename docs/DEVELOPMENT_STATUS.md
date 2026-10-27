@@ -1,19 +1,43 @@
 # HyBIT development status
 
-Last updated: 2026-10-07
+Last updated: 2026-10-27
 
 ## Published release
 
-- Current published release: HyBIT 0.8.0.
-- Release tag: `v0.8.0`.
-- Six Rust crates are published as 0.8.0 on crates.io.
+- Current published release: **HyBIT 0.9.0**.
+- Immutable release tag: [`v0.9.0`](https://github.com/michioga/hybit/releases/tag/v0.9.0).
+- Validated release commit: `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`.
+- Seven Rust crates are published as 0.9.0 on crates.io, including the new
+  `hybit-distributed` package.
 - `hybit-ffi` remains repository-only.
-- Rust 1.73 remains the declared MSRV.
+- Rust 2024 Edition; MSRV **1.99.1** for version 0.9.0.
+- MPI is opt-in, not the default. Native Windows testing uses Microsoft MS-MPI.
 
-The 0.8 release freezes the validated GeneralSquare FGMRES/ILU(0), ABTM G1-G7,
+### 0.9.0 numerical and publication evidence
+
+- P2: 12/12 native MS-MPI numerical configurations passed across the release
+  matrix set, partition strategies and communication transports.
+- P3-A: 32/32 thermal1 instrumented trials were numerically valid; measured
+  rank-scaling ratios do **not** establish production speedups.
+- P3-B: solver-thread CPU affinity and physical-core pinning remain **unverified**.
+- P4-B: nine native C/C++/Fortran ABI runtime checks passed after the
+  prepared-Jacobi reuse reporting correction.
+- P4-C/P4-D: all seven crate archives include MIT license text, and the
+  dependency-aware seven-crate publication dry-run passed.
+- P5: seven final technical quality checks passed; P6-B/P6-C published all
+  seven crates and created the immutable release tag and GitHub Release.
+- The difficult `cant` experiment did not satisfy its independent solution
+  accuracy certificate; residual convergence alone is insufficient.
+
+These are specific validation results, not guarantees for arbitrary FEM
+matrices, multi-node scaling, or automatic direct-solver fallback.
+
+## Historical 0.8.0 checkpoint details
+
+The 0.8 release froze the validated GeneralSquare FGMRES/ILU(0), ABTM G1-G7,
 prepared execution, Rayon, and C/C++/Fortran thread-interoperability work.
 
-## 0.8.0 release checkpoint
+### 0.8.0 release checkpoint
 
 Current validated development sequence is complete through G7. The F2 base
 commit is `782ac38`; F3 adds prepared multi-RHS Natural/RCM ILU(0) reuse

@@ -1,9 +1,11 @@
 # Publishing HyBIT
 
-## HyBIT 0.9.0 release procedure (candidate; NOT YET AUTHORIZED)
+## HyBIT 0.9.0 publication record (completed 2026-10-27)
 
-HyBIT 0.8.0 remains the current published version. Release 0.9.0 targets
-Rust 2024 Edition and MSRV 1.99.1. The public Cargo packages are seven
+**HyBIT 0.9.0 is published** at immutable annotated tag
+[`v0.9.0`](https://github.com/michioga/hybit/releases/tag/v0.9.0), on
+the exact source commit `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`.
+Release 0.9.0 uses Rust 2024 Edition and MSRV 1.99.1. The public packages are seven
 crates, in dependency order:
 
 ```text
@@ -16,7 +18,7 @@ a direct dependency on its predecessor. Check the actual dependency graph
 with locked Cargo metadata before uploading anything. `hybit-ffi` has
 `publish = false` and is released only as repository source/bindings.
 
-### Gates before approval
+### Qualification gates completed before approval
 
 1. Confirm branch, expected HEAD, a clean worktree, manifest/file inventory
    and `SOURCE_SHA256.txt` hashes. Freeze the exact candidate source.
@@ -46,21 +48,26 @@ with locked Cargo metadata before uploading anything. `hybit-ffi` has
    candidate commit. After review, fast-forward/merge that exact validated
    source to `main` and rerun the release gate on `main`.
 
-### External publication (requires explicit user approval)
+### External publication (completed, immutable)
 
-Only after all blockers have been closed and the user separately approves
-publication, publish the seven crates sequentially, confirming crates.io
-index visibility of each version before uploading its dependents. Then
-create immutable annotated tag `v0.9.0` on the actual published commit and
-the matching GitHub Release using `RELEASE_NOTES_0.9.0.md`. Never force
-push or retarget a published version tag. Credentials are secret and must
-not appear in logs or source. A patch preflight, package list or dry-run
-must never perform uploads, tagging or release creation.
+Following separate approval, P6-B published all seven 0.9.0 crate versions
+to crates.io on 2026-10-27, with `Cargo result: 0` and **7/7 registry-visible**.
+P6-C then created the annotated `v0.9.0` tag and the
+[GitHub Release](https://github.com/michioga/hybit/releases/tag/v0.9.0).
+`hybit-ffi` remains repository-only. Do not re-upload version 0.9.0, force
+push, or retarget the release tag.
 
 P1/P2/P3 evidence is recorded in `docs/SESSION_HANDOFF.md`. The P4-A
 publication audit on 2026-10-26 found four documentation/CI blockers,
 seven crate-license-file warnings and two pending checks (native ABI,
-dependent crate dry-runs); those remain open until individually verified.
+dependent crate dry-runs). Those findings were subsequently addressed:
+P4-A-FIX1 documentation/CI; P4-B-FIX1 nine native ABI checks; P4-C seven
+LICENSE inclusions; P4-D seven-crate publication dry-run; P5 final quality
+gate. Process-level rank affinity remained unverified and was **not** converted
+into a performance claim.
+
+Post-release corrections to the website and README may be committed to `main`
+without moving `v0.9.0`. The release tag preserves the exact published source.
 
 
 Public repository: `https://github.com/michioga/hybit`

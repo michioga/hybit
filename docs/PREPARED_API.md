@@ -1,8 +1,9 @@
 # HyBIT prepared execution
 
-This document describes `analyze -> prepare -> solve-many`. HyBIT 0.7.0
-provides the SPD and structural prepared paths; `develop/0.8.0` additionally
-provides prepared GeneralSquare FGMRES with Jacobi or opt-in ILU(0).
+This document describes `analyze -> prepare -> solve-many` in HyBIT 0.9.0.
+Version 0.7.0 introduced SPD and structural prepared paths; 0.8.0 added
+prepared GeneralSquare FGMRES with Jacobi or opt-in ILU(0). Both are retained
+in the published 0.9.0 API.
 
 ## Analyze
 

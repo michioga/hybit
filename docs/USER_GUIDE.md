@@ -1,9 +1,9 @@
 # HyBIT user guide
 
-> Development documentation for `develop/0.8.0`.
->
-> HyBIT 0.7.0 remains the current published crates.io release. The 0.8 APIs
-> described here are development APIs and may change before the next release.
+> Applies to the **published HyBIT 0.9.0** Rust API. The SPD and
+> GeneralSquare features described here were introduced in earlier releases;
+> the new distributed crate and optional MPI feature are covered separately.
+> APIs may still evolve before 1.0.
 
 ## 1. Choose the mathematical problem class
 
@@ -50,7 +50,7 @@ factorization.
 
 ### Defaults at a glance
 
-The most important high-level defaults on the 0.8 development branch are:
+The high-level CPU solver defaults retained from the 0.8 line are:
 
 | Setting | Default |
 | --- | --- |
