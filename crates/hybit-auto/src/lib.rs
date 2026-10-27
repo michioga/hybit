@@ -1286,7 +1286,7 @@ impl HybitPreparedSystem {
             algebraic_coarse_seconds,
             local_factor_budget_bytes: self.hybrid_options.max_local_factor_bytes,
             overlap_layers: self.hybrid_options.overlap_layers,
-            preconditioner_reused: coarse_was_cached,
+            preconditioner_reused: coarse_was_cached || sequence > 1,
             solve_sequence: sequence,
             krylov_workspace_bytes: self.workspace.bytes(),
             ..ReportMetrics::default()

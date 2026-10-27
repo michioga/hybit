@@ -1221,6 +1221,26 @@ mod tests {
             );
             assert_eq!(prepared_report.status, 0);
             assert_eq!(prepared_report.solve_sequence, 1);
+            assert_eq!(prepared_report.preconditioner_reused, 0);
+
+            let b2 = [2.0, 0.0, 2.0];
+            let mut x3 = [0.0; 3];
+            let mut second_report = HybitSolveReport::default();
+            assert_eq!(
+                hybit_solve_prepared(
+                    prepared,
+                    matrix,
+                    b2.as_ptr(),
+                    x3.as_mut_ptr(),
+                    &mut second_report
+                ),
+                HYBIT_OK
+            );
+            assert_eq!(second_report.solve_sequence, 2);
+            assert_eq!(second_report.preconditioner_reused, 1);
+            assert_eq!(second_report.analysis_seconds, 0.0);
+            assert_eq!(second_report.prepare_seconds, 0.0);
+            assert!(x3.iter().all(|value| (*value - 2.0).abs() < 1.0e-8));
             hybit_prepared_destroy(prepared);
             hybit_matrix_destroy(matrix);
             hybit_solver_destroy(solver);
