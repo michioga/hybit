@@ -104,10 +104,12 @@ benchmarks/scripts/bench-k8d3-rank-abba.ps1
 benchmarks/scripts/bench-k8d7-prepared-p2p.ps1
 benchmarks/scripts/bench-k8d9b-partition-pcg.ps1
 benchmarks/scripts/bench-k8d9c1-refine.ps1
+benchmarks/scripts/fem_region_sweep.py
 benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
+benchmarks/scripts/test_fem_region_sweep.py
 book.toml
 crates/hybit-auto/Cargo.toml
 crates/hybit-auto/LICENSE
@@ -278,6 +280,7 @@ docs/ABTM_G3_CLOSEOUT.md
 docs/ABTM_G4_CLOSEOUT.md
 docs/ABTM_TOPOLOGY.md
 docs/ARCHITECTURE.md
+docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md
 docs/DISTRIBUTED_TOPOLOGY.md

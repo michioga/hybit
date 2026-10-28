@@ -60,9 +60,12 @@ stay fixed. Other cases will lose from cubic local-factor work.
 The existing `crates/hybit/examples/fem_bench.rs` already accepts
 `--max-region`, `--max-regions`, `--factor-budget-mib`, `--tol`,
 `--max-iters`, `--selector`, `--backend` and an explicit RHS.
-**Reuse this CLI** for the pilot. It currently prints rich human-readable
-metrics but is not a reproducible multi-run CSV/JSON runner; that measured
-harness is the next implementation target, not something already complete.
+**Reuse this CLI** for the pilot. C1-A adds the opt-in WSL2 Python runner
+`benchmarks/scripts/fem_region_sweep.py` to collect randomized repeated
+one-shot runs, raw logs, CSV/JSON, peak child RSS, true-residual outcomes and
+zero-escalation diagnoses; see `docs/C1_FEM_REGION_SWEEP.md`. Prepared
+five-RHS reuse, native AMG baselines and external class certification are
+**not yet measured** by this runner.
 Its default `b=A*1` is a manufactured solution **only**, not a physical
 load or a certificate that the matrix is SPD.
 

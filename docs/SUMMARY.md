@@ -23,6 +23,7 @@
 
 - [FEM benchmark](FEM_BENCHMARK.md)
 - [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
+- [C1-A WSL2 FEM region sweep](C1_FEM_REGION_SWEEP.md)
 - [Development status](DEVELOPMENT_STATUS.md)
 - [Roadmap](ROADMAP.md)
 - [Publishing discipline](PUBLISHING.md)

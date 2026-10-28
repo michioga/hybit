@@ -656,3 +656,39 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   WSL2 `develop/0.10.0` and rerun native Linux release + MPI +
   source-integrity/ABI gates before the first authorized checkpoint;
   then build the real-FEM repeated-trial runner.
+
+## 2026-10-28 — C0 accepted/pushed; C1-A WSL2 evidence candidate
+
+- **User's canonical checkout:** `/home/michioga/hybit`, WSL2 Ubuntu;
+  `develop/0.10.0` at **`747ffa2`**, pushed successfully to
+  `origin/develop/0.10.0`, clean worktree in the user's final output.
+  Earlier C0 "pending" and "not yet pushed" notes above are superseded.
+- **User-supplied C0 gates after patch:** SHA-256/manifest integrity,
+  rustfmt and strict Clippy PASS; Debug workspace **242/242** and standard
+  thin-LTO Release workspace **242/242** PASS; OpenMPI feature tests
+  **100/100** PASS and 1/2/4/8 ranks **80/80** synthetic owned-CSR PCG
+  checks PASS. `poisson5` and `thermal1` benchmark probes PASS.
+  This WSL OpenMPI evidence is **not** a replacement for native Windows
+  MS-MPI/FFI checks or real distributed strong-scaling certification.
+- **Observed `thermal1` one-shot:** `n=82,654`, `nnz=574,458`,
+  `tol=1e-8`, Jacobi-PCG and HyBIT Auto both 1286 iterations and true
+  relative residual `9.840383e-9`; manufactured relative x error
+  `6.150438e-8`; HyBIT local regions **0**, escalations **0**, one-shot
+  wall ~894.5 ms vs plain setup+solve ~882.5 ms. Single run and matrix
+  SPD status unverified: no performance conclusion.
+- **C1-A proposal in assistant mirror (not yet in user's WSL/GitHub):**
+  add `benchmarks/scripts/fem_region_sweep.py` and its stdlib-only unit
+  tests to perform balanced randomized multi-run region-size experiments,
+  preserving every failure/zero-escalation case, with per-process peak RSS,
+  true residual gates and raw CSV/JSON logs; `docs/C1_FEM_REGION_SWEEP.md`.
+  The **production Rust solver and public/C ABI remain unchanged**.
+- **C1-A limitations:** one-shot only; prepared multi-RHS, external
+  hypre/PETSc AMG, native MS-MPI, multi-node, full SPD certification and
+  real-FEM region-size benefits remain NOT RUN. Do not call zero local
+  regions evidence of larger-Cholesky effectiveness.
+- **Rollback:** apply only the isolated C1-A patch on clean `747ffa2`;
+  leave the pushed C0 commit intact. If an acceptance gate fails, do not
+  commit; investigate the exact failure without discarding unrelated files.
+- **Next one action:** owner runs the C1-A patch + Python parser tests and
+  `poisson5`/`thermal1` WSL2 repeatability gates; review resulting JSON/CSV
+  before changing the autonomous escalation policy.
