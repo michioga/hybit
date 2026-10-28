@@ -1,14 +1,14 @@
 # HyBIT
 
-> **公開状況:** HyBIT 0.8.0 は現在の公開版です。crates.ioから利用でき、GitHubでは `v0.8.0` タグに公開ソースを固定します。0.8ではGeneralSquare向けprepared FGMRES、明示ILU(0)、ABTM G1-G7、prepared Rayon execution、C/C++/Fortran向けOpenMP thread-count interoperabilityを追加しました。
+> **公開状況:** HyBIT 0.9.0 が現在の公開版です。crates.ioから利用でき、GitHubでは `v0.9.0` タグに公開ソースを固定しています。Rust 2024 Edition / Rust 1.99.1 を使用します。
 
 **HyBIT — Autonomous Hybrid Sparse Solver** は、FEM/HPCで現れる大規模疎行列を対象としたRust-firstの線形ソルバーフレームワークです。
 
 低コストな反復法から開始し、収束状況を観測し、進捗が悪い場合には数値的に難しい自由度を抽出して、限定された局所領域だけをCholesky直接法へ昇格させます。ABTMのbitmap topology metadataは、選択領域の近傍展開や構造処理に内部利用します。利用側は通常のCSR32行列を渡すだけです。
 
-> **現在の位置づけ:** HyBIT 0.8.0 はpre-1.0の実験的リリースです。自動ソルバー経路は現在、実数の対称正定値（SPD）行列とPCGに限定されています。1.0までAPIが変更される可能性があります。
+> **現在の位置づけ:** HyBIT 0.9.0 はpre-1.0の実験的リリースです。SPD向けPCG/Hybrid/構造FEM経路と、明示指定するGeneralSquare向けprepared FGMRES（既定Jacobi、明示ILU(0)）を提供します。SPD性を収束だけで証明するものではなく、1.0までAPIが変更される可能性があります。
 
-> **0.8以降:** 次の優先課題はdistributed topology / partition / haloとMPI連携です。GPU/CubeCLはCubeCL APIがproduction境界として十分安定するまで後段へ回します。
+> **0.9の範囲:** `hybit-distributed` は所有分割・Halo・rank-local CSRと明示的MPI実験機能を提供します。Windows/MSVC + Microsoft MS-MPIでの数値検証は、任意のMPI環境・実FEMでの自動高速化保証ではありません。MINRES、全体系疎直接法への自動切替、GPU、摩擦付き接触の非線形制御は未完成です。
 ## 主な機能
 
 - Rustを中核とし、C ABI経由でC/C++/Fortranから利用可能
@@ -21,24 +21,25 @@
 - `analyze -> prepare -> solve-many`
 - 学習済みlocal factorとKrylov workspaceの再利用
 - 収束、時間、region、factor memory、reuseを返す`SolveReport`
+- 公開高水準solve経路で、元のCSRから最終真残差を独立に計算・照合（0.9.0公開後のhardeningブランチ）
 - MIT License
 
 ## crates.ioから利用
 
 ```bash
-cargo add hybit@0.8.0
+cargo add hybit@0.9.0
 ```
 
 または、`Cargo.toml`へ以下を追加します。
 
 ```toml
 [dependencies]
-hybit = "0.8.0"
+hybit = "0.9.0"
 ```
 
-HyBIT 0.8.0はcrates.ioへ公開します。対応する公開ソースはGitHubの `v0.8.0` タグへ固定します。
+HyBIT 0.9.0はcrates.ioで公開済みです。対応する公開ソースはGitHubの `v0.9.0` タグへ固定しています。
 
-Rust 1.73以降を対象とします。
+0.9.0はRust 1.99.1以降を対象とします。0.8.0の不変のリリースにはRust 1.73で対応できます。
 
 ## Rustでの最小例
 
@@ -151,7 +152,7 @@ C/C++/Fortran利用時はOpenMPホストとのthread数整合を追加します�
 
 ## 現在の制約
 
-HyBIT 0.7.0は`f64`、square SPD、PCGが中心です。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは行列構造と係数bit列が完全に同一の場合に限ります。3次元構造FEM向けには6剛体モードの二段coarse correctionを実装済みですが、一般的なAMGではありません。MINRESのproduction route、MPI distributed solver、GPU backend、out-of-coreはまだ未実装です。prepared contextは複数host threadからの同時mutationを想定していませんが、内部Rayon並列は利用できます。
+HyBIT 0.9.0の主な数値計算は実数`f64`です。SPDではPCG/Hybrid、GeneralSquareではprepared FGMRESを使用します。local directはbounded dense Choleskyで、既定では最大128 DOFのregionを最大8個まで使用します。prepared factor reuseは構造・係数が変わらない場合に限ります。3次元構造FEM向け6剛体モード二段coarse correctionは一般的なAMGではありません。MPIのrank-localソルバ機能は明示的な実験経路であり、全体系直接法、自動MINRES、production GPU、out-of-core、摩擦付き接触の全体制御は未完成です。prepared contextの同時mutableアクセスは想定していませんが、内部Rayon並列は利用できます。
 
 したがって、現時点のHyBITは実験的な数値ソフトウェアです。工学的判断へ利用する場合は、残差だけでなく物理量・参照解・独立ソルバー等による検証を行ってください。
 

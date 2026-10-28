@@ -23,6 +23,29 @@ pub struct KrylovOutcome {
     pub final_residual: f64,
 }
 
+fn checked_pcg_target(
+    options: SolverOptions,
+    initial_residual: f64,
+    b_norm: f64,
+) -> Result<f64, HybitError> {
+    // Without this guard, Inf <= Inf would incorrectly report convergence
+    // at iteration zero for finite but overflow-sized input vectors.
+    if !initial_residual.is_finite() || !b_norm.is_finite() {
+        return Err(HybitError::NumericalBreakdown(
+            "PCG initial residual or RHS norm is non-finite",
+        ));
+    }
+    let target = options
+        .absolute_tolerance
+        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    if !target.is_finite() {
+        return Err(HybitError::NumericalBreakdown(
+            "PCG convergence threshold is non-finite",
+        ));
+    }
+    Ok(target)
+}
+
 /// Stateful PCG recurrence used when a caller wants to divide one solve into
 /// telemetry/control segments without restarting the Krylov method.
 ///
@@ -161,9 +184,7 @@ pub fn pcg_start_with_workspace(
 
     let initial_residual = l2_norm(r);
     let b_norm = l2_norm(b);
-    let target = options
-        .absolute_tolerance
-        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    let target = checked_pcg_target(options, initial_residual, b_norm)?;
     if initial_residual <= target {
         return Ok(PcgSession {
             target,
@@ -260,11 +281,29 @@ pub fn pcg_continue_with_workspace(
             });
         }
         let alpha = session.rz_old / denom;
+        if !alpha.is_finite() {
+            session.finished = Some(SolveStatus::Breakdown);
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter - 1,
+                initial_residual,
+                final_residual: session.final_residual,
+            });
+        }
         for i in 0..n {
             x[i] += alpha * p[i];
             r[i] -= alpha * ap[i];
         }
         session.final_residual = l2_norm(r);
+        if !session.final_residual.is_finite() {
+            session.finished = Some(SolveStatus::Breakdown);
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual: session.final_residual,
+            });
+        }
         if session.final_residual <= session.target {
             session.finished = Some(SolveStatus::Converged);
             return Ok(KrylovOutcome {
@@ -286,6 +325,15 @@ pub fn pcg_continue_with_workspace(
             });
         }
         let beta = rz_new / session.rz_old;
+        if !beta.is_finite() {
+            session.finished = Some(SolveStatus::Breakdown);
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual: session.final_residual,
+            });
+        }
         for i in 0..n {
             p[i] = z[i] + beta * p[i];
         }
@@ -424,9 +472,7 @@ pub fn pcg_with_workspace_parallel_vectors(
 
     let initial_residual = parallel_l2_norm(r);
     let b_norm = parallel_l2_norm(b);
-    let target = options
-        .absolute_tolerance
-        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    let target = checked_pcg_target(options, initial_residual, b_norm)?;
     if initial_residual <= target {
         return Ok(KrylovOutcome {
             status: SolveStatus::Converged,
@@ -458,7 +504,23 @@ pub fn pcg_with_workspace_parallel_vectors(
             });
         }
         let alpha = rz_old / denom;
+        if !alpha.is_finite() {
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter - 1,
+                initial_residual,
+                final_residual,
+            });
+        }
         final_residual = parallel_update_x_r_and_norm(x, r, p, ap, alpha);
+        if !final_residual.is_finite() {
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual,
+            });
+        }
         if final_residual <= target {
             return Ok(KrylovOutcome {
                 status: SolveStatus::Converged,
@@ -478,6 +540,14 @@ pub fn pcg_with_workspace_parallel_vectors(
             });
         }
         let beta = rz_new / rz_old;
+        if !beta.is_finite() {
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual,
+            });
+        }
         parallel_update_p(p, z, beta);
         rz_old = rz_new;
     }
@@ -546,6 +616,49 @@ mod tests {
         for (xs, xp) in serial.iter().zip(&parallel) {
             assert!((xs - xp).abs() <= 1.0e-12);
         }
+    }
+
+    #[test]
+    fn all_pcg_execution_modes_reject_overflowed_initial_norm() {
+        let a = Identity(1);
+        let m = IdentityPrecond(1);
+        // The components are finite, but the naive squared norm is infinite.
+        // Previously Inf <= Inf silently returned Converged in zero iterations.
+        let b = [1.0e200];
+        let mut x = [0.0];
+        let mut workspace = PcgWorkspace::new(1);
+        assert!(matches!(
+            pcg_with_workspace(&a, &m, &b, &mut x, SolverOptions::default(), &mut workspace),
+            Err(HybitError::NumericalBreakdown(_))
+        ));
+        assert_eq!(x, [0.0]);
+
+        assert!(matches!(
+            pcg_with_workspace_parallel_vectors(
+                &a,
+                &m,
+                &b,
+                &mut x,
+                SolverOptions::default(),
+                &mut workspace,
+            ),
+            Err(HybitError::NumericalBreakdown(_))
+        ));
+        assert_eq!(x, [0.0]);
+
+        let mut execution = CpuKrylovExecution::new(&a, &m);
+        let mut resident = ResidentPcgWorkspace::allocate_with(&mut execution, 1).unwrap();
+        assert!(matches!(
+            pcg_with_execution(
+                &mut execution,
+                &b,
+                &mut x,
+                SolverOptions::default(),
+                &mut resident,
+            ),
+            Err(HybitError::NumericalBreakdown(_))
+        ));
+        assert_eq!(x, [0.0]);
     }
 
     struct Diagonal(Vec<f64>);

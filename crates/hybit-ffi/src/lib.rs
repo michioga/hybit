@@ -250,6 +250,19 @@ fn ffi_report(result: &hybit_core::SolveReport) -> HybitSolveReport {
     }
 }
 
+fn verify_solve_status(result: &hybit_core::SolveReport) -> Result<(), hybit_core::HybitError> {
+    match result.status {
+        SolveStatus::Converged => Ok(()),
+        SolveStatus::MaxIterations => Err(hybit_core::HybitError::NotConverged {
+            iterations: result.iterations,
+            residual: result.final_residual,
+        }),
+        SolveStatus::Breakdown => Err(hybit_core::HybitError::NumericalBreakdown(
+            "Krylov breakdown or independent CSR residual verification failure",
+        )),
+    }
+}
+
 /// Configures the process-wide Rayon worker pool used by HyBIT.
 ///
 /// This must be called before the first HyBIT solver is created or before any
@@ -936,14 +949,7 @@ pub unsafe extern "C" fn hybit_solve_prepared(
             if !report.is_null() {
                 *report = ffi_report(&result);
             }
-            if result.converged() {
-                Ok(())
-            } else {
-                Err(hybit_core::HybitError::NotConverged {
-                    iterations: result.iterations,
-                    residual: result.final_residual,
-                })
-            }
+            verify_solve_status(&result)
         })
     }
 }
@@ -983,14 +989,7 @@ pub unsafe extern "C" fn hybit_solve(
             if !report.is_null() {
                 *report = ffi_report(&result);
             }
-            if result.converged() {
-                Ok(())
-            } else {
-                Err(hybit_core::HybitError::NotConverged {
-                    iterations: result.iterations,
-                    residual: result.final_residual,
-                })
-            }
+            verify_solve_status(&result)
         })
     }
 }
@@ -1012,6 +1011,25 @@ mod tests {
         assert_eq!(
             hybit_version_patch(),
             env!("CARGO_PKG_VERSION_PATCH").parse::<u32>().unwrap()
+        );
+    }
+
+    #[test]
+    fn ffi_distinguishes_iteration_limit_from_numerical_breakdown() {
+        let a = Csr32Matrix::new(1, 1, vec![0, 1], vec![0], vec![2.0]).unwrap();
+        let mut x = [0.0];
+        let mut result = HybitSolver::new().solve_csr32(&a, &[2.0], &mut x).unwrap();
+        assert_eq!(verify_solve_status(&result), Ok(()));
+
+        result.status = SolveStatus::MaxIterations;
+        assert_eq!(
+            map_error(&verify_solve_status(&result).unwrap_err()),
+            HYBIT_NOT_CONVERGED
+        );
+        result.status = SolveStatus::Breakdown;
+        assert_eq!(
+            map_error(&verify_solve_status(&result).unwrap_err()),
+            HYBIT_NUMERICAL_FAILURE
         );
     }
 

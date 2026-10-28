@@ -195,7 +195,8 @@ pub struct SolveReport {
     pub relative_residual: f64,
     /// Total setup time charged to this report.
     pub setup_seconds: f64,
-    /// Total Krylov solve time charged to this report.
+    /// Total solve time, including the high-level final CSR residual check.
+    /// Component timings such as `restart_seconds` exclude that final check.
     pub solve_seconds: f64,
     /// Matrix analysis cost charged to this solve.
     pub analysis_seconds: f64,

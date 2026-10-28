@@ -599,3 +599,60 @@ P1–P3-C. This checkpoint records test evidence only.
 **Next single prioritized action:** apply/review the guarded P4-A-FIX1
 documentation/CI patch on exactly the audited commit, then run integrity,
 format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
+
+## 2026-10-28 — post-0.9.0 reliability review (Linux fallback, local changes)
+
+- **Source:** exact published `v0.9.0` commit `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4` on `develop/0.9.0`, checked out into local branch `review/0.9.0-true-residual`. The user's canonical `D:\Work\hybit\hybit` Windows worktree was not available; do not assume it matches this clone.
+- **Implementation:** high-level prepared and structural solves independently certify final `||b-A*x||` from original CSR using a scaled finite-data norm, classifying false recursive convergence as `Breakdown`; low-level serial/parallel/resident PCG rejects `Inf <= Inf` zero-iteration convergence and non-finite update scalars. C ABI return codes now distinguish numerical failure (3) from exhausted iterations (4); signatures, struct layouts and defaults preserved. Linux CI checks tracked manifest and complete SHA-256 inventory. Entry READMEs and post-release notes corrected for the 0.9.0 release. See `docs/REVIEW_2026-10-28.md`.
+- **Verified here:** Rust 1.99.1 Linux x86_64; pre-change and after-change `cargo test --workspace --locked` PASS; after-change `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check`, Linux source-integrity and staged diff gates PASS. Additional targeted tests cover actual high-level `1e-200` RHS false-success prevention, simulated recurrence drift, failed-status non-promotion, FFI error classification and non-finite PCG norms across three execution modes. Standard Linux Release with thin LTO **failed at rust-lld link** (unresolved core/alloc symbols); diagnostic `CARGO_PROFILE_RELEASE_LTO=false cargo test --release --workspace --locked` PASS. The same override allowed `fem_bench` `poisson5.mtx` 5-DOF smoke to PASS (3 iterations; true residual and manufactured solution error zero). The LTO-off result does **not** qualify the unchanged Release profile.
+- **Not verified here:** Windows MSVC + Microsoft MS-MPI, C/C++/Fortran ABI smoke, real-FEM time-to-solution/peak RSS, arbitrary non-SPD matrices, post-push GitHub CI or any new release. No performance speedup or universal SPD claim.
+- **Diff/rollback:** local uncommitted review branch; no push, tag, registry upload or Release. Revert only this branch's scoped changes if Windows numerical/ABI gates fail. Final source hashes, tracked manifest inventory and staged diff were rechecked before handoff.
+- **Next single action:** transplant/compare this patch with the owner's canonical Windows worktree at its actual HEAD and run the native Windows release-test/ABI/MS-MPI correctness gates prior to any merge.
+
+## 2026-10-28 — 0.10.0 first development checkpoint (supersedes prior next action)
+
+- **Branch/base:** `develop/0.10.0` exists on GitHub at published
+  `v0.9.0` commit `0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`.
+  The user fetched/tracked it in WSL2 at `/home/michioga/hybit`.
+  The assistant's separate Linux working copy uses the same branch/base,
+  with **uncommitted staged post-0.9.0 reliability changes** plus this
+  checkpoint's new version/documentation edits. They are **not yet on GitHub**
+  or in the user's WSL2 checkout.
+- **User WSL2 baseline (before 0.10 edits):** Ubuntu 26.04.1, Rust/Cargo
+  1.99.1, GCC/gfortran 15.2, Open MPI 5.0.10/PRRTE 3.0.13, WSL 3.0.3 and
+  Linux kernel 6.18.54.1. `perf` user-mode cycles/instructions available.
+  Debug + standard thin-LTO Release workspace tests **236/236 each PASS**,
+  strict Clippy and rustfmt PASS, `hybit-distributed --features mpi`
+  **100/100 PASS**, native Release owned-CSR/PCG across 1/2/4/8 MPI
+  ranks **80/80 PASS** on manufactured 4k/16k-DOF SPD cases.
+  This is not post-patch validation or proof of multi-node speedup.
+- **Implementation in assistant copy:** carry forward the 16-file
+  numerical-hardening patch; align workspace + eight crate versions and
+  internal path-dependency requirements to `0.10.0` in Cargo manifests/
+  lockfile; add `develop/0.10.0` to GitHub Actions push triggers;
+  document the independent review's critical performance/autonomy concerns
+  in `docs/DEVELOPMENT_PLAN_0.10.0.md`; correct development-status/roadmap
+  headings while retaining published 0.9.0 history. No automatic solver/
+  MPI/ABTM policy or public API signature change.
+- **Correctness hypothesis:** original-CSR final certification and finite
+  PCG guards make false success observable without changing valid SPD
+  results or ABI layout. **Performance hypothesis to test next:** with
+  fixed local factor memory, some verified SPD FEM problems benefit from
+  256/512 vs 128 local DOFs while others lose. Require matched residual,
+  manufactured error, cold/setup/reuse time and peak RSS, plus PETSc/hypre
+  AMG comparison where available. See the new plan. No such speedup has
+  been established yet.
+- **Assistant-side gates after version edit:** Rust 1.99.1 offline
+  `cargo metadata --locked`, default-feature `cargo test --workspace
+  --locked`, strict workspace Clippy, rustfmt and diagnostic LTO-off Release
+  tests **PASS**. Standard thin-LTO Release previously failed only in this
+  isolated Linux runner; the user's WSL2 standard Release passed on the
+  **pre-patch** baseline. WSL post-patch native MPI/FFI and real-FEM gates
+  remain pending.
+- **Rollback:** preserve the `v0.9.0` base, user's WSL state and the
+  saved `HyBIT_0.10.0_post_release_hardening.patch` in ChatGPT Library.
+  Do not discard user changes, commit, push or tag without approval.
+- **Next one action:** integrate this candidate with the owner's clean
+  WSL2 `develop/0.10.0` and rerun native Linux release + MPI +
+  source-integrity/ABI gates before the first authorized checkpoint;
+  then build the real-FEM repeated-trial runner.

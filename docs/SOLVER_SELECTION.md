@@ -1,6 +1,6 @@
 # Solver selection and Krylov theory
 
-> Development documentation for `develop/0.8.0`.
+> Numerical contracts for `develop/0.9.0` (with historical 0.8 experiments).
 >
 > This document describes the mathematical contracts behind HyBIT's current
 > square-system routing. It distinguishes implemented paths from future routes.
@@ -329,6 +329,22 @@ relative_residual = ||b - A x||_2 / ||b||_2
 This distinction matters for restarted methods, finite precision, and
 ill-conditioned or strongly nonnormal problems.
 
+In the high-level `HybitPreparedSystem::solve`, `HybitSolver::solve_csr32`
+and structural prepared routes, the final report additionally recomputes
+`b - A*x` using the **original CSR matrix**, including when the iteration
+used ABTM or Rayon. This also certifies the PCG path, whose inner recurrence
+uses a cheaper recursively updated residual. It costs one extra CSR SpMV
+and an `O(n)` temporary buffer per high-level solve; `solve_seconds` includes
+that final check while `restart_seconds` remains Krylov-only.
+
+If PCG declares convergence but this independent residual exceeds the
+configured absolute/relative tolerance, the high-level report returns
+`SolveStatus::Breakdown`, not a false success. A failed iteration is never
+promoted to convergence solely by the post-check. The C ABI maps `Breakdown`
+to `HYBIT_NUMERICAL_FAILURE` and `MaxIterations` to `HYBIT_NOT_CONVERGED`.
+Low-level `hybit_krylov::pcg` returns a recurrence-level `KrylovOutcome`;
+consumers of that lower-level API should independently check the true residual.
+
 ## 9. Jacobi versus ILU(0) on GeneralSquare
 
 The two current choices make different compromises.
@@ -431,6 +447,8 @@ Examples in the current implementation include:
 - FGMRES encounters a singular/non-finite Hessenberg factor;
 - FGMRES Arnoldi can reach a happy breakdown; HyBIT recomputes the true
   residual and reports convergence only if the actual tolerance is met.
+- a high-level solve's recursive PCG convergence disagrees with the original
+  CSR true-residual certification.
 
 When breakdown occurs, increasing only `max_iterations` is generally not a
 meaningful remedy. Recheck the declared matrix class, matrix validity,

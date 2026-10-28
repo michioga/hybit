@@ -1,5 +1,23 @@
 # Changelog
-## 0.9.0 release candidate (unpublished)
+
+## 0.10.0 development (unreleased)
+
+Initial scope: post-0.9.0 numerical reliability hardening and reproducible
+real-FEM performance evidence. This branch is **not** a published release.
+
+- Independently certify the final residual against original CSR coefficients
+  on the high-level SPD, structural and GeneralSquare solve paths; reject
+  recursive PCG false convergence instead of reporting success. Use a scaled
+  norm for that final certificate to avoid overflow/underflow in finite data.
+- Reject non-finite initial PCG norms/thresholds and non-finite update
+  scalars across scalar, Rayon-vector and resident execution paths, including
+  the previous `Inf <= Inf` false-convergence case.
+- Map FFI numerical breakdown to `HYBIT_NUMERICAL_FAILURE`, distinct from an
+  exhausted iteration budget; preserve public data layouts and entry points.
+- Check `MANIFEST.txt`/`SOURCE_SHA256.txt` in CI, not only local release gates.
+- Correct the published version and MSRV in the English/Japanese entry points.
+
+## 0.9.0 release (2026-10-27)
 
 - Prepare Rust 2024 Edition / Rust 1.99.1 and seven proposed crates.io
   packages: `hybit-core`, `hybit-matrix`, `hybit-krylov`, `hybit-precond`,
@@ -16,9 +34,9 @@
 - Document strict PCG true-residual and manufactured-solution certificates;
   in particular, the `cant` D9-C8G 3000-iteration run did not pass its
   forward-error check even though its true residual was small.
-- Keep Windows native ABI verification, seven-crate license distribution
-  review, registry-dependent dry-runs and publication authorization as
-  outstanding release gates. Do not tag or publish based on this entry.
+- The final publication followed separate Windows C/C++/Fortran ABI, packaging,
+  source-integrity and dependency-order checks. The experimental MPI and
+  numerical applicability limits above remain in force.
 
 ## 0.8.0 release
 

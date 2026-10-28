@@ -1,9 +1,10 @@
-# HyBIT 0.9.0 — release candidate notes (DRAFT, NOT PUBLISHED)
+# HyBIT 0.9.0 — release notes (published 2026-10-27)
 
-This document describes the proposed 0.9.0 source line. It is **not** a
-publication announcement. HyBIT 0.8.0 remains the published release until
-the 0.9.0 release gates, explicit approval, crate uploads and GitHub Release
-have all completed.
+HyBIT 0.9.0 was published as seven crates.io packages, with source pinned at
+the immutable `v0.9.0` tag (`0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`).
+The native C/C++/Fortran ABI and MS-MPI validation paths are separately
+qualified; the opt-in MPI experiments do not imply portable speedups.
+Further reliability work is tracked as **unreleased** changes in CHANGELOG.
 
 ## Main changes since 0.8.0
 
@@ -67,7 +68,7 @@ runtime compatibility must be checked separately on Windows/MSVC before
 the release is accepted. Native MPI qualification uses Microsoft MS-MPI,
 not MinGW or Open MPI.
 
-## Outstanding publication conditions
+## Historical publication-candidate conditions
 
 - P4-B: real Windows MSVC C/C++/Fortran ABI/runtime tests.
 - Confirm MIT license-text inclusion/distribution policy for every
@@ -80,6 +81,10 @@ not MinGW or Open MPI.
   check clean source integrity, CI, docs and reproducible numerical output.
 - Obtain explicit approval before any registry upload, annotated tag or
   public GitHub Release. Published artifacts and version tags are immutable.
+
+These were release-candidate checks, not outstanding conditions after the
+2026-10-27 publication. Do not republish or overwrite the immutable tag;
+post-release fixes require a separately reviewed new release decision.
 
 See `docs/PUBLISHING.md` for the release process and
 `docs/SESSION_HANDOFF.md` for detailed measurements and limits.

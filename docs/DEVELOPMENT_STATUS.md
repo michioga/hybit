@@ -1,14 +1,22 @@
 # HyBIT development status
 
-Last updated: 2026-10-07
+Last updated: 2026-10-28 (0.10.0 development status; historical 0.8 material retained)
 
 ## Published release
 
-- Current published release: HyBIT 0.8.0.
-- Release tag: `v0.8.0`.
-- Six Rust crates are published as 0.8.0 on crates.io.
-- `hybit-ffi` remains repository-only.
-- Rust 1.73 remains the declared MSRV.
+- Current published release: HyBIT **0.9.0** (immutable `v0.9.0` at `0a8cd327`).
+- Seven Rust crates were published for 0.9.0; `hybit-ffi` is repository-only.
+- The `develop/0.10.0` branch is **unreleased**, with a Rust 1.99.1
+  workspace and an initial numerical-reliability patch under local validation.
+- WSL2 Ubuntu 26.04.1 user baseline: Debug and standard thin-LTO Release
+  workspace test suites 236/236 each PASS; MPI-feature tests 100/100 PASS;
+  1/2/4/8-rank native Open MPI owned-CSR/PCG synthetic cases **80/80 PASS**
+  **before** applying the 0.10.0 patch. Do not treat these as post-patch gates.
+- Rust **1.99.1** is the declared MSRV for 0.9.0 and this development branch.
+
+See [the 0.10.0 real-FEM performance and validation plan](DEVELOPMENT_PLAN_0.10.0.md)
+and the chronological `SESSION_HANDOFF.md` for current next actions. The
+following 0.8.0 section is **historical**, not current development status.
 
 The 0.8 release freezes the validated GeneralSquare FGMRES/ILU(0), ABTM G1-G7,
 prepared execution, Rayon, and C/C++/Fortran thread-interoperability work.

@@ -22,6 +22,7 @@
 # Validation and project status
 
 - [FEM benchmark](FEM_BENCHMARK.md)
+- [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
 - [Development status](DEVELOPMENT_STATUS.md)
 - [Roadmap](ROADMAP.md)
 - [Publishing discipline](PUBLISHING.md)

@@ -934,7 +934,23 @@ impl HybitPreparedSystem {
         Ok(())
     }
 
+    /// Solves and verifies the final residual against the original CSR matrix.
+    /// A recursively converged PCG iteration is not accepted when the
+    /// independently computed residual fails the requested tolerance.
     pub fn solve(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
+        let mut report = self.solve_inner(matrix, b, x)?;
+        let start = Instant::now();
+        certify_final_residual(matrix, b, x, self.options, &mut report)?;
+        report.solve_seconds += start.elapsed().as_secs_f64();
+        Ok(report)
+    }
+
+    fn solve_inner(
         &mut self,
         matrix: &Csr32Matrix,
         b: &[f64],
@@ -1833,6 +1849,19 @@ impl HybitPreparedStructuralSystem {
         b: &[f64],
         x: &mut [f64],
     ) -> Result<SolveReport, HybitError> {
+        let mut report = self.solve_inner(matrix, b, x)?;
+        let start = Instant::now();
+        certify_final_residual(matrix, b, x, self.options, &mut report)?;
+        report.solve_seconds += start.elapsed().as_secs_f64();
+        Ok(report)
+    }
+
+    fn solve_inner(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<SolveReport, HybitError> {
         self.validate_matrix(matrix)?;
         if b.len() != matrix.nrows() {
             return Err(HybitError::DimensionMismatch {
@@ -2708,6 +2737,66 @@ fn report_from_outcome(
     }
 }
 
+/// Certify the public result using the original CSR coefficients, even when
+/// the Krylov recurrence used a prepared ABTM or Rayon operator.  The low-level
+/// PCG recurrence intentionally retains its inexpensive recursive residual;
+/// this final check protects the high-level solve/solve-many contract.
+fn scaled_l2_norm(values: impl Iterator<Item = f64>) -> f64 {
+    // Scaled sum of squares avoids treating a nonzero 1e-200 residual as zero
+    // or overflowing a finite 1e200 residual merely while taking its norm.
+    let mut scale = 0.0_f64;
+    let mut sumsq = 1.0_f64;
+    for value in values {
+        let magnitude = value.abs();
+        if !magnitude.is_finite() {
+            return magnitude;
+        }
+        if magnitude > scale {
+            let ratio = scale / magnitude;
+            sumsq = 1.0 + sumsq * ratio * ratio;
+            scale = magnitude;
+        } else if magnitude != 0.0 {
+            let ratio = magnitude / scale;
+            sumsq += ratio * ratio;
+        }
+    }
+    scale * sumsq.sqrt()
+}
+
+fn certify_final_residual(
+    matrix: &Csr32Matrix,
+    b: &[f64],
+    x: &[f64],
+    options: SolverOptions,
+    report: &mut SolveReport,
+) -> Result<(), HybitError> {
+    let ax = matrix.spmv(x)?;
+    // Compute the norm without allocating another full-length residual vector.
+    let true_residual = scaled_l2_norm(b.iter().zip(&ax).map(|(&bi, &axi)| bi - axi));
+    let b_norm = scaled_l2_norm(b.iter().copied());
+    let target = options
+        .absolute_tolerance
+        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+
+    report.final_residual = true_residual;
+    report.relative_residual = if b_norm == 0.0 {
+        true_residual
+    } else {
+        true_residual / b_norm
+    };
+
+    // A mismatch between the recursive convergence test and the original
+    // system is a numerical reliability breakdown, not a successful solve.
+    // Never promote a previously unsuccessful Krylov status based on this check.
+    if !true_residual.is_finite()
+        || !b_norm.is_finite()
+        || (report.status == SolveStatus::Converged && true_residual > target)
+    {
+        report.status = SolveStatus::Breakdown;
+    }
+    Ok(())
+}
+
 fn fnv_mix(mut h: u64, value: u64) -> u64 {
     const PRIME: u64 = 0x100000001b3;
     for b in value.to_le_bytes() {
@@ -3280,6 +3369,109 @@ mod tests {
         let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
         assert!(report.converged());
         assert!(report.krylov_workspace_bytes > 0);
+        let ax = a.spmv(&x).unwrap();
+        let expected = b
+            .iter()
+            .zip(&ax)
+            .map(|(&bi, &axi)| (bi - axi).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        assert!((report.final_residual - expected).abs() <= 1.0e-12 * expected.max(1.0e-15));
+        assert!(
+            (report.relative_residual - expected / l2_norm(&b)).abs()
+                <= 1.0e-12 * (expected / l2_norm(&b)).max(1.0e-15)
+        );
+    }
+
+    #[test]
+    fn final_csr_certification_rejects_false_recursive_convergence() {
+        let a = poisson_1d(3);
+        let b = [1.0, 0.0, 1.0];
+        let x = [0.0; 3];
+        let options = SolverOptions::default();
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::Converged,
+                iterations: 1,
+                initial_residual: l2_norm(&b),
+                final_residual: 0.0,
+            },
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, options, &mut report).unwrap();
+        assert_eq!(report.status, SolveStatus::Breakdown);
+        assert_eq!(report.final_residual, 2.0_f64.sqrt());
+        assert_eq!(report.relative_residual, 1.0);
+        assert_eq!(report.iterations, 1);
+    }
+
+    #[test]
+    fn final_csr_certification_does_not_promote_failed_krylov_status() {
+        let a = poisson_1d(3);
+        let b = [0.0; 3];
+        let x = [0.0; 3];
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::MaxIterations,
+                iterations: 1,
+                initial_residual: 1.0,
+                final_residual: 1.0,
+            },
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, SolverOptions::default(), &mut report).unwrap();
+        assert_eq!(report.status, SolveStatus::MaxIterations);
+        assert_eq!(report.final_residual, 0.0);
+        assert_eq!(report.relative_residual, 0.0);
+    }
+
+    #[test]
+    fn final_csr_certification_uses_scaled_norm_for_extreme_finite_rhs() {
+        let a = poisson_1d(1);
+        let x = [0.0];
+        for rhs in [1.0e-200, 1.0e200] {
+            let b = [rhs];
+            let mut report = report_from_outcome(
+                KrylovOutcome {
+                    status: SolveStatus::Converged,
+                    iterations: 0,
+                    initial_residual: 0.0,
+                    final_residual: 0.0,
+                },
+                SolverKind::Pcg,
+                PreconditionerKind::Jacobi,
+                MatrixBackend::Csr32,
+                &b,
+                ReportMetrics::default(),
+            );
+            certify_final_residual(&a, &b, &x, SolverOptions::default(), &mut report).unwrap();
+            assert_eq!(report.status, SolveStatus::Breakdown);
+            assert_eq!(report.final_residual, rhs);
+            assert_eq!(report.relative_residual, 1.0);
+        }
+    }
+
+    #[test]
+    fn high_level_solve_rejects_recursive_norm_underflow_false_success() {
+        let a = poisson_1d(1);
+        let b = [1.0e-200];
+        let mut x = [0.0];
+        let report = HybitSolver::new().solve_csr32(&a, &b, &mut x).unwrap();
+        // The inexpensive inner PCG squared norm underflows to zero, but the
+        // independent scaled original-CSR certificate catches the nonzero RHS.
+        assert_eq!(report.status, SolveStatus::Breakdown);
+        assert_eq!(report.iterations, 0);
+        assert_eq!(report.final_residual, b[0]);
+        assert_eq!(report.relative_residual, 1.0);
+        assert_eq!(x, [0.0]);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::KrylovOutcome;
+use crate::{KrylovOutcome, checked_pcg_target};
 use hybit_core::{
     ExecutionTarget, HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions,
 };
@@ -465,9 +465,7 @@ where
 
     let initial_residual = backend.l2_norm(&workspace.r)?;
     let b_norm = backend.l2_norm(&workspace.rhs)?;
-    let target = options
-        .absolute_tolerance
-        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    let target = checked_pcg_target(options, initial_residual, b_norm)?;
 
     if initial_residual <= target {
         backend.download(&workspace.solution, x)?;
@@ -506,6 +504,15 @@ where
         }
 
         let alpha = rz_old / denom;
+        if !alpha.is_finite() {
+            backend.download(&workspace.solution, x)?;
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter - 1,
+                initial_residual,
+                final_residual,
+            });
+        }
         final_residual = backend.update_x_r_and_norm(
             &mut workspace.solution,
             &mut workspace.r,
@@ -513,6 +520,16 @@ where
             &workspace.ap,
             alpha,
         )?;
+
+        if !final_residual.is_finite() {
+            backend.download(&workspace.solution, x)?;
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual,
+            });
+        }
 
         if final_residual <= target {
             backend.download(&workspace.solution, x)?;
@@ -538,6 +555,15 @@ where
         }
 
         let beta = rz_new / rz_old;
+        if !beta.is_finite() {
+            backend.download(&workspace.solution, x)?;
+            return Ok(KrylovOutcome {
+                status: SolveStatus::Breakdown,
+                iterations: iter,
+                initial_residual,
+                final_residual,
+            });
+        }
         backend.update_search_direction(&mut workspace.p, &workspace.z, beta)?;
         rz_old = rz_new;
     }

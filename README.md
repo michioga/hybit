@@ -9,11 +9,11 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
-> **Project status:** HyBIT 0.8.0 is the current published release. It is available from crates.io and tagged as `v0.8.0`. The SPD automatic path uses PCG/Hybrid/structural policies; GeneralSquare uses prepared FGMRES with Jacobi by default and explicit ILU(0) options. ABTM is retained as a topology/symbolic/preparation layer, while repeated numerical execution uses target-appropriate prepared representations. APIs may evolve before 1.0.
+> **Project status:** HyBIT 0.9.0 is the published release, available on crates.io and tagged as `v0.9.0`. It remains pre-1.0. SPD uses PCG/Hybrid/structural policies; GeneralSquare uses prepared FGMRES with Jacobi by default and explicit ILU(0). ABTM provides topology/symbolic preparation and prepared numeric layouts are selected for their measured value. APIs may evolve before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。
 
-> **Post-0.8 direction:** distributed topology/partition/halo work is the next priority. GPU/CubeCL integration remains planned but is deferred until the CubeCL API is sufficiently stable for HyBIT's production boundary.
+> **0.9 scope:** `hybit-distributed` supplies partition/Halo primitives and opt-in MPI experiments. The native MS-MPI numerical gates are not a portable, automatically routed distributed solver performance guarantee. GPU/CubeCL, MINRES, general whole-system direct fallback and frictional-contact nonlinear control remain future work.
 ## Highlights
 
 - Rust-first implementation with a stable C ABI for C, C++, and Fortran consumers.
@@ -26,21 +26,20 @@ HyBIT starts from a low-cost iterative path, observes convergence, identifies nu
 - Bounded dense Cholesky factors for selected SPD principal submatrices.
 - `analyze -> prepare -> solve-many` execution with reusable workspaces and learned local factors.
 - Detailed `SolveReport` diagnostics for convergence, timings, selected regions, factor memory, and reuse.
+- Independent final true-residual certification against the original CSR matrix on the high-level solve paths (post-0.9.0 hardening branch).
 - MIT licensed.
 
 ## Install
 
-The HyBIT 0.8.0 release uses the `hybit` facade crate together with its internal Rust crates:
+The HyBIT 0.9.0 release uses the `hybit` facade crate together with its internal Rust crates:
 
 ```bash
-cargo add hybit@0.8.0
+cargo add hybit@0.9.0
 ```
 
-HyBIT 0.8.0 is published on crates.io; the matching release source is tagged `v0.8.0`.
+HyBIT 0.9.0 is published on crates.io; the matching release source is tagged `v0.9.0`.
 
-Rust 1.73 or newer is required for the immutable 0.8.0 release.
-
-**0.9.0 development branch:** Rust 2024 Edition, Rust 1.99.1 or newer, Cargo resolver 3. MS-MPI development uses Windows MSVC; WSL is used only for external METIS/SCOTCH partition baselines.
+Rust 1.99.1 or newer is required for 0.9.0 (Rust 2024 Edition, Cargo resolver 3). Native MPI validation targets Windows MSVC + Microsoft MS-MPI. For the older immutable 0.8.0 release, Rust 1.73 is sufficient.
 
 ## Quick start
 
@@ -212,7 +211,7 @@ hardware-specific prepared-operator nnz selector.
 
 ## Current scope and limitations
 
-HyBIT 0.8.0 remains intentionally bounded in numerical scope:
+HyBIT 0.9.0 remains intentionally bounded in numerical scope:
 
 - real `f64` matrices;
 - SPD systems on the automatic path with PCG/Hybrid/structural routes;
@@ -223,7 +222,8 @@ HyBIT 0.8.0 remains intentionally bounded in numerical scope:
 - up to 8 local regions by default, each limited to 128 DOFs by default;
 - prepared-factor reuse only when matrix structure and coefficient bits are unchanged;
 - prepared contexts are not intended for concurrent mutation by multiple host threads; internal Rayon parallelism is supported;
-- no routed MINRES, distributed-memory solver, production GPU backend, or out-of-core execution yet;
+- MPI rank-local CSR, Halo and PCG paths are opt-in and experimentally validated on MS-MPI, without a universal production-routing or multi-node performance claim;
+- no routed MINRES, general whole-system sparse direct fallback, production GPU backend, or out-of-core execution yet;
 - the geometry-aware rigid-body coarse correction is currently specific to the explicit 3-D structural path and is not a general algebraic multigrid implementation;
 - adaptive region selection is currently heuristic rather than spectral.
 
@@ -238,6 +238,7 @@ crates/
   hybit-krylov    PCG and reusable Krylov workspace
   hybit-precond   Jacobi, local Cholesky, weighted Schwarz, rigid-body two-level
   hybit-auto      adaptive solver policy and prepared contexts
+  hybit-distributed partition, rank-local CSR, Halo and opt-in MPI primitives
   hybit           public Rust facade crate
   hybit-ffi       C ABI DLL layer (repository build, not published to crates.io)
 include/          C and C++ headers / Windows .def file

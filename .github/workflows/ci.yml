@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop/0.7.0, develop/0.8.0, develop/0.9.0]
+    branches: [main, develop/0.7.0, develop/0.8.0, develop/0.9.0, develop/0.10.0]
   pull_request:
   workflow_dispatch:
 
@@ -78,6 +78,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Verify tracked-source manifest and SHA-256 hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          diff -u <(LC_ALL=C sort MANIFEST.txt) <(git ls-files)
+          diff -u \
+            <(awk '$0 != "MANIFEST.txt" && $0 != "SOURCE_SHA256.txt"' MANIFEST.txt | LC_ALL=C sort) \
+            <(awk '{print $2}' SOURCE_SHA256.txt | LC_ALL=C sort)
+          sha256sum --check --strict --quiet SOURCE_SHA256.txt
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.99.1

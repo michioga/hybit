@@ -1,10 +1,10 @@
 //! HyBIT — Autonomous Hybrid Sparse Solver.
 //!
-//! HyBIT 0.7.0 provides a Rust facade for real SPD sparse systems using
-//! CSR32 input, PCG, generic algebraic two-level coarse correction, adaptive
-//! selective local Cholesky correction, weighted overlapping Schwarz,
-//! geometry-aware rigid-body coarse correction for 3-D structural systems,
-//! and reusable analyze/prepare/solve-many contexts.
+//! HyBIT provides a Rust facade for real sparse systems. Its automatic
+//! SPD path uses CSR32 input, PCG, algebraic/structural coarse correction,
+//! adaptive bounded local Cholesky and overlapping Schwarz. Explicit
+//! GeneralSquare routing uses prepared FGMRES. Prepared contexts support
+//! analyze/prepare/solve-many reuse.
 //!
 //! # Example
 //!

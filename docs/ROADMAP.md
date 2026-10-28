@@ -2,10 +2,16 @@
 
 This roadmap describes direction, not guaranteed dates.
 
-## Published baseline
+## Published baseline and active development
 
-HyBIT 0.8.0 is published at immutable tag `v0.8.0`, commit
-`2eddfe1551f5a11aa0c07ee8d50d6cac4372e400`.
+HyBIT **0.9.0** is published at immutable tag `v0.9.0`, commit
+`0a8cd32784a4a8ba5e3fe5840b526963bb7b1eb4`. Earlier `v0.8.0`
+remains available at `2eddfe1551f5a11aa0c07ee8d50d6cac4372e400`.
+The new `develop/0.10.0` line prioritizes numerical reliability and
+competitive end-to-end real-FEM evidence. See
+[`DEVELOPMENT_PLAN_0.10.0.md`](DEVELOPMENT_PLAN_0.10.0.md).
+
+The detailed 0.8/G7 sequence below is retained as historical evidence.
 
 ## Completed in 0.7
 

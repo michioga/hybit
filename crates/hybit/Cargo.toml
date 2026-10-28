@@ -17,13 +17,13 @@ publish = ["crates-io"]
 default = []
 mpi = ["dep:hybit-distributed", "hybit-distributed/mpi", "dep:mpi"]
 [dependencies]
-hybit-distributed = { version = "0.9.0", path = "../hybit-distributed", optional = true }
+hybit-distributed = { version = "0.10.0", path = "../hybit-distributed", optional = true }
 mpi = { version = "=0.8.0", default-features = false, optional = true }
-hybit-core = { version = "0.9.0", path = "../hybit-core" }
-hybit-matrix = { version = "0.9.0", path = "../hybit-matrix" }
-hybit-precond = { version = "0.9.0", path = "../hybit-precond" }
-hybit-krylov = { version = "0.9.0", path = "../hybit-krylov" }
-hybit-auto = { version = "0.9.0", path = "../hybit-auto" }
+hybit-core = { version = "0.10.0", path = "../hybit-core" }
+hybit-matrix = { version = "0.10.0", path = "../hybit-matrix" }
+hybit-precond = { version = "0.10.0", path = "../hybit-precond" }
+hybit-krylov = { version = "0.10.0", path = "../hybit-krylov" }
+hybit-auto = { version = "0.10.0", path = "../hybit-auto" }
 
 [[example]]
 name = "mpi_smoke"
