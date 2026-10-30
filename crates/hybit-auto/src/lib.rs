@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use hybit_core::{
-    ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
-    MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind,
-    SolverOptions, l2_norm,
+    ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,
+    LinearOperator, MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind,
+    SolveReport, SolveStatus, SolverKind, SolverOptions, l2_norm,
 };
 use hybit_krylov::{
     CpuKrylovExecution, FgmresOptions, FgmresRestartProgress, FgmresWorkspace, KrylovOutcome,
@@ -137,6 +137,20 @@ pub struct HybridOptions {
     /// enabled, otherwise Jacobi. The live PCG recurrence is preserved across
     /// this boundary if the preconditioner remains unchanged.
     pub probe_iterations: usize,
+    /// Experimental opt-in true-residual progress checks during unchanged-PCG
+    /// continuation. Zero (default) keeps the historical one-probe policy.
+    /// An observed slowdown may enter the existing budgeted local-direct path;
+    /// monitoring alone never restarts the Krylov recurrence.
+    pub progress_monitor_interval: usize,
+    /// Observe original-CSR residuals without entering local-direct escalation,
+    /// including escalation immediately after the initial probe. Requires a
+    /// positive `progress_monitor_interval` and changes no PCG recurrence.
+    pub progress_monitor_observe_only: bool,
+    /// Optional per-iteration geometric residual-ratio threshold in (0, 1).
+    /// When set, a checkpoint with worse progress may request escalation.
+    /// `None` (default) records progress but never triggers *post-probe*
+    /// escalation. This is deliberately not an inferred production policy.
+    pub progress_monitor_rate_limit: Option<f64>,
     /// Maximum number of local-direct strengthening restarts for one RHS.
     pub max_escalations: usize,
     /// PCG iteration budget for each non-final escalation stage.
@@ -171,6 +185,9 @@ impl Default for HybridOptions {
         Self {
             enabled: true,
             probe_iterations: 12,
+            progress_monitor_interval: 0,
+            progress_monitor_observe_only: false,
+            progress_monitor_rate_limit: None,
             max_escalations: 3,
             escalation_stage_iterations: 24,
             escalation_residual_ratio: 0.50,
@@ -391,6 +408,21 @@ impl HybridOptions {
     pub fn validate(&self) -> Result<(), HybitError> {
         if self.probe_iterations == 0 {
             return Err(HybitError::InvalidArgument("probe_iterations must be > 0"));
+        }
+        if self.progress_monitor_observe_only && self.progress_monitor_interval == 0 {
+            return Err(HybitError::InvalidArgument(
+                "progress_monitor_observe_only requires progress_monitor_interval > 0",
+            ));
+        }
+        if let Some(rate) = self.progress_monitor_rate_limit
+            && (self.progress_monitor_interval == 0
+                || !rate.is_finite()
+                || rate <= 0.0
+                || rate >= 1.0)
+        {
+            return Err(HybitError::InvalidArgument(
+                "progress_monitor_rate_limit requires a monitor interval and a finite rate in (0, 1)",
+            ));
         }
         if self.max_escalations == 0 {
             return Err(HybitError::InvalidArgument("max_escalations must be > 0"));
@@ -1334,7 +1366,8 @@ impl HybitPreparedSystem {
             ));
         }
 
-        let poor_progress = self.hybrid_options.enabled
+        let mut poor_progress = self.hybrid_options.enabled
+            && !self.hybrid_options.progress_monitor_observe_only
             && probe.status == SolveStatus::MaxIterations
             && probe.initial_residual > 0.0
             && probe.final_residual / probe.initial_residual
@@ -1360,58 +1393,133 @@ impl HybitPreparedSystem {
             ));
         }
 
-        // Acceptable progress is only a controller boundary, not a Krylov
-        // restart. Continue the exact same PCG recurrence with the same base
-        // preconditioner for the remaining budget.
-        if !poor_progress {
-            let continuation_start = Instant::now();
-            let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
-            let continuation = if let Some(coarse) = self.algebraic_coarse.as_ref() {
-                pcg_continue_with_workspace(
-                    operator,
-                    coarse,
-                    b,
-                    x,
-                    remaining,
-                    &mut current_pcg,
-                    &mut self.workspace,
-                )?
-            } else {
-                pcg_continue_with_workspace(
-                    operator,
-                    self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
-                        "prepared SPD Jacobi preconditioner is unavailable",
-                    ))?,
-                    b,
-                    x,
-                    remaining,
-                    &mut current_pcg,
-                    &mut self.workspace,
-                )?
-            };
-            let outcome = combine_outcomes(probe, continuation);
-            let mut metrics = base_metrics;
-            metrics.restart_seconds = continuation_start.elapsed().as_secs_f64();
-            return Ok(report_from_outcome(
-                outcome,
-                if base_uses_coarse {
-                    SolverKind::Hybrid
-                } else {
-                    SolverKind::Pcg
-                },
-                if base_uses_coarse {
-                    PreconditionerKind::Hybrid
-                } else {
-                    PreconditionerKind::Jacobi
-                },
-                self.backend,
-                b,
-                metrics,
-            ));
-        }
-
         let mut outcome = probe;
         let mut metrics = base_metrics;
+        // Optional C1-B diagnostic: monitor actual CSR residual progress after
+        // the initial probe. Segmenting PCG here must never restart its live
+        // recurrence; only a successful local-direct strengthening below may
+        // replace the preconditioner and PCG session.
+        if !poor_progress {
+            let interval = if self.hybrid_options.enabled {
+                self.hybrid_options.progress_monitor_interval
+            } else {
+                0
+            };
+            let mut previous_true_norm =
+                if interval > 0 && outcome.status == SolveStatus::MaxIterations {
+                    let diagnostics_start = Instant::now();
+                    let norm = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
+                    metrics.diagnostics_seconds += diagnostics_start.elapsed().as_secs_f64();
+                    metrics.progress_monitor_checks += 1;
+                    metrics
+                        .progress_monitor_samples
+                        .push(HybridProgressMonitorSample {
+                            iteration: outcome.iterations,
+                            true_residual: norm,
+                            mean_ratio_per_iteration: None,
+                            requested_escalation: false,
+                        });
+                    Some(norm)
+                } else {
+                    None
+                };
+            let mut previous_monitor_iteration = outcome.iterations;
+
+            while remaining > 0 && outcome.status == SolveStatus::MaxIterations {
+                let budget = if interval == 0 {
+                    remaining
+                } else {
+                    interval.min(remaining)
+                };
+                let continuation_start = Instant::now();
+                let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+                let continuation = if let Some(coarse) = self.algebraic_coarse.as_ref() {
+                    pcg_continue_with_workspace(
+                        operator,
+                        coarse,
+                        b,
+                        x,
+                        budget,
+                        &mut current_pcg,
+                        &mut self.workspace,
+                    )?
+                } else {
+                    pcg_continue_with_workspace(
+                        operator,
+                        self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                            "prepared SPD Jacobi preconditioner is unavailable",
+                        ))?,
+                        b,
+                        x,
+                        budget,
+                        &mut current_pcg,
+                        &mut self.workspace,
+                    )?
+                };
+                metrics.restart_seconds += continuation_start.elapsed().as_secs_f64();
+                let executed = continuation.iterations;
+                remaining = remaining.saturating_sub(executed);
+                outcome = combine_outcomes(outcome, continuation);
+
+                if interval == 0 || remaining == 0 || outcome.status != SolveStatus::MaxIterations {
+                    break;
+                }
+                // Compare consecutive non-overlapping windows of true
+                // residuals. Never use the recursive PCG residual for the
+                // escalation decision: it can drift on difficult FEM systems.
+                let diagnostics_start = Instant::now();
+                let true_norm = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
+                metrics.diagnostics_seconds += diagnostics_start.elapsed().as_secs_f64();
+                metrics.progress_monitor_checks += 1;
+                let per_iteration_ratio = previous_true_norm.and_then(|prev| {
+                    progress_ratio_per_iteration(
+                        prev,
+                        true_norm,
+                        outcome.iterations - previous_monitor_iteration,
+                    )
+                });
+                let would_escalate = self
+                    .hybrid_options
+                    .progress_monitor_rate_limit
+                    .zip(per_iteration_ratio)
+                    .is_some_and(|(limit, rate)| rate > limit);
+                metrics
+                    .progress_monitor_samples
+                    .push(HybridProgressMonitorSample {
+                        iteration: outcome.iterations,
+                        true_residual: true_norm,
+                        mean_ratio_per_iteration: per_iteration_ratio,
+                        requested_escalation: would_escalate,
+                    });
+                if would_escalate && !self.hybrid_options.progress_monitor_observe_only {
+                    poor_progress = true;
+                    metrics.progress_monitor_trigger_iteration = Some(outcome.iterations);
+                    break;
+                }
+                previous_true_norm = Some(true_norm);
+                previous_monitor_iteration = outcome.iterations;
+            }
+
+            if !poor_progress || remaining == 0 || outcome.status != SolveStatus::MaxIterations {
+                return Ok(report_from_outcome(
+                    outcome,
+                    if base_uses_coarse {
+                        SolverKind::Hybrid
+                    } else {
+                        SolverKind::Pcg
+                    },
+                    if base_uses_coarse {
+                        PreconditionerKind::Hybrid
+                    } else {
+                        PreconditionerKind::Jacobi
+                    },
+                    self.backend,
+                    b,
+                    metrics,
+                ));
+            }
+        }
+
         let mut active_regions: Vec<Vec<usize>> = Vec::new();
         let mut current_hybrid: Option<HybridPreconditioner> = None;
 
@@ -1977,6 +2085,9 @@ struct ReportMetrics {
     escalation_stages: Vec<HybridEscalationStageReport>,
     probe_iterations: usize,
     probe_final_residual: f64,
+    progress_monitor_checks: usize,
+    progress_monitor_trigger_iteration: Option<usize>,
+    progress_monitor_samples: Vec<HybridProgressMonitorSample>,
     hard_dofs: usize,
     local_direct_regions: usize,
     largest_local_region: usize,
@@ -2717,6 +2828,9 @@ fn report_from_outcome(
         escalation_stages: metrics.escalation_stages,
         probe_iterations: metrics.probe_iterations,
         probe_final_residual: metrics.probe_final_residual,
+        progress_monitor_checks: metrics.progress_monitor_checks,
+        progress_monitor_trigger_iteration: metrics.progress_monitor_trigger_iteration,
+        progress_monitor_samples: metrics.progress_monitor_samples,
         hard_dofs: metrics.hard_dofs,
         local_direct_regions: metrics.local_direct_regions,
         largest_local_region: metrics.largest_local_region,
@@ -2735,6 +2849,25 @@ fn report_from_outcome(
         solve_sequence: metrics.solve_sequence,
         krylov_workspace_bytes: metrics.krylov_workspace_bytes,
     }
+}
+
+/// Geometric mean of the original-CSR residual ratio per *actual* PCG step.
+/// Logarithmic computation avoids norm-ratio underflow and overflow when the
+/// raw positive residual norms vary greatly in scale.
+fn progress_ratio_per_iteration(previous: f64, current: f64, steps: usize) -> Option<f64> {
+    if steps == 0
+        || !previous.is_finite()
+        || !current.is_finite()
+        || previous <= 0.0
+        || current < 0.0
+    {
+        return None;
+    }
+    if current == 0.0 {
+        return Some(0.0);
+    }
+    let log_rate = (current.ln() - previous.ln()) / steps as f64;
+    Some(log_rate.exp().min(f64::MAX))
 }
 
 /// Certify the public result using the original CSR coefficients, even when
@@ -4148,6 +4281,191 @@ mod tests {
             let scale = segmented.abs().max(direct_value.abs()).max(1.0);
             assert!((segmented - direct_value).abs() <= 1.0e-12 * scale);
         }
+    }
+
+    #[test]
+    fn opt_in_progress_monitor_does_not_restart_healthy_pcg() {
+        let a = poisson_1d(96);
+        let b = vec![1.0; a.nrows()];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 100,
+        };
+        let jacobi = JacobiPreconditioner::from_csr32(&a).unwrap();
+        let mut direct_x = vec![0.0; a.nrows()];
+        let direct = pcg(&a, &jacobi, &b, &mut direct_x, options).unwrap();
+
+        let mut solver = HybitSolver::new();
+        solver.set_options(options).unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 3,
+                progress_monitor_interval: 7,
+                escalation_residual_ratio: 1.0e300,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+        let mut monitored_x = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut monitored_x).unwrap();
+
+        assert_eq!(report.status, direct.status);
+        assert_eq!(report.iterations, direct.iterations);
+        assert_eq!(report.escalations, 0);
+        assert!(report.progress_monitor_checks > 1);
+        assert_eq!(report.progress_monitor_trigger_iteration, None);
+        assert_eq!(
+            report.progress_monitor_checks,
+            report.progress_monitor_samples.len()
+        );
+        assert_eq!(report.progress_monitor_samples[0].iteration, 3);
+        assert_eq!(
+            report.progress_monitor_samples[0].mean_ratio_per_iteration,
+            None
+        );
+        for (&observed, &expected) in monitored_x.iter().zip(direct_x.iter()) {
+            assert!((observed - expected).abs() <= 1.0e-12 * expected.abs().max(1.0));
+        }
+    }
+
+    #[test]
+    fn opt_in_progress_monitor_can_trigger_after_acceptable_probe() {
+        // The easy diagonal block dominates the initial norm and disappears
+        // rapidly; the remaining 1D Poisson block then converges slowly.
+        // The trigger must therefore occur after the probe, not during it.
+        let a = block_diagonal(1024, &[64], 0);
+        let b = vec![1.0; a.nrows()];
+        let mut solver = HybitSolver::new();
+        solver
+            .set_options(SolverOptions {
+                relative_tolerance: 1.0e-12,
+                absolute_tolerance: 0.0,
+                max_iterations: 100,
+            })
+            .unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 12,
+                progress_monitor_interval: 1,
+                progress_monitor_rate_limit: Some(0.95),
+                escalation_residual_ratio: 0.95,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+        let mut x = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
+
+        assert_eq!(report.probe_iterations, 12);
+        assert!(
+            matches!(report.progress_monitor_trigger_iteration, Some(i) if i > 12 && i < 20),
+            "{report:?}"
+        );
+        assert!(report.progress_monitor_checks >= 2);
+        assert!(
+            report
+                .progress_monitor_samples
+                .iter()
+                .any(|s| s.requested_escalation)
+        );
+        assert!(report.iterations <= 100);
+        assert!(report.relative_residual.is_finite());
+    }
+
+    #[test]
+    fn progress_rate_is_invariant_to_monitor_window_length() {
+        for per_step in [0.985_f64, 0.995_f64] {
+            for steps in [1, 64, 128, 256, 512] {
+                let current = 100.0 * per_step.powf(steps as f64);
+                let estimated = progress_ratio_per_iteration(100.0, current, steps).unwrap();
+                assert!((estimated - per_step).abs() < 1.0e-12);
+                assert_eq!(estimated > 0.99, per_step > 0.99);
+            }
+        }
+        assert!(progress_ratio_per_iteration(0.0, 1.0, 64).is_none());
+        assert!(progress_ratio_per_iteration(1.0, 1.0, 0).is_none());
+        assert_eq!(progress_ratio_per_iteration(1.0, 0.0, 64), Some(0.0));
+        assert!(
+            progress_ratio_per_iteration(1.0e200, 1.0e-200, 400)
+                .unwrap()
+                .is_finite()
+        );
+    }
+
+    #[test]
+    fn observe_only_monitor_never_escalates_and_preserves_pcg() {
+        let a = block_diagonal(32, &[64], 0);
+        let b = vec![1.0; a.nrows()];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-10,
+            absolute_tolerance: 0.0,
+            max_iterations: 100,
+        };
+        let jacobi = JacobiPreconditioner::from_csr32(&a).unwrap();
+        let mut baseline_x = vec![0.0; a.nrows()];
+        let direct = pcg(&a, &jacobi, &b, &mut baseline_x, options).unwrap();
+
+        let mut solver = HybitSolver::new();
+        solver.set_options(options).unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                probe_iterations: 4,
+                progress_monitor_interval: 2,
+                progress_monitor_observe_only: true,
+                // Deliberately broad candidate condition: observe-only must
+                // still suppress escalation when a sample meets it.
+                progress_monitor_rate_limit: Some(0.50),
+                escalation_residual_ratio: 1.0e-300,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+        let mut x = vec![0.0; a.nrows()];
+        let report = solver.solve_csr32(&a, &b, &mut x).unwrap();
+
+        assert_eq!(report.status, direct.status);
+        assert_eq!(report.iterations, direct.iterations);
+        assert_eq!(report.escalations, 0);
+        assert_eq!(report.progress_monitor_trigger_iteration, None);
+        assert!(report.progress_monitor_samples.len() > 2);
+        assert!(
+            report
+                .progress_monitor_samples
+                .iter()
+                .any(|s| s.requested_escalation)
+        );
+        for (&observed, &expected) in x.iter().zip(baseline_x.iter()) {
+            assert!((observed - expected).abs() <= 1.0e-12 * expected.abs().max(1.0));
+        }
+    }
+
+    #[test]
+    fn rate_limit_requires_monitor_and_finite_fraction() {
+        for rate in [0.0, 1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                HybridOptions {
+                    progress_monitor_interval: 64,
+                    progress_monitor_rate_limit: Some(rate),
+                    ..HybridOptions::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            HybridOptions {
+                progress_monitor_rate_limit: Some(0.99),
+                ..HybridOptions::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            HybridOptions {
+                progress_monitor_observe_only: true,
+                ..HybridOptions::default()
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

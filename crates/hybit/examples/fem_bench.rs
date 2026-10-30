@@ -19,6 +19,9 @@ struct Args {
     max_iterations: usize,
     overlap_layers: usize,
     probe_iterations: usize,
+    progress_monitor_interval: usize,
+    progress_monitor_observe_only: bool,
+    progress_monitor_rate_limit: Option<f64>,
     max_local_region_size: usize,
     max_local_regions: usize,
     max_local_factor_bytes: usize,
@@ -46,6 +49,9 @@ impl Args {
         let mut max_iterations = 1000usize;
         let mut overlap_layers = 1usize;
         let mut probe_iterations = 12usize;
+        let mut progress_monitor_interval = 0usize;
+        let mut progress_monitor_observe_only = false;
+        let mut progress_monitor_rate_limit = None;
         let mut max_local_region_size = 128usize;
         let mut max_local_regions = 8usize;
         let mut max_local_factor_bytes = 64usize * 1024 * 1024;
@@ -75,6 +81,14 @@ impl Args {
                 "--overlap" => overlap_layers = next_value(&mut it, "--overlap")?.parse()?,
                 "--probe-iters" => {
                     probe_iterations = next_value(&mut it, "--probe-iters")?.parse()?
+                }
+                "--monitor-iters" => {
+                    progress_monitor_interval = next_value(&mut it, "--monitor-iters")?.parse()?
+                }
+                "--monitor-only" => progress_monitor_observe_only = true,
+                "--monitor-rate-limit" => {
+                    progress_monitor_rate_limit =
+                        Some(next_value(&mut it, "--monitor-rate-limit")?.parse()?);
                 }
                 "--max-region" => {
                     max_local_region_size = next_value(&mut it, "--max-region")?.parse()?
@@ -272,6 +286,9 @@ impl Args {
             max_iterations,
             overlap_layers,
             probe_iterations,
+            progress_monitor_interval,
+            progress_monitor_observe_only,
+            progress_monitor_rate_limit,
             max_local_region_size,
             max_local_regions,
             max_local_factor_bytes,
@@ -313,6 +330,9 @@ fn print_usage() {
     println!("  --max-iters N       maximum PCG iterations (default 1000)");
     println!("  --backend MODE      auto|csr|abtm (default auto)");
     println!("  --probe-iters N     HyBIT probe length (default 12)");
+    println!("  --monitor-iters N   opt-in true-residual PCG progress interval; 0=off (default)");
+    println!("  --monitor-only      record progress; forbid any local-direct escalation");
+    println!("  --monitor-rate-limit R  opt-in per-iteration slowdown threshold, 0<R<1");
     println!("  --overlap N         topology halo layers (default 1)");
     println!("  --max-region N      maximum local Cholesky order (default 128)");
     println!("  --max-regions N     maximum number of local regions (default 8)");
@@ -539,6 +559,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         mib(args.max_local_factor_bytes)
     );
     println!("max escalations    : {}", args.max_escalations);
+    println!("monitor interval   : {}", args.progress_monitor_interval);
+    println!(
+        "monitor only       : {}",
+        args.progress_monitor_observe_only
+    );
+    println!(
+        "monitor rate limit : {}",
+        args.progress_monitor_rate_limit
+            .map_or_else(|| "none".to_owned(), |rate| format!("{rate:.8}"))
+    );
     println!("stage iterations   : {}", args.escalation_stage_iterations);
     println!("algebraic coarse   : {}", args.algebraic_coarse_enabled);
     if args.algebraic_coarse_enabled {
@@ -577,6 +607,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     solver.set_backend_policy(args.backend);
     let mut hybrid = solver.hybrid_options();
     hybrid.probe_iterations = args.probe_iterations;
+    hybrid.progress_monitor_interval = args.progress_monitor_interval;
+    hybrid.progress_monitor_observe_only = args.progress_monitor_observe_only;
+    hybrid.progress_monitor_rate_limit = args.progress_monitor_rate_limit;
     hybrid.overlap_layers = args.overlap_layers;
     hybrid.max_local_region_size = args.max_local_region_size;
     hybrid.max_local_regions = args.max_local_regions;
@@ -610,6 +643,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("reported residual  : {:.6e}", report.relative_residual);
     println!("verified residual  : {:.6e}", hybit_verified);
     println!("escalations        : {}", report.escalations);
+    println!("monitor checks     : {}", report.progress_monitor_checks);
+    println!(
+        "monitor trigger    : {}",
+        report
+            .progress_monitor_trigger_iteration
+            .map_or_else(|| "none".to_owned(), |n| n.to_string())
+    );
+    for sample in &report.progress_monitor_samples {
+        println!(
+            "  monitor iter {:>5} : true residual {:.6e}, per-iter ratio {}, candidate {}",
+            sample.iteration,
+            sample.true_residual,
+            sample
+                .mean_ratio_per_iteration
+                .map_or_else(|| "baseline".to_owned(), |rate| format!("{rate:.9}")),
+            sample.requested_escalation,
+        );
+    }
     for stage in &report.escalation_stages {
         println!(
             "  stage {:>2}         : {:>4} iters, residual ratio {:.6e}, {} regions, {} unique DOFs, {:.3} MiB",

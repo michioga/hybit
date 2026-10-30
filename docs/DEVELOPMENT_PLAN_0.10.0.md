@@ -66,6 +66,18 @@ one-shot runs, raw logs, CSV/JSON, peak child RSS, true-residual outcomes and
 zero-escalation diagnoses; see `docs/C1_FEM_REGION_SWEEP.md`. Prepared
 five-RHS reuse, native AMG baselines and external class certification are
 **not yet measured** by this runner.
+The C1-A WSL `thermal1` pilot reported identical Jacobi-PCG behavior and zero
+escalations across the four region limits. The subsequent **C1-B candidate**
+adds an explicitly opt-in original-CSR residual monitor (`--monitor-iters`)
+to test whether later poor progress can reveal local-direct opportunities.
+Its default remains off; the monitor must earn adoption by **paired**
+time-to-solution, RSS, and independently verified residual evidence.
+The WSL C1-B pilot confirmed that the same 0.5 residual ratio at different
+monitor intervals is not an equal per-iteration convergence criterion.
+C1-C therefore separates observation from policy, reports geometric per-step
+progress on the original CSR, and requires an explicit experimental
+rate-limit before allowing post-probe monitored escalation. Local factor
+ROI, AMG comparisons, and production auto-routing remain unproven.
 Its default `b=A*1` is a manufactured solution **only**, not a physical
 load or a certificate that the matrix is SPD.
 

@@ -52,6 +52,38 @@ FAIL gates とログへのリンク/パス:
 次の1作業:
 ```
 
+## 2026-10-28 — HyBIT 0.10.0 C1-B candidate (WSL validation pending)
+
+- User confirmed `develop/0.10.0` clean at pushed `4ceaa6a` (`bench(0.10): add repeatable WSL FEM region sweep`). Earlier C0 pushed `747ffa2`; base published tag `v0.9.0` at `0a8cd32`.
+- WSL machine: `michioga@menko`, `~/hybit`, Ubuntu 26.04.1 WSL2 kernel 6.18.54.1, Rust 1.99.1, OpenMPI 5.0.10; Windows MS-MPI remains separate. WSL `perf stat` user counters and `mpirun -np 1/2/4 hostname` have worked.
+- Actual C1-A `thermal1`: 48/48 trials numerically PASS; 1,286 Jacobi-PCG iterations, true relative residual `9.840383e-9`, zero local factors/escalations at region 64/128/256/512. The region-size effect was therefore **not measured**. External AMG remains NOT RUN.
+- C1-B **new local patch, not yet merged/pushed**: `HybridOptions::progress_monitor_interval` (default 0), original CSR true-residual checks after accepted initial probe, PCG continuation without false restart, telemetry `progress_monitor_checks` and `progress_monitor_trigger_iteration`, `fem_bench --monitor-iters`, CSV/JSON monitor fields. No public C ABI layout change; standard defaults remain unchanged. See `docs/C1_FEM_REGION_SWEEP.md`.
+- Validation to perform after patch application: Python runner self-tests, Debug/Release Rust workspace tests, strict Clippy/format, SHA manifest; WSL `thermal1` `--monitor-iters 0` vs 64, then a repeated controlled sweep only if local factors actually appear. Do not call `4ceaa6a` a C1-B commit.
+- **Next one action:** apply and verify C1-B patch on exact clean `4ceaa6a`, test the opt-in monitor on real thermal1, capture logs, and decide whether to commit this isolated checkpoint. Do not tag, release, or publish crates.io.
+
+## 2026-10-30 — C1-B WSL results; C1-C observation-first candidate
+
+- **Canonical WSL checkout** was `develop/0.10.0`, committed HEAD `4ceaa6a` (pushed); the 9-file C1-B patch had been applied but **not committed** at the end of 2026-10-28. On resume, first inspect WSL `git status`; do not assume an agent's scratch checkout and the user's WSL are the same.
+- User reported C1-B WSL Python 9/9, standard Debug and thin-LTO Release Rust workspace, strict Clippy, source hashes **PASS**. Real `thermal1` manufactured `b=A*1`, tol `1e-8`, one CPU thread:
+  - No monitoring: 1286 iter, 934.642 ms total wall, no escalation, true residual `9.840383e-9`.
+  - Interval 64/max escalations 3: 1321 iter, 1356.150 ms, 3 escalations/23 regions.
+  - Interval 128/max 3: 1451 iter, 1431.641 ms, 3 escalations/23 regions.
+  - Interval 64/max 1: 1305 iter, 1097.294 ms, 1 escalation/8 regions.
+  - Interval 256/max 1: 1286 iter, 914.359 ms, no escalation, 5 monitor samples.
+  - Interval 512/max 1: 1286 iter, 928.794 ms, no escalation, 3 monitor samples.
+- These are single-run observations; **no verified speedup**. They show that 0.5 residual ratio over variable checkpoint lengths changes the effective per-step threshold and that local-factor setup/application can lose substantially to plain Jacobi-PCG.
+- **C1-C pending patch:** interval-invariant per-iteration residual-rate telemetry, explicit `--monitor-only` that suppresses initial and later escalation, optional `--monitor-rate-limit R` to request a bounded experimental escalation, CSV summaries and regression tests. Default monitor interval remains 0, unchanged original solver/C ABI; no automatic performance claim.
+- **Next one action:** apply C1-C patch on top of the uncommitted C1-B work after checking exact worktree; run WSL Rust/Python/format/Clippy/source integrity, then compare `thermal1` observe-only 64 vs 256 with explicit hypothetical rate `0.99`. Do not commit until gates and output are reviewed, do not release/publish.
+- **Assistant-side preflight 2026-10-30:** Rust 1.99.1 workspace Debug and Release (Release using `CARGO_PROFILE_RELEASE_LTO=false` only in the assistant container), strict Clippy from a fresh target, rustfmt, Python runner 9/9, original-CSR `poisson5` observe-only CLI/runner smoke, and full Source SHA-256 check: **PASS**. Standard WSL2 thin-LTO Release and actual `thermal1` C1-C instrumentation remain **NOT RUN**.
+
+## 2026-10-30 — C1-C accepted on WSL2 (supersedes preceding NOT RUN)
+
+- User's canonical `~/hybit` still reported `develop/0.10.0`, committed HEAD `4ceaa6a`, with C1-B+C1-C applied **but uncommitted**. Python bytecode `benchmarks/scripts/__pycache__/` was untracked and is not part of the code patch; do not stage it.
+- **PASS:** C1-C patch SHA-256 `17a800c8436bd2dbf6c6df5b816d82c9bae240137f99563c81379b658c4d6389`, `git apply --check`, Python 9/9, `cargo fmt --check`, Debug/standard Release Rust workspace tests (40 hybit-auto), strict Clippy, Source SHA check, Release fem_bench build.
+- `thermal1.mtx`, 82,654 DOF, 574,458 CSR nnz, manufactured `b=A*1`, `tol=1e-8`, one thread, `--monitor-only --monitor-rate-limit 0.99`: interval 64 -> 20 true-residual samples, 10 hypothetical candidate flags, 0 actual escalations, 1286 iterations, true relative residual `9.840383e-9`, diagnostic 11.731 ms, wall 903.841 ms; interval 256 -> 5 samples, 1 flag, 0 escalations, same 1286 iterations and residual, diagnostics 3.423 ms, wall 911.766 ms.
+- The matching residuals at common checkpoints confirm segmented PCG did not restart. A slow 64-step phase was followed by a sharp 460–524 iteration residual reduction (~9.8x); **transient slowdown alone is not enough to justify local Cholesky**. Single-run timings do not establish speedup.
+- **Next single action:** checkpoint the numerically validated C1-B+C1-C *diagnostic-only* code and these notes once owner accepts the staged diff, then design C1-D cost/benefit decision with held-out matrices. Maintain production monitor default off and no uncontrolled direct escalation; do not tag/release/publish crates.io.
+
 ## 2026-10-13 update — supersedes older environment/C5 notes above
 <!-- HYBIT_2026_10_13_ARCHITECTURE_HANDOFF -->
 **Authoritative design:** `docs/HYBIT_LONG_TERM_ARCHITECTURE.md` and `docs/HYBIT_DECISION_LOG.md`. **Resume workflow:** `docs/SESSION_RESUME_PROTOCOL.md`. **Current user-supplied test evidence:** `docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md`.

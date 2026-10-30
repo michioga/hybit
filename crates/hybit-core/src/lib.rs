@@ -180,6 +180,25 @@ pub struct HybridEscalationStageReport {
     pub local_factor_bytes: usize,
 }
 
+/// One true-residual sample from the experimental fixed-PCG progress monitor.
+///
+/// The first sample is the post-probe baseline (`mean_ratio_per_iteration=None`).
+/// Later samples use the geometric average reduction per actual PCG iteration,
+/// which can be compared across different checkpoint intervals.
+#[derive(Clone, Debug)]
+pub struct HybridProgressMonitorSample {
+    /// Cumulative PCG iterations when the original-CSR norm was evaluated.
+    pub iteration: usize,
+    /// Original-CSR absolute Euclidean residual norm.
+    pub true_residual: f64,
+    /// `exp((ln(r_new)-ln(r_previous))/delta_iterations)` when both norms are
+    /// positive and finite. A value above 1 means residual growth.
+    pub mean_ratio_per_iteration: Option<f64>,
+    /// Whether an explicitly supplied rate threshold was crossed. A sample
+    /// may be marked here even when observation-only mode forbids escalation.
+    pub requested_escalation: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct SolveReport {
     pub status: SolveStatus,
@@ -218,6 +237,15 @@ pub struct SolveReport {
     pub escalation_stages: Vec<HybridEscalationStageReport>,
     pub probe_iterations: usize,
     pub probe_final_residual: f64,
+    /// Number of additional original-CSR true-residual progress checks after
+    /// the initial probe (experimental opt-in; zero on the default path).
+    pub progress_monitor_checks: usize,
+    /// Krylov iteration where a monitored slowdown first requested local
+    /// strengthening; this is not a guarantee that a factor was affordable.
+    pub progress_monitor_trigger_iteration: Option<usize>,
+    /// Experimental original-CSR progress samples. Empty on the default path;
+    /// no samples are collected after local-direct strengthening begins.
+    pub progress_monitor_samples: Vec<HybridProgressMonitorSample>,
     /// Core DOFs identified as numerically difficult before halo expansion.
     pub hard_dofs: usize,
     /// Number of local direct subdomains.

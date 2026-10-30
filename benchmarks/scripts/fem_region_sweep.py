@@ -35,6 +35,8 @@ FIELDS = [
     "hybit_wall_ms", "hybit_solve_ms", "hybit_analysis_ms",
     "hybit_prepare_ms", "hybit_diagnostics_ms", "hybit_local_factor_ms",
     "hybit_probe_iterations", "hybit_probe_ms", "hybit_escalations",
+    "hybit_monitor_checks", "hybit_monitor_trigger_iteration",
+    "hybit_monitor_last_rate", "hybit_monitor_worst_rate", "hybit_monitor_candidate_count",
     "hybit_local_regions", "hybit_largest_region", "hybit_factor_mib",
     "hybit_budget_limited", "hybit_budget_skipped", "plain_status",
     "plain_iterations", "plain_verified_residual", "plain_x_error",
@@ -103,6 +105,8 @@ def parse_fem_output(output: str) -> dict[str, object]:
         hybit_diagnostics_ms=number(hybit, "diagnostics"),
         hybit_local_factor_ms=number(hybit, "local factor"),
         hybit_escalations=integer(hybit, "escalations"),
+        hybit_monitor_checks=integer(hybit, "monitor checks"),
+        hybit_monitor_trigger_iteration=integer(hybit, "monitor trigger"),
         hybit_local_regions=integer(hybit, "local regions"),
         hybit_largest_region=integer(hybit, "largest region"),
         hybit_factor_mib=number(hybit, "factor memory"),
@@ -112,6 +116,18 @@ def parse_fem_output(output: str) -> dict[str, object]:
     probe = re.match(r"(\d+) iters, ([\d.eE+-]+) ms", hybit.get("probe", ""))
     result["hybit_probe_iterations"] = int(probe.group(1)) if probe else None
     result["hybit_probe_ms"] = float(probe.group(2)) if probe else None
+    monitor_samples = re.findall(
+        r"^\s+monitor iter\s+(\d+)\s*:\s*true residual\s+\S+, "
+        r"per-iter ratio\s+(\S+), candidate\s+(true|false)\s*$",
+        output, flags=re.MULTILINE,
+    )
+    monitor_rates = [float(value) for _, value, _ in monitor_samples
+                     if value != "baseline"]
+    result["hybit_monitor_last_rate"] = monitor_rates[-1] if monitor_rates else None
+    result["hybit_monitor_worst_rate"] = max(monitor_rates) if monitor_rates else None
+    result["hybit_monitor_candidate_count"] = sum(
+        candidate == "true" for _, _, candidate in monitor_samples
+    )
     setup = re.match(r"([\d.eE+-]+) / ([\d.eE+-]+) ms", plain.get("setup / solve", ""))
     result["plain_setup_ms"] = float(setup.group(1)) if setup else None
     result["plain_solve_ms"] = float(setup.group(2)) if setup else None
@@ -255,6 +271,11 @@ def metadata(args: argparse.Namespace, command: list[str], affinity: list[int]) 
         "max_regions": args.max_regions, "region_sizes": args.regions,
         "factor_budget_mib": args.factor_budget_mib,
         "tolerance": args.tol, "max_iterations": args.max_iters,
+        "monitor_interval": args.monitor_iters,
+        "monitor_observe_only": args.monitor_only,
+        "monitor_rate_limit": args.monitor_rate_limit,
+        "max_escalations": args.max_escalations,
+        "stage_iterations": args.stage_iters,
         "plain_included": not args.skip_plain,
         "command_template": command + ["--max-region", "<per-run>"],
         "timer_scope": "separate child launch; includes matrix load and both solves; OS file cache may be warm",
@@ -295,6 +316,14 @@ def main() -> int:
     parser.add_argument("--tol", type=float, default=1e-8)
     parser.add_argument("--max-iters", type=parse_positive_int, default=3000)
     parser.add_argument("--probe-iters", type=parse_positive_int, default=12)
+    parser.add_argument("--monitor-iters", type=int, default=0,
+                        help="opt-in true-residual checkpoint interval; 0 disables")
+    parser.add_argument("--monitor-only", action="store_true",
+                        help="observe residual history without any local escalation")
+    parser.add_argument("--monitor-rate-limit", type=float,
+                        help="experimental per-iteration residual ratio threshold in (0,1)")
+    parser.add_argument("--max-escalations", type=parse_positive_int, default=3)
+    parser.add_argument("--stage-iters", type=parse_positive_int, default=24)
     parser.add_argument("--max-regions", type=parse_positive_int, default=8)
     parser.add_argument("--factor-budget-mib", type=parse_positive_int, default=64)
     parser.add_argument("--overlap", type=int, default=1)
@@ -310,10 +339,16 @@ def main() -> int:
 
     if sys.platform != "linux" or not hasattr(os, "wait4") or not hasattr(os, "sched_getaffinity"):
         parser.error("this memory-accounting runner requires Linux/WSL2")
-    if args.warmups < 0 or args.overlap < 0:
-        parser.error("warmups and overlap must be nonnegative")
+    if args.warmups < 0 or args.overlap < 0 or args.monitor_iters < 0:
+        parser.error("warmups, overlap, and monitor-iters must be nonnegative")
     if not math.isfinite(args.tol) or args.tol <= 0:
         parser.error("tol must be finite and positive")
+    if (args.monitor_only or args.monitor_rate_limit is not None) and args.monitor_iters == 0:
+        parser.error("monitor-only and monitor-rate-limit require monitor-iters > 0")
+    if args.monitor_rate_limit is not None and not (
+        math.isfinite(args.monitor_rate_limit) and 0 < args.monitor_rate_limit < 1
+    ):
+        parser.error("monitor-rate-limit must be finite and in (0,1)")
     args.matrix = args.matrix.expanduser().resolve()
     args.binary = args.binary.expanduser().resolve()
     args.rhs = args.rhs.expanduser().resolve() if args.rhs else None
@@ -327,8 +362,14 @@ def main() -> int:
 
     command = [str(args.binary), "--matrix", str(args.matrix), "--tol", str(args.tol),
                "--max-iters", str(args.max_iters), "--probe-iters", str(args.probe_iters),
+               "--monitor-iters", str(args.monitor_iters),
+               "--max-escalations", str(args.max_escalations), "--stage-iters", str(args.stage_iters),
                "--max-regions", str(args.max_regions), "--factor-budget-mib", str(args.factor_budget_mib),
                "--overlap", str(args.overlap), "--selector", args.selector, "--backend", args.backend]
+    if args.monitor_only:
+        command.append("--monitor-only")
+    if args.monitor_rate_limit is not None:
+        command.extend(["--monitor-rate-limit", str(args.monitor_rate_limit)])
     if args.rhs:
         command.extend(["--rhs", str(args.rhs)])
     if args.skip_plain:

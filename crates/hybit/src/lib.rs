@@ -42,9 +42,9 @@ pub use hybit_auto::{
     StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 pub use hybit_core::{
-    ExecutionTarget, HybitError, HybridEscalationStageReport, LinearOperator, MatrixBackend,
-    MatrixProblemClass, Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind,
-    SolverOptions,
+    ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,
+    LinearOperator, MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind,
+    SolveReport, SolveStatus, SolverKind, SolverOptions,
 };
 /// Feature-gated distributed topology and MPI backend.
 /// Enabled by `cargo build --features mpi`.

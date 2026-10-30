@@ -34,6 +34,11 @@ preconditioner     : Jacobi
 iterations         : 1286
 verified residual  : 9.840383e-9
 escalations        : 0
+monitor checks     : 3
+monitor trigger    : none
+  monitor iter    12 : true residual 1.000000e0, per-iter ratio baseline, candidate false
+  monitor iter    76 : true residual 5.000000e-1, per-iter ratio 0.989228013, candidate false
+  monitor iter   140 : true residual 3.000000e-1, per-iter ratio 0.992050000, candidate true
 probe              : 12 iters, 9.065 ms
 local regions      : 0
 largest region     : 0
@@ -61,9 +66,19 @@ class SweepParserTests(unittest.TestCase):
         self.assertEqual(parsed["plain_iterations"], 1286)
         self.assertEqual(parsed["hybit_probe_iterations"], 12)
         self.assertEqual(parsed["hybit_escalations"], 0)
+        self.assertEqual(parsed["hybit_monitor_checks"], 3)
+        self.assertIsNone(parsed["hybit_monitor_trigger_iteration"])
+        self.assertEqual(parsed["hybit_monitor_candidate_count"], 1)
+        self.assertAlmostEqual(parsed["hybit_monitor_last_rate"], 0.99205)
+        self.assertAlmostEqual(parsed["hybit_monitor_worst_rate"], 0.99205)
         self.assertEqual(parsed["nnz"], 574458)
         self.assertAlmostEqual(parsed["plain_solve_ms"], 881.417)
         self.assertAlmostEqual(parsed["hybit_wall_ms"], 894.518)
+        monitored = sweep.parse_fem_output(OUTPUT.replace(
+            "monitor checks     : 3\nmonitor trigger    : none",
+            "monitor checks     : 5\nmonitor trigger    : 140"))
+        self.assertEqual(monitored["hybit_monitor_checks"], 5)
+        self.assertEqual(monitored["hybit_monitor_trigger_iteration"], 140)
         row = dict(parsed, exit_code=0, timed_out=False)
         sweep.numeric_gate(row, 1e-8, True, 64)
         self.assertTrue(row["paired_pass"])
