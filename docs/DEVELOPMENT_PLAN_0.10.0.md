@@ -78,6 +78,10 @@ C1-C therefore separates observation from policy, reports geometric per-step
 progress on the original CSR, and requires an explicit experimental
 rate-limit before allowing post-probe monitored escalation. Local factor
 ROI, AMG comparisons, and production auto-routing remain unproven.
+The C1-D candidate adds a randomized **paired observational control** to
+the existing WSL region sweep, requiring both arms to pass numerical gates
+and an actual escalation before claiming any local-factor economic evidence.
+It does not change the solver's default policy or prove a win.
 Its default `b=A*1` is a manufactured solution **only**, not a physical
 load or a certificate that the matrix is SPD.
 

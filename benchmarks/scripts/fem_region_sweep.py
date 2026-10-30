@@ -27,7 +27,8 @@ import time
 
 REPO = Path(__file__).resolve().parents[2]
 FIELDS = [
-    "run_id", "phase", "round", "max_region", "exit_code", "timed_out",
+    "run_id", "phase", "round", "max_region", "arm", "pair_id",
+    "exit_code", "timed_out",
     "process_wall_ms", "peak_rss_kib", "hybit_pass", "plain_pass",
     "paired_pass", "failure_reason", "dimensions", "nnz", "load_ms",
     "hybit_status", "hybit_backend", "hybit_preconditioner",
@@ -249,7 +250,7 @@ def command_version(command: list[str]) -> str | None:
 
 def metadata(args: argparse.Namespace, command: list[str], affinity: list[int]) -> dict[str, object]:
     return {
-        "schema": "hybit-c1-fem-region-sweep-v1",
+        "schema": "hybit-c1-fem-region-sweep-v2",
         "matrix": str(args.matrix), "matrix_sha256": hash_file(args.matrix),
         "rhs": str(args.rhs) if args.rhs else None,
         "rhs_sha256": hash_file(args.rhs) if args.rhs else None,
@@ -274,10 +275,14 @@ def metadata(args: argparse.Namespace, command: list[str], affinity: list[int]) 
         "monitor_interval": args.monitor_iters,
         "monitor_observe_only": args.monitor_only,
         "monitor_rate_limit": args.monitor_rate_limit,
+        "paired_observe_control": args.paired_observe_control,
         "max_escalations": args.max_escalations,
         "stage_iterations": args.stage_iters,
         "plain_included": not args.skip_plain,
         "command_template": command + ["--max-region", "<per-run>"],
+        "paired_arm_rule": ("observe: --monitor-only; escalate: same command without it; "
+                            "order shuffled within each region/round"
+                            if args.paired_observe_control else None),
         "timer_scope": "separate child launch; includes matrix load and both solves; OS file cache may be warm",
         "hybit_wall_scope": "reported by fem_bench; excludes matrix load/plain",
         "peak_rss_scope": "wait4 ru_maxrss for one child (Linux KiB)",
@@ -285,10 +290,13 @@ def metadata(args: argparse.Namespace, command: list[str], affinity: list[int]) 
     }
 
 
-def summarize(rows: list[dict[str, object]], regions: list[int]) -> dict[str, object]:
+def summarize(rows: list[dict[str, object]], regions: list[int],
+              paired_observe_control: bool = False) -> dict[str, object]:
     result: dict[str, object] = {}
     for region in regions:
-        measured = [row for row in rows if row["max_region"] == region and row["phase"] == "measure"]
+        measured = [row for row in rows if row["max_region"] == region
+                    and row["phase"] == "measure"
+                    and (not paired_observe_control or row.get("arm") == "escalate")]
         valid = [row for row in measured if row["paired_pass"]]
         escalated = [row for row in measured if (row.get("hybit_escalations") or 0) > 0]
         result[str(region)] = {
@@ -299,6 +307,49 @@ def summarize(rows: list[dict[str, object]], regions: list[int]) -> dict[str, ob
             "median_process_wall_ms": statistics.median(row["process_wall_ms"] for row in valid) if valid else None,
             "median_peak_rss_kib": statistics.median(row["peak_rss_kib"] for row in valid) if valid else None,
         }
+        if paired_observe_control:
+            # Pair only identical region/round/RHS settings. If either arm
+            # fails, or escalation never happened, do not count its timing as
+            # evidence about the economics of local direct correction.
+            paired_rows: dict[str, dict[str, dict[str, object]]] = {}
+            for row in rows:
+                if row["max_region"] == region and row["phase"] == "measure":
+                    paired_rows.setdefault(str(row["pair_id"]), {})[str(row["arm"])] = row
+            complete = [pair for pair in paired_rows.values()
+                        if "observe" in pair and "escalate" in pair]
+            numerically_valid = [pair for pair in complete
+                                 if pair["observe"]["paired_pass"]
+                                 and pair["escalate"]["paired_pass"]]
+            informative = [pair for pair in numerically_valid
+                           if (pair["observe"].get("hybit_escalations") or 0) == 0
+                           and (pair["escalate"].get("hybit_escalations") or 0) > 0
+                           and all(isinstance(pair[arm].get("hybit_wall_ms"), (float, int))
+                                   and math.isfinite(pair[arm]["hybit_wall_ms"])
+                                   and pair[arm]["hybit_wall_ms"] > 0
+                                   and isinstance(pair[arm].get("peak_rss_kib"), (float, int))
+                                   and math.isfinite(pair[arm]["peak_rss_kib"])
+                                   and isinstance(pair[arm].get("hybit_iterations"), int)
+                                   for arm in ("observe", "escalate"))]
+            savings = [pair["observe"]["hybit_wall_ms"] - pair["escalate"]["hybit_wall_ms"]
+                       for pair in informative]
+            gains = [100 * saved / pair["observe"]["hybit_wall_ms"]
+                     for saved, pair in zip(savings, informative)]
+            result[str(region)]["paired_control"] = {
+                "complete_pairs": len(complete),
+                "numerically_valid_pairs": len(numerically_valid),
+                "informative_escalation_pairs": len(informative),
+                "treatment_faster_pairs": sum(saved > 0 for saved in savings),
+                "median_hybit_wall_saved_ms": statistics.median(savings) if savings else None,
+                "median_relative_wall_gain_percent": statistics.median(gains) if gains else None,
+                "median_peak_rss_change_kib": (
+                    statistics.median(pair["escalate"]["peak_rss_kib"]
+                                      - pair["observe"]["peak_rss_kib"]
+                                      for pair in informative) if informative else None),
+                "median_iteration_change": (
+                    statistics.median(pair["escalate"]["hybit_iterations"]
+                                      - pair["observe"]["hybit_iterations"]
+                                      for pair in informative) if informative else None),
+            }
     return result
 
 
@@ -320,6 +371,8 @@ def main() -> int:
                         help="opt-in true-residual checkpoint interval; 0 disables")
     parser.add_argument("--monitor-only", action="store_true",
                         help="observe residual history without any local escalation")
+    parser.add_argument("--paired-observe-control", action="store_true",
+                        help="randomized matched monitor-only vs experimental escalation arms")
     parser.add_argument("--monitor-rate-limit", type=float,
                         help="experimental per-iteration residual ratio threshold in (0,1)")
     parser.add_argument("--max-escalations", type=parse_positive_int, default=3)
@@ -349,6 +402,12 @@ def main() -> int:
         math.isfinite(args.monitor_rate_limit) and 0 < args.monitor_rate_limit < 1
     ):
         parser.error("monitor-rate-limit must be finite and in (0,1)")
+    if args.paired_observe_control and (
+        args.monitor_only or args.monitor_iters == 0 or args.monitor_rate_limit is None
+        or not args.skip_plain
+    ):
+        parser.error("paired-observe-control requires monitor-iters > 0, "
+                     "monitor-rate-limit, skip-plain, and no monitor-only")
     args.matrix = args.matrix.expanduser().resolve()
     args.binary = args.binary.expanduser().resolve()
     args.rhs = args.rhs.expanduser().resolve() if args.rhs else None
@@ -405,34 +464,44 @@ def main() -> int:
                 sizes = args.regions[:]
                 rng.shuffle(sizes)
                 for region in sizes:
-                    run_id += 1
-                    stem = f"{run_id:03d}_{phase}_round{round_number}_region{region}"
-                    outlog, errlog = logdir / f"{stem}.stdout.log", logdir / f"{stem}.stderr.log"
-                    cmd = command + ["--max-region", str(region)]
-                    exit_code, timed_out, wall, rss = run_process(
-                        cmd, REPO, outlog, errlog, args.timeout_seconds, env
-                    )
-                    row: dict[str, object] = dict.fromkeys(FIELDS)
-                    row.update(run_id=run_id, phase=phase, round=round_number,
-                               max_region=region, exit_code=exit_code, timed_out=timed_out,
-                               process_wall_ms=wall, peak_rss_kib=rss,
-                               stdout_log=str(outlog.relative_to(args.output_dir)),
-                               stderr_log=str(errlog.relative_to(args.output_dir)))
-                    row.update(parse_fem_output(outlog.read_text(errors="replace")))
-                    numeric_gate(row, args.tol, not args.skip_plain, args.factor_budget_mib)
-                    # Retain the failure and its raw log without emitting
-                    # non-standard NaN/Infinity into strict JSONL.
-                    row = strict_json_row(row)
-                    writer.writerow(row)
-                    csv_file.flush()
-                    json_file.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
-                    json_file.flush()
-                    rows.append(row)
-                    print(f"[{run_id}] {phase} r={region} hybit={row['hybit_pass']} "
-                          f"plain={row['plain_pass']} escalations={row['hybit_escalations']} "
-                          f"process_ms={wall:.1f} rss_kib={rss} {row['failure_reason']}", flush=True)
+                    pair_id = f"{phase}_round{round_number}_region{region}"
+                    arms = ["observe", "escalate"] if args.paired_observe_control else ["standard"]
+                    rng.shuffle(arms)
+                    for arm in arms:
+                        run_id += 1
+                        stem = f"{run_id:03d}_{pair_id}_{arm}"
+                        outlog, errlog = logdir / f"{stem}.stdout.log", logdir / f"{stem}.stderr.log"
+                        cmd = command + ["--max-region", str(region)]
+                        if arm == "observe":
+                            cmd.append("--monitor-only")
+                        exit_code, timed_out, wall, rss = run_process(
+                            cmd, REPO, outlog, errlog, args.timeout_seconds, env
+                        )
+                        row: dict[str, object] = dict.fromkeys(FIELDS)
+                        row.update(run_id=run_id, phase=phase, round=round_number,
+                                   max_region=region, arm=arm,
+                                   pair_id=pair_id if args.paired_observe_control else None,
+                                   exit_code=exit_code, timed_out=timed_out,
+                                   process_wall_ms=wall, peak_rss_kib=rss,
+                                   stdout_log=str(outlog.relative_to(args.output_dir)),
+                                   stderr_log=str(errlog.relative_to(args.output_dir)))
+                        row.update(parse_fem_output(outlog.read_text(errors="replace")))
+                        numeric_gate(row, args.tol, not args.skip_plain, args.factor_budget_mib)
+                        # Retain the failure and its raw log without emitting
+                        # non-standard NaN/Infinity into strict JSONL.
+                        row = strict_json_row(row)
+                        writer.writerow(row)
+                        csv_file.flush()
+                        json_file.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
+                        json_file.flush()
+                        rows.append(row)
+                        print(f"[{run_id}] {phase} r={region} arm={arm} "
+                              f"hybit={row['hybit_pass']} plain={row['plain_pass']} "
+                              f"escalations={row['hybit_escalations']} "
+                              f"process_ms={wall:.1f} rss_kib={rss} "
+                              f"{row['failure_reason']}", flush=True)
 
-    summary = summarize(rows, args.regions)
+    summary = summarize(rows, args.regions, args.paired_observe_control)
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"Wrote {args.output_dir} ; summary: {json.dumps(summary, ensure_ascii=False)}")
     return 0 if all(row["paired_pass"] for row in rows if row["phase"] == "measure") else 1

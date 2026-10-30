@@ -243,3 +243,78 @@ no certified speedup, AMG comparison, or validated autonomous policy.
 No branch/tag/release/publish action is implied. The next feature candidate
 must explicitly measure local-factor cost and check for a net benefit before
 adopting a stronger preconditioner.
+
+## C1-D candidate — randomized paired control for local-direct economics
+
+**Hypothesis:** an observed slow residual window does not imply that the
+local-Cholesky escalation will repay its analysis, factor and application
+costs. Compare it against **uninterrupted Jacobi-PCG on the same input**.
+This is evidence collection, **not** an autonomous production decision.
+
+The existing sweep now accepts `--paired-observe-control`. It requires
+`--monitor-iters N`, `--monitor-rate-limit R` and `--skip-plain`, and forbids
+an explicit `--monitor-only` (the runner assigns that flag by arm). In every
+warmup and measured region/round, two **separate processes** run in randomized
+order:
+
+1. `observe`: `--monitor-only` plus the specified rate threshold; records
+   the candidate flags but never builds a local factor.
+2. `escalate`: otherwise identical arguments, without `--monitor-only`;
+   allows the *experimental* budgeted local direct path.
+
+Both arms use the same matrix, RHS, tolerance, iteration cap, backend, factor
+budget and run environment. Their respective raw logs and SHA-identified
+inputs are preserved. A comparison is **informative** only when both arms
+pass original-CSR true-residual and budget checks, observation has zero
+escalations, and treatment actually builds at least one local correction.
+An early breakdown, numerical failure or zero-escalation pair is retained
+but cannot count as evidence of local-factor effectiveness.
+
+Run a quick WSL2 pilot first:
+
+```bash
+python3 -m unittest discover -s benchmarks/scripts -p 'test_fem_region_sweep.py' -v
+cargo build --release --locked -p hybit --example fem_bench
+
+python3 benchmarks/scripts/fem_region_sweep.py \
+  --matrix "$HOME/mtx/thermal1.mtx" \
+  --output-dir "$HOME/hybit-c1d-pilot-$(date +%Y%m%d-%H%M%S)" \
+  --regions 128 --warmups 1 --repetitions 2 \
+  --monitor-iters 64 --monitor-rate-limit 0.99 \
+  --max-escalations 1 --factor-budget-mib 64 \
+  --tol 1e-8 --max-iters 3000 --threads 1 \
+  --paired-observe-control --skip-plain
+```
+
+If the pilot shows informative escalations, repeat on the held-out
+**independently validated SPD** FEM corpus with `--regions 64,128,256,512`,
+`--warmups 3 --repetitions 9`, fixed CPU affinity (when available) and
+other documented settings. Select a new output directory for each sweep.
+Do **not** choose a favored rate threshold or matrix based only on the
+same training corpus and then claim held-out performance.
+
+The v2 `metadata.json` records the paired-arm rule. Each CSV/JSONL row
+includes `arm` and `pair_id`. For each region, `summary.json` adds:
+
+- `complete_pairs`, `numerically_valid_pairs` and
+  `informative_escalation_pairs` (the denominator for any speed claim);
+- `treatment_faster_pairs`, paired median signed HyBIT-wall savings
+  (observe minus escalate), and relative percentage gains;
+- paired median peak child-RSS and iteration changes (escalate minus
+  observe). These are *paired descriptive medians*, not confidence bounds.
+
+**Evaluation:** time savings must exceed noise and monitor/factor costs,
+while true residual and peak memory remain acceptable. Negative savings
+are regressions and stay in the result. The child `process_wall_ms` includes
+process overhead; HyBIT internal wall excludes Matrix Market load. Neither
+includes amortized prepared multi-RHS costs. No causal benefit can be
+attributed to the region-size setting if all informative counts are zero.
+The observation arm itself pays true-residual monitoring overhead: even a
+paired treatment win is **not** proof of a win over the unmonitored
+production Jacobi policy (`--monitor-iters 0`). Measure that separately
+before recommending any production escalation or monitor default.
+The manufactured RHS does not independently certify `thermal1` as SPD.
+
+**Rollback:** do not enable a new runtime policy; remove only this opt-in
+runner mode and its matching tests/docs if the comparison is unreliable.
+No Rust solver, C ABI, default threshold or published release changes.

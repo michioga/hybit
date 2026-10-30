@@ -59,6 +59,65 @@ iteration ratio    : 1.000 (HyBIT / plain)
 
 
 class SweepParserTests(unittest.TestCase):
+    @staticmethod
+    def paired_row(*, round_number: int, arm: str, escalations: int,
+                   wall_ms: float, rss_kib: int, status: str = "Converged"):
+        row = dict(sweep.parse_fem_output(OUTPUT), phase="measure", round=round_number,
+                   max_region=128, pair_id=f"measure_round{round_number}_region128",
+                   arm=arm, process_wall_ms=wall_ms + 30, peak_rss_kib=rss_kib,
+                   exit_code=0, timed_out=False, hybit_escalations=escalations,
+                   hybit_wall_ms=wall_ms, hybit_status=status)
+        sweep.numeric_gate(row, 1e-8, True, 64)
+        return row
+
+    def test_paired_control_reports_only_verified_escalations(self):
+        rows = [
+            self.paired_row(round_number=1, arm="escalate", escalations=1,
+                            wall_ms=110, rss_kib=24000),
+            self.paired_row(round_number=1, arm="observe", escalations=0,
+                            wall_ms=100, rss_kib=16000),
+            self.paired_row(round_number=2, arm="observe", escalations=0,
+                            wall_ms=120, rss_kib=16000),
+            self.paired_row(round_number=2, arm="escalate", escalations=2,
+                            wall_ms=90, rss_kib=22000),
+        ]
+        rows[0]["hybit_iterations"] = 1300
+        rows[3]["hybit_iterations"] = 1200
+        result = sweep.summarize(rows, [128], paired_observe_control=True)["128"]
+        self.assertEqual(result["trials"], 2)
+        self.assertEqual(result["escalated_trials"], 2)
+        paired = result["paired_control"]
+        self.assertEqual(paired["complete_pairs"], 2)
+        self.assertEqual(paired["numerically_valid_pairs"], 2)
+        self.assertEqual(paired["informative_escalation_pairs"], 2)
+        self.assertEqual(paired["treatment_faster_pairs"], 1)
+        self.assertAlmostEqual(paired["median_hybit_wall_saved_ms"], 10)
+        self.assertAlmostEqual(paired["median_relative_wall_gain_percent"],
+                               100 * ((-10 / 100) + (30 / 120)) / 2)
+        self.assertAlmostEqual(paired["median_peak_rss_change_kib"], 7000)
+        self.assertAlmostEqual(paired["median_iteration_change"], -36)
+
+    def test_paired_control_does_not_count_uninformative_or_failed_pairs(self):
+        rows = [
+            self.paired_row(round_number=1, arm="observe", escalations=0,
+                            wall_ms=100, rss_kib=16000),
+            self.paired_row(round_number=1, arm="escalate", escalations=0,
+                            wall_ms=90, rss_kib=16000),
+            self.paired_row(round_number=2, arm="observe", escalations=0,
+                            wall_ms=100, rss_kib=16000),
+            self.paired_row(round_number=2, arm="escalate", escalations=1,
+                            wall_ms=80, rss_kib=22000, status="MaxIterations"),
+            self.paired_row(round_number=3, arm="escalate", escalations=1,
+                            wall_ms=70, rss_kib=22000),
+        ]
+        result = sweep.summarize(rows, [128], paired_observe_control=True)["128"]
+        paired = result["paired_control"]
+        self.assertEqual(paired["complete_pairs"], 2)
+        self.assertEqual(paired["numerically_valid_pairs"], 1)
+        self.assertEqual(paired["informative_escalation_pairs"], 0)
+        self.assertIsNone(paired["median_hybit_wall_saved_ms"])
+        self.assertIsNone(paired["median_relative_wall_gain_percent"])
+
     def test_real_fem_style_log_parses(self):
         parsed = sweep.parse_fem_output(OUTPUT)
         self.assertEqual(parsed["hybit_status"], "Converged")

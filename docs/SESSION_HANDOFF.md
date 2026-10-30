@@ -84,6 +84,13 @@ FAIL gates とログへのリンク/パス:
 - The matching residuals at common checkpoints confirm segmented PCG did not restart. A slow 64-step phase was followed by a sharp 460–524 iteration residual reduction (~9.8x); **transient slowdown alone is not enough to justify local Cholesky**. Single-run timings do not establish speedup.
 - **Next single action:** checkpoint the numerically validated C1-B+C1-C *diagnostic-only* code and these notes once owner accepts the staged diff, then design C1-D cost/benefit decision with held-out matrices. Maintain production monitor default off and no uncontrolled direct escalation; do not tag/release/publish crates.io.
 
+## 2026-10-30 — C1-C committed; C1-D paired-economics patch pending WSL acceptance
+
+- **Canonical WSL user report:** `develop/0.10.0` at **`80fbd19`** (`feat(0.10): add measured PCG progress diagnostics`), successfully pushed to origin; tracked worktree clean. Only untracked `benchmarks/scripts/__pycache__/` remains (generated Python bytecode, **not** part of a patch).
+- **C1-D proposal relative to exact `80fbd19`:** extend the existing `benchmarks/scripts/fem_region_sweep.py` with optional randomized observe-only vs escalation treatment pairs (`--paired-observe-control`, explicit monitored rate, `--skip-plain`). Keep paired raw logs, test the true-residual gate on **both** arms, exclude any non-escalated or failed pair from local-factor economics, and report signed within-pair wall/RSS/iteration changes. No production routing or Rust/ABI changes.
+- **Assistant-side preflight:** Python runner unit tests **11/11 PASS**; `poisson5` tiny paired process smoke with 1 warmup + 2 measured pairs numerically PASS, **0 informative pairs** and `null` gains (correct; no direct factor was used). Rust 1.99.1 Debug workspace tests, LTO-disabled Release workspace tests, rustfmt, fresh-cache strict Clippy and full SHA-256 integrity **PASS** in assistant Linux container. Standard WSL2 thin-LTO Release and real `thermal1` C1-D timings are **NOT RUN**; no speedup claim.
+- **Next single action:** owner applies C1-D patch on clean `80fbd19`, validates Python/Rust/source integrity, runs a small randomized `thermal1` pilot, then reviews the **informative pair count and paired signed savings** before proposing any automatic cost guard. Do not tag, release or publish.
+
 ## 2026-10-13 update — supersedes older environment/C5 notes above
 <!-- HYBIT_2026_10_13_ARCHITECTURE_HANDOFF -->
 **Authoritative design:** `docs/HYBIT_LONG_TERM_ARCHITECTURE.md` and `docs/HYBIT_DECISION_LOG.md`. **Resume workflow:** `docs/SESSION_RESUME_PROTOCOL.md`. **Current user-supplied test evidence:** `docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md`.
