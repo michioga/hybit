@@ -142,6 +142,8 @@ pub struct HybridOptions {
     /// An observed slowdown may enter the existing budgeted local-direct path;
     /// monitoring alone never restarts the Krylov recurrence.
     pub progress_monitor_interval: usize,
+    /// Opt-in wall-clock profiling of serial SPD PCG kernels.
+    pub profile_pcg_kernels: bool,
     /// Observe original-CSR residuals without entering local-direct escalation,
     /// including escalation immediately after the initial probe. Requires a
     /// positive `progress_monitor_interval` and changes no PCG recurrence.
@@ -186,6 +188,7 @@ impl Default for HybridOptions {
             enabled: true,
             probe_iterations: 12,
             progress_monitor_interval: 0,
+            profile_pcg_kernels: false,
             progress_monitor_observe_only: false,
             progress_monitor_rate_limit: None,
             max_escalations: 3,
@@ -975,7 +978,16 @@ impl HybitPreparedSystem {
         b: &[f64],
         x: &mut [f64],
     ) -> Result<SolveReport, HybitError> {
+        // C1-F is strictly opt-in for the established serial SPD PCG path.
+        let enabled = self.hybrid_options.profile_pcg_kernels
+            && self.problem_class == MatrixProblemClass::Spd
+            && matches!(
+                self.execution_policy,
+                ExecutionPolicy::Auto | ExecutionPolicy::Cpu
+            );
+        self.workspace.set_kernel_profiling(enabled);
         let mut report = self.solve_inner(matrix, b, x)?;
+        report.pcg_kernel_profile = self.workspace.kernel_profile();
         let start = Instant::now();
         certify_final_residual(matrix, b, x, self.options, &mut report)?;
         report.solve_seconds += start.elapsed().as_secs_f64();
@@ -1013,6 +1025,7 @@ impl HybitPreparedSystem {
         // RHS vectors reuse the exact local Cholesky factors and skip probe/
         // diagnostics/factorization entirely.
         if let Some(hybrid) = self.hybrid.as_ref() {
+            self.workspace.enter_hybrid_kernel_phase();
             let start = Instant::now();
             let outcome = run_hybrid_pcg(
                 operator_for_backend(matrix, self.abtm.as_ref(), self.backend),
@@ -1617,6 +1630,7 @@ impl HybitPreparedSystem {
                 local: &next_hybrid,
                 b,
             };
+            self.workspace.enter_hybrid_kernel_phase();
             let mut stage_pcg = pcg_context.start(x, stage_options, &mut self.workspace)?;
             let stage = pcg_context.continue_with_workspace(
                 x,
@@ -2831,6 +2845,7 @@ fn report_from_outcome(
         progress_monitor_checks: metrics.progress_monitor_checks,
         progress_monitor_trigger_iteration: metrics.progress_monitor_trigger_iteration,
         progress_monitor_samples: metrics.progress_monitor_samples,
+        pcg_kernel_profile: None,
         hard_dofs: metrics.hard_dofs,
         local_direct_regions: metrics.local_direct_regions,
         largest_local_region: metrics.largest_local_region,
@@ -4554,5 +4569,39 @@ mod tests {
         assert_eq!(second.prepare_seconds, 0.0);
         assert_eq!(second.solve_sequence, 2);
         assert_eq!(second.krylov_workspace_bytes, workspace_bytes);
+    }
+}
+
+#[cfg(test)]
+mod c1f_auto_kernel_profile_tests {
+    use super::*;
+    #[test]
+    fn profiling_is_opt_in_and_certified_solve_is_unchanged() {
+        let a = Csr32Matrix::new(
+            3,
+            3,
+            vec![0, 2, 5, 7],
+            vec![0, 1, 0, 1, 2, 1, 2],
+            vec![2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0],
+        )
+        .unwrap();
+        let b = [1.0, 0.0, 1.0];
+        let base = HybitSolver::new();
+        let mut opt = HybitSolver::new();
+        let mut options = opt.hybrid_options();
+        options.profile_pcg_kernels = true;
+        opt.set_hybrid_options(options).unwrap();
+        let mut x_base = [0.0; 3];
+        let mut x_opt = [0.0; 3];
+        let r_base = base.solve_csr32(&a, &b, &mut x_base).unwrap();
+        let r_opt = opt.solve_csr32(&a, &b, &mut x_opt).unwrap();
+        assert!(r_base.converged() && r_opt.converged());
+        assert_eq!(x_base, x_opt);
+        assert!(r_base.pcg_kernel_profile.is_none());
+        let profile = r_opt.pcg_kernel_profile.unwrap();
+        assert_eq!(profile.base.starts, 1);
+        assert_eq!(profile.hybrid.starts, 0);
+        assert!(profile.base.spmv_calls >= 2);
+        assert!(profile.base.preconditioner_calls >= 1);
     }
 }

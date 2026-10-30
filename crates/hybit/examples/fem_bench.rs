@@ -20,6 +20,7 @@ struct Args {
     overlap_layers: usize,
     probe_iterations: usize,
     progress_monitor_interval: usize,
+    profile_kernels: bool,
     progress_monitor_observe_only: bool,
     progress_monitor_rate_limit: Option<f64>,
     max_local_region_size: usize,
@@ -50,6 +51,7 @@ impl Args {
         let mut overlap_layers = 1usize;
         let mut probe_iterations = 12usize;
         let mut progress_monitor_interval = 0usize;
+        let mut profile_kernels = false;
         let mut progress_monitor_observe_only = false;
         let mut progress_monitor_rate_limit = None;
         let mut max_local_region_size = 128usize;
@@ -86,6 +88,7 @@ impl Args {
                     progress_monitor_interval = next_value(&mut it, "--monitor-iters")?.parse()?
                 }
                 "--monitor-only" => progress_monitor_observe_only = true,
+                "--profile-kernels" => profile_kernels = true,
                 "--monitor-rate-limit" => {
                     progress_monitor_rate_limit =
                         Some(next_value(&mut it, "--monitor-rate-limit")?.parse()?);
@@ -287,6 +290,7 @@ impl Args {
             overlap_layers,
             probe_iterations,
             progress_monitor_interval,
+            profile_kernels,
             progress_monitor_observe_only,
             progress_monitor_rate_limit,
             max_local_region_size,
@@ -332,6 +336,7 @@ fn print_usage() {
     println!("  --probe-iters N     HyBIT probe length (default 12)");
     println!("  --monitor-iters N   opt-in true-residual PCG progress interval; 0=off (default)");
     println!("  --monitor-only      record progress; forbid any local-direct escalation");
+    println!("  --profile-kernels   opt-in serial SPD PCG kernel timings");
     println!("  --monitor-rate-limit R  opt-in per-iteration slowdown threshold, 0<R<1");
     println!("  --overlap N         topology halo layers (default 1)");
     println!("  --max-region N      maximum local Cholesky order (default 128)");
@@ -560,6 +565,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("max escalations    : {}", args.max_escalations);
     println!("monitor interval   : {}", args.progress_monitor_interval);
+    println!("kernel profiling   : {}", args.profile_kernels);
     println!(
         "monitor only       : {}",
         args.progress_monitor_observe_only
@@ -608,6 +614,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut hybrid = solver.hybrid_options();
     hybrid.probe_iterations = args.probe_iterations;
     hybrid.progress_monitor_interval = args.progress_monitor_interval;
+    hybrid.profile_pcg_kernels = args.profile_kernels;
     hybrid.progress_monitor_observe_only = args.progress_monitor_observe_only;
     hybrid.progress_monitor_rate_limit = args.progress_monitor_rate_limit;
     hybrid.overlap_layers = args.overlap_layers;
@@ -643,6 +650,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("reported residual  : {:.6e}", report.relative_residual);
     println!("verified residual  : {:.6e}", hybit_verified);
     println!("escalations        : {}", report.escalations);
+    if let Some(profile) = report.pcg_kernel_profile {
+        println!("kernel base starts : {}", profile.base.starts);
+        println!(
+            "kernel base spmv   : {} calls, {:.3} ms",
+            profile.base.spmv_calls,
+            profile.base.spmv_seconds * 1e3
+        );
+        println!(
+            "kernel base prec   : {} calls, {:.3} ms",
+            profile.base.preconditioner_calls,
+            profile.base.preconditioner_seconds * 1e3
+        );
+        println!("kernel hybrid starts: {}", profile.hybrid.starts);
+        println!(
+            "kernel hybrid spmv : {} calls, {:.3} ms",
+            profile.hybrid.spmv_calls,
+            profile.hybrid.spmv_seconds * 1e3
+        );
+        println!(
+            "kernel hybrid prec : {} calls, {:.3} ms",
+            profile.hybrid.preconditioner_calls,
+            profile.hybrid.preconditioner_seconds * 1e3
+        );
+    }
     println!("monitor checks     : {}", report.progress_monitor_checks);
     println!(
         "monitor trigger    : {}",

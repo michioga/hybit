@@ -199,6 +199,26 @@ pub struct HybridProgressMonitorSample {
     pub requested_escalation: bool,
 }
 
+/// Opt-in wall-clock profile of the serial PCG operator and preconditioner calls.
+/// Timings are inclusive of the called kernel, but not its caller's vector work.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PcgKernelPhaseProfile {
+    pub spmv_calls: usize,
+    pub spmv_seconds: f64,
+    pub preconditioner_calls: usize,
+    pub preconditioner_seconds: f64,
+    /// Number of fresh PCG recurrences started in this phase.
+    pub starts: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PcgKernelProfile {
+    /// Iterations before selective local-direct strengthening.
+    pub base: PcgKernelPhaseProfile,
+    /// Iterations after strengthening (or prepared local-factor reuse).
+    pub hybrid: PcgKernelPhaseProfile,
+}
+
 #[derive(Clone, Debug)]
 pub struct SolveReport {
     pub status: SolveStatus,
@@ -246,6 +266,8 @@ pub struct SolveReport {
     /// Experimental original-CSR progress samples. Empty on the default path;
     /// no samples are collected after local-direct strengthening begins.
     pub progress_monitor_samples: Vec<HybridProgressMonitorSample>,
+    /// Opt-in serial PCG timing; None on the standard execution path.
+    pub pcg_kernel_profile: Option<PcgKernelProfile>,
     /// Core DOFs identified as numerically difficult before halo expansion.
     pub hard_dofs: usize,
     /// Number of local direct subdomains.

@@ -11,9 +11,11 @@ pub use fgmres::{
 };
 
 use hybit_core::{
-    HybitError, LinearOperator, Preconditioner, SolveStatus, SolverOptions, dot, l2_norm,
+    HybitError, LinearOperator, PcgKernelPhaseProfile, PcgKernelProfile, Preconditioner,
+    SolveStatus, SolverOptions, dot, l2_norm,
 };
 use rayon::prelude::*;
+use std::time::Instant;
 
 #[derive(Clone, Copy, Debug)]
 pub struct KrylovOutcome {
@@ -80,6 +82,8 @@ pub struct PcgWorkspace {
     z: Vec<f64>,
     p: Vec<f64>,
     ap: Vec<f64>,
+    kernel_profile: Option<PcgKernelProfile>,
+    kernel_hybrid_phase: bool,
 }
 
 impl PcgWorkspace {
@@ -90,7 +94,24 @@ impl PcgWorkspace {
             z: vec![0.0; n],
             p: vec![0.0; n],
             ap: vec![0.0; n],
+            kernel_profile: None,
+            kernel_hybrid_phase: false,
         }
+    }
+
+    /// Reset per-RHS measurements; disabled incurs no clock reads.
+    pub fn set_kernel_profiling(&mut self, enabled: bool) {
+        self.kernel_profile = enabled.then(PcgKernelProfile::default);
+        self.kernel_hybrid_phase = false;
+    }
+
+    /// Subsequent PCG restarts use the selective-direct preconditioner.
+    pub fn enter_hybrid_kernel_phase(&mut self) {
+        self.kernel_hybrid_phase = true;
+    }
+
+    pub fn kernel_profile(&self) -> Option<PcgKernelProfile> {
+        self.kernel_profile
     }
 
     pub fn len(&self) -> usize {
@@ -111,6 +132,46 @@ impl PcgWorkspace {
             });
         }
         Ok(())
+    }
+}
+
+// Profile actual public LinearOperator/Preconditioner calls, not estimated costs.
+// No timer is read and no atomic counter is touched when profiling is disabled.
+fn profiled_spmv(
+    operator: &dyn LinearOperator,
+    x: &[f64],
+    y: &mut [f64],
+    profile: &mut Option<PcgKernelProfile>,
+    hybrid: bool,
+) -> Result<(), HybitError> {
+    if let Some(p) = profile.as_mut() {
+        let phase: &mut PcgKernelPhaseProfile = if hybrid { &mut p.hybrid } else { &mut p.base };
+        let start = Instant::now();
+        let result = operator.apply(x, y);
+        phase.spmv_seconds += start.elapsed().as_secs_f64();
+        phase.spmv_calls += 1;
+        result
+    } else {
+        operator.apply(x, y)
+    }
+}
+
+fn profiled_preconditioner(
+    preconditioner: &dyn Preconditioner,
+    r: &[f64],
+    z: &mut [f64],
+    profile: &mut Option<PcgKernelProfile>,
+    hybrid: bool,
+) -> Result<(), HybitError> {
+    if let Some(p) = profile.as_mut() {
+        let phase: &mut PcgKernelPhaseProfile = if hybrid { &mut p.hybrid } else { &mut p.base };
+        let start = Instant::now();
+        let result = preconditioner.apply(r, z);
+        phase.preconditioner_seconds += start.elapsed().as_secs_f64();
+        phase.preconditioner_calls += 1;
+        result
+    } else {
+        preconditioner.apply(r, z)
     }
 }
 
@@ -176,8 +237,23 @@ pub fn pcg_start_with_workspace(
     }
     workspace.validate_len(n)?;
 
-    let PcgWorkspace { ax, r, z, p, .. } = workspace;
-    a.apply(x, ax)?;
+    let PcgWorkspace {
+        ax,
+        r,
+        z,
+        p,
+        kernel_profile,
+        kernel_hybrid_phase,
+        ..
+    } = workspace;
+    if let Some(profile) = kernel_profile.as_mut() {
+        if *kernel_hybrid_phase {
+            profile.hybrid.starts += 1;
+        } else {
+            profile.base.starts += 1;
+        }
+    }
+    profiled_spmv(a, x, ax, kernel_profile, *kernel_hybrid_phase)?;
     for i in 0..n {
         r[i] = b[i] - ax[i];
     }
@@ -194,7 +270,7 @@ pub fn pcg_start_with_workspace(
         });
     }
 
-    m.apply(r, z)?;
+    profiled_preconditioner(m, r, z, kernel_profile, *kernel_hybrid_phase)?;
     p.copy_from_slice(z);
     let rz_old = dot(r, z);
     if !rz_old.is_finite() || rz_old <= 0.0 {
@@ -267,9 +343,17 @@ pub fn pcg_continue_with_workspace(
         });
     }
 
-    let PcgWorkspace { r, z, p, ap, .. } = workspace;
+    let PcgWorkspace {
+        r,
+        z,
+        p,
+        ap,
+        kernel_profile,
+        kernel_hybrid_phase,
+        ..
+    } = workspace;
     for iter in 1..=additional_iterations {
-        a.apply(p, ap)?;
+        profiled_spmv(a, p, ap, kernel_profile, *kernel_hybrid_phase)?;
         let denom = dot(p, ap);
         if !denom.is_finite() || denom <= 0.0 {
             session.finished = Some(SolveStatus::Breakdown);
@@ -313,7 +397,7 @@ pub fn pcg_continue_with_workspace(
                 final_residual: session.final_residual,
             });
         }
-        m.apply(r, z)?;
+        profiled_preconditioner(m, r, z, kernel_profile, *kernel_hybrid_phase)?;
         let rz_new = dot(r, z);
         if !rz_new.is_finite() || rz_new <= 0.0 {
             session.finished = Some(SolveStatus::Breakdown);
@@ -466,7 +550,9 @@ pub fn pcg_with_workspace_parallel_vectors(
     }
     workspace.validate_len(n)?;
 
-    let PcgWorkspace { ax, r, z, p, ap } = workspace;
+    let PcgWorkspace {
+        ax, r, z, p, ap, ..
+    } = workspace;
     a.apply(x, ax)?;
     parallel_initial_residual(b, ax, r);
 
@@ -741,5 +827,80 @@ mod tests {
             assert_eq!(x, rhs);
         }
         assert_eq!(ws.bytes(), 5 * 4 * 8);
+    }
+}
+
+#[cfg(test)]
+mod c1f_kernel_profile_tests {
+    use super::*;
+
+    struct Tridiagonal;
+    impl LinearOperator for Tridiagonal {
+        fn rows(&self) -> usize {
+            4
+        }
+        fn cols(&self) -> usize {
+            4
+        }
+        fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+            for i in 0..4 {
+                y[i] = 4.0 * x[i];
+                if i > 0 {
+                    y[i] -= x[i - 1];
+                }
+                if i + 1 < 4 {
+                    y[i] -= x[i + 1];
+                }
+            }
+            Ok(())
+        }
+    }
+    struct Identity;
+    impl Preconditioner for Identity {
+        fn len(&self) -> usize {
+            4
+        }
+        fn apply(&self, r: &[f64], z: &mut [f64]) -> Result<(), HybitError> {
+            z.copy_from_slice(r);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn profiling_preserves_pcg_solution_and_counts_kernels() {
+        let a = Tridiagonal;
+        let m = Identity;
+        let b = [1.0, 2.0, 3.0, 4.0];
+        let opts = SolverOptions {
+            relative_tolerance: 1e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 20,
+        };
+        let mut plain = [0.0; 4];
+        let mut measured = [0.0; 4];
+        let mut w_plain = PcgWorkspace::new(4);
+        let mut w_measured = PcgWorkspace::new(4);
+        w_measured.set_kernel_profiling(true);
+        let x1 = pcg_with_workspace(&a, &m, &b, &mut plain, opts, &mut w_plain).unwrap();
+        let x2 = pcg_with_workspace(&a, &m, &b, &mut measured, opts, &mut w_measured).unwrap();
+        assert_eq!(plain, measured);
+        assert_eq!(x1.iterations, x2.iterations);
+        assert_eq!(x1.status, x2.status);
+        assert!(w_plain.kernel_profile().is_none());
+        let stats = w_measured.kernel_profile().unwrap();
+        assert_eq!(stats.base.starts, 1);
+        assert!(stats.base.spmv_calls >= 2);
+        assert!(stats.base.preconditioner_calls >= 1);
+        assert_eq!(stats.hybrid.starts, 0);
+        w_measured.set_kernel_profiling(true);
+        w_measured.enter_hybrid_kernel_phase();
+        measured.fill(0.0);
+        let _ = pcg_with_workspace(&a, &m, &b, &mut measured, opts, &mut w_measured).unwrap();
+        let fresh = w_measured.kernel_profile().unwrap();
+        assert_eq!(fresh.base.starts, 0);
+        assert_eq!(fresh.hybrid.starts, 1);
+        assert!(fresh.hybrid.preconditioner_calls >= 1);
+        w_measured.set_kernel_profiling(false);
+        assert!(w_measured.kernel_profile().is_none());
     }
 }

@@ -43,8 +43,8 @@ pub use hybit_auto::{
 };
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,
-    LinearOperator, MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind,
-    SolveReport, SolveStatus, SolverKind, SolverOptions,
+    LinearOperator, MatrixBackend, MatrixProblemClass, PcgKernelPhaseProfile, PcgKernelProfile,
+    Preconditioner, PreconditionerKind, SolveReport, SolveStatus, SolverKind, SolverOptions,
 };
 /// Feature-gated distributed topology and MPI backend.
 /// Enabled by `cargo build --features mpi`.
