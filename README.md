@@ -9,6 +9,8 @@
 
 HyBIT starts from a low-cost iterative path, observes convergence, identifies numerically difficult degrees of freedom when progress is poor, and can promote bounded local regions to direct Cholesky corrections. ABTM bitmap topology metadata is used internally to expand and organize selected regions. Applications continue to provide ordinary CSR32 matrices.
 
+> **Primary design objective:** Robust convergence rescue is more important than outperforming Jacobi-PCG on systems it already solves. HyBIT aims to retain the memory efficiency of Krylov methods and reinforce only difficult subregions with local direct corrections. These corrections are preconditioners, **not** a guarantee of global convergence or a global sparse-direct solve. See [project charter](docs/PROJECT_CHARTER.md) and [C1-G robustness corpus plan](docs/C1G_ROBUSTNESS_CORPUS.md).
+
 > **Project status:** HyBIT 0.9.0 is the published release, available on crates.io and tagged as `v0.9.0`. It remains pre-1.0. SPD uses PCG/Hybrid/structural policies; GeneralSquare uses prepared FGMRES with Jacobi by default and explicit ILU(0). ABTM provides topology/symbolic preparation and prepared numeric layouts are selected for their measured value. APIs may evolve before 1.0.
 
 日本語の説明は [README.ja.md](README.ja.md) を参照してください。

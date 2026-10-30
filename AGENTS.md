@@ -4,6 +4,8 @@
 
 ## Non-negotiable product goal
 
+**Highest-priority design objective (user-confirmed 2026-10-30): verified convergence rescue, not speed on already-solvable cases.** Start with memory-efficient iterative methods; when they fail to reach tolerance within a documented budget, use mathematically valid, budgeted *local* direct reinforcement to improve robustness. Enforce numerical correctness first and bounded memory next; optimize runtime after reliability. C1-G measures rescue on deliberately difficult, independently validated SPD FEM matrices. See `docs/PROJECT_CHARTER.md` and `docs/C1G_ROBUSTNESS_CORPUS.md`.
+
 HyBIT (Autonomous Hybrid Sparse Solver) provides a **simple, stable API to sparse-solver users** while the implementation automatically seeks robust convergence and high performance:
 
 1. Begin with memory-efficient iterative Krylov methods selected for the *declared mathematical class* of the matrix.

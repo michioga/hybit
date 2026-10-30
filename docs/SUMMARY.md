@@ -27,6 +27,7 @@
 - [C1-F opt-in PCG kernel timing](C1F_PCG_KERNEL_PROFILE.md)
 - [C1-D Hybrid cost crossover](C1D_HYBRID_COST_CROSSOVER.md)
 - [C1-E Independent hybrid cost audit](C1E_HYBRID_COST_AUDIT.md)
+- [C1-G: difficult-SPD convergence rescue corpus (plan)](C1G_ROBUSTNESS_CORPUS.md)
 - [Development status](DEVELOPMENT_STATUS.md)
 - [Roadmap](ROADMAP.md)
 - [Publishing discipline](PUBLISHING.md)

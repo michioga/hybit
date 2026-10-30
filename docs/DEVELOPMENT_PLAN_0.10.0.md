@@ -12,16 +12,23 @@ not substitute for comparative real-FEM time-to-solution. It does **not**
 accept the inference that weaker numerical or ABI gates would produce better
 performance evidence: false convergence makes a benchmark meaningless.
 
+## Highest-priority acceptance objective — convergence rescue (2026-10-30)
+
+**Numerical correctness comes first; rescuing failure of a memory-efficient iterative baseline under a stated budget is the defining HyBIT success.** Bounded memory comes next; speed is important but secondary for a successful rescue. A system already solved by Jacobi-PCG is a control, not proof that local Cholesky is useful merely because it is faster.
+
+Use deliberately difficult, separately validated SPD FEM matrices (localized stiffness contrasts, anisotropy, slender structures, multiple hard patches, and global low-energy controls). Classify Jacobi failures, Hybrid rescues, Hybrid failures and regressions at the **same** tolerance, RHS, initial guess, iteration ceiling and memory budget. Verify original-CSR true residual and forward error where a reference solution is available. The complete pre-registered protocol and milestones C1-G1--G4 are in `docs/C1G_ROBUSTNESS_CORPUS.md`. This is a **plan**, not a claim of a newly working fallback or a universal success guarantee.
+
 ## What 0.10.0 must demonstrate
 
 1. **Correctness is non-negotiable.** High-level solver reports independently
    certify original-CSR `||b-Ax||`, identify breakdown separately from an
    iteration cap, and do not infer SPD or forward accuracy from convergence.
    The first code checkpoint is the staged post-0.9.0 hardening patch.
-2. **A win is defined by total cost.** On fixed matrix/RHS/tolerance, compare
-   cold start (read + analyze + preparation + solve), prepared repeated RHS
-   (amortized setup + solves), peak RSS, and original-CSR residual/forward
-   error. Report failures in the same dataset as successes.
+2. **The primary win is verified convergence rescue under a stated budget.**
+   Report the baseline-failure cohort, actual local-direct activation,
+   independently certified true residual, and full outcomes (including
+   Hybrid failures or regressions). Compare cold-start, prepared-RHS
+   amortized cost, peak RSS and speed as necessary secondary dimensions.
 3. **A baseline must be competitive.** Include current Jacobi-PCG, the
    relevant HyBIT Hybrid/structural options, and independent native AMG
    baselines where installed: PETSc GAMG, PETSc PCHYPRE/BoomerAMG or hypre
@@ -109,6 +116,7 @@ An exploratory failure can remain in the table without being called PASS.
 | --- | --- | --- |
 | C0 — reliability | Original-CSR certifier, finite PCG, FFI classification, CI integrity | Debug/release tests, strict Clippy/rustfmt, source hashes, native ABI/MPI cross-check |
 | C1 — reusable evidence | Machine-readable pilot runner with explicit config and failure rows | Repeated measurements reproducible; no silently accepted nonconvergence; all metadata captured |
+| C1-G — difficult SPD rescue | Validated synthetic/physical FEM corpus; same-budget baseline/Hybrid/coarse comparison | At least one reproducible held-out Jacobi-budget failure rescued by actual local corrections, with certified true residual, controlled memory, and complete failure cohort; no production-policy claim |
 | C2 — local region economics | Fixed-budget 64/128/256/512 study on validated SPD cases | Truth residual/forward error + cold/warm time + peak RSS + held-out loss cases |
 | C3 — competitive comparison | AMG / optional sparse-direct reference on identical cases | Versioned baseline, matched tolerance, apples-to-apples setup/reuse/rank/threads |
 | C4 — guarded autonomy | Explicit recommendation based on pilot and held-out data | Conservative budget cap, no regression gate failures, opt-in only until validated |

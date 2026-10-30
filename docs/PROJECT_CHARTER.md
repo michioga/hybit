@@ -10,6 +10,14 @@
 
 ## 2. ソルバの中核方針
 
+### 最重要原則（2026-10-30確認）: 収束救済は単純な高速化より優先する
+
+**HyBITの中核的な価値は、反復法では指定予算内に収束できない難条件問題を、必要な部分の局所直接補正により、全体系の直接因子分解を避けつつ救済することにある。** すでにJacobi-PCGで収束する問題を常に高速化することが第一目的ではない。
+
+開発・受入れ時の優先順位は **(1) 数値的正しさ（真残差・行列クラス） (2) 収束救済能力（同一予算での成功率） (3) メモリ制約（局所因子とピークRSS） (4) 総実行時間**。収束救済に成功しても低速なら速度は副次改善課題とする一方、救済不要なケースへの無益な昇格や、Jacobiで収束するケースの失敗は回帰とみなす。
+
+局所Cholesky/Schwarzは**全体系の直接解法ではなく前処理**であり、必ず収束できる保証はない。SPDの前提・真残差・反復予算を独立に確認する。明確な難条件FEMコーパスと成功・失敗の両方を使って実証する。具体的な受入れ条件は `docs/C1G_ROBUSTNESS_CORPUS.md`。
+
 ### 2.1 低メモリ反復法を先行
 
 - SPDにはPCGとSPD適合の前処理、一般非対称正方行列にはFGMRESなど、**数学的に適合する方法**を選ぶ。
@@ -62,8 +70,8 @@
 
 1. **Correctness** — 真の残差、参照解との一致、MPIランク間整合、determinism/許容差、SPD未証明の明記。
 2. **Robustness** — 反復法成功、停滞、breakdown、メモリ不足、切替え・適用失敗の回帰テスト。
-3. **Speed** — 1/2/4/8ランク、Rayonスレッド数、行列サイズと構造の違いを含む再現可能な測定。ランク最大時間と時系列/分布を記録。
-4. **Memory** — CSR/ABTMのmetadata・values、変換中のpeak、Halo buffer、preconditioner factor、Krylov workspaceを区別する。
+3. **Memory** — CSR/ABTMのmetadata・values、変換中のpeak、Halo buffer、preconditioner factor、Krylov workspaceを区別する。
+4. **Speed** — 1/2/4/8ランク、Rayonスレッド数、行列サイズと構造の違いを含む再現可能な測定。ランク最大時間と時系列/分布を記録。
 5. **MPI** — bytes/peers、pack/post/wait/scatter、interior/boundary、Allreduce、実効オーバーラップを分解。
 6. **End-to-end** — setup、実際の反復、局所/全体直接法（導入後）、solve-many償却を計測する。
 

@@ -2,6 +2,14 @@
 
 > **2026-10-12時点の共有ZIPに基づくスナップショット。** 次セッション開始時は必ず実際のローカル `git status` / `git log` / テストログで更新する。ここにあるコミットID・dirty状態を永続的に最新と誤認しない。
 
+## 2026-10-30 — 最重要設計原則（C1-G計画）
+
+- **ユーザーが最重要と明示:** HyBITの狙いはJacobi-PCGより常に速いことではなく、**反復法が所定の反復/メモリ予算で解けない難条件問題を、局所直接補正で救済するロバスト性**。正確性 > 救済能力 > メモリ効率 > 速度。
+- **確認済みユーザーWSLログ:** `develop/0.10.0` の `03deee5` (`bench(0.10): add opt-in PCG kernel profiling`) はpush済み、作業ツリーclean。C1-F Rust Debug/Release, strict Clippy, rustfmt, Source SHA-256 PASS。
+- **C1-F thermal1:** manufactured `b=A*ones`, 82,654 DOF, 574,458 CSR nnz、tol 1e-8、Jacobi 1,286 iter / Hybrid 1,305 iter（両方Converged）、一段昇格で8領域・計1024 unique DOF、両方真残差PASS。単発実行でHybridの前処理適用時間が増加。C1-Dの9組ペアでもHybrid総時間中央値ベースで約19.7%増。**これは速度の負の対照例であり、収束救済の検証ではない。**SPDの独立証明、物理RHS、一般化可能な自動ポリシーはいずれも未検証。
+- **次の作業:** C1-G1難条件SPD-FEMコーパスの設計と生成/検証。Jacobi-PCGが同一予算でMaxIterationsとなる行列・RHSを基準に、Hybrid-PCGが真残差を満たして救済できるか、救済失敗も含めて評価する。詳細は `docs/C1G_ROBUSTNESS_CORPUS.md`。
+- 今回の変更は**ドキュメント上の方針明確化のみ**。C1-Gコード、直接法全体系fallback、保証付き自律判断は未実装。
+
 ## 固定の長期目標
 
 詳細は `docs/PROJECT_CHARTER.md`。要約：**簡単なユーザーAPI**、低メモリ反復法を開始点とし、停滞時にはより強い前処理・必要な場合の直接法に切替可能な自律ハイブリッドソルバ、**ABTM**による圧縮・ビット論理演算・高効率Halo、**RayonとMPI**による大規模FEM/HPCのend-to-end高速化。既存機能を極力再利用。検証節目ごとにcommit/push。**大きな開発計画の検証が成功した時点で、ユーザーの判断によりGitHub Releaseとcrates.ioへ正式公開する。**
