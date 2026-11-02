@@ -25,6 +25,7 @@
 - [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
 - [FEM-host-neutral integration (FrontISTR first)](FEM_HOST_INTEGRATION_0.10.0.md)
 - [C1-H2 ABTM residual topology observer](C1H2_ABTM_RESIDUAL_OBSERVER.md)
+- [C1-H3 ABTM shadow stall guard](C1H3_SHADOW_STALL_GUARD.md)
 - [C1-A WSL2 FEM region sweep](C1_FEM_REGION_SWEEP.md)
 - [C1-F opt-in PCG kernel timing](C1F_PCG_KERNEL_PROFILE.md)
 - [C1-D Hybrid cost crossover](C1D_HYBRID_COST_CROSSOVER.md)

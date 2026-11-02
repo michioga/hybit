@@ -24,6 +24,8 @@ benchmarks/data/cube8_identity.mtx
 benchmarks/data/poisson5.mtx
 benchmarks/export-example.md
 benchmarks/scripts/C1H2_run_spd_corpus.sh
+benchmarks/scripts/C1H3_run_shadow.sh
+benchmarks/scripts/C1H3_shadow_policy.py
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -113,6 +115,7 @@ benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
+benchmarks/scripts/test_C1H3_shadow_policy.py
 benchmarks/scripts/test_fem_hybrid_cost_audit.py
 benchmarks/scripts/test_fem_hybrid_crossover.py
 benchmarks/scripts/test_fem_linear_system_probe.py
@@ -295,6 +298,7 @@ docs/C1F_PCG_KERNEL_PROFILE.md
 docs/C1G_FORWARD_ERROR.md
 docs/C1G_ROBUSTNESS_CORPUS.md
 docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
+docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md

@@ -803,3 +803,16 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   hybrid/FGMRES promotion.** See `docs/C1H2_ABTM_RESIDUAL_OBSERVER.md`.
 - WSL2 compilation, Rustfmt/Clippy, corpus observations and bitwise invariance
   NOT YET TESTED. No C1-H2 commit or push before validation.
+
+## 2026-11-02 — C1-H3 offline shadow stall guard (experimental)
+
+- Base HEAD: `e1425b7` after C1-H2 observation-only checkpoint pushed; clean branch.
+- Adds Python-only shadow analysis of the 15 C1-H2 logs, 87 checkpoints:
+  six isolated weak-progress windows (three seed fractions each in island_shell
+  and multi_patch) all recovered; zero sustained-spatial shadow candidates.
+- The shadow gate requires two consecutive weak progress windows and ABTM
+  hotspot persistence/energy; it **never** triggers real local factors.
+- Thresholds are experimental, no positive real-Hybrid rescue case or
+  forward-error guarantee. See `docs/C1H3_SHADOW_STALL_GUARD.md`.
+- No Rust/API/FFI/controller modifications. Require WSL Python tests, SHA
+  manifest, strict Rust gates, and review before commit/push.
