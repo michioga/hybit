@@ -831,3 +831,19 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   automatic routing or actual FEM performance. Existing HybitSolver unchanged.
 - WSL Rust compilation, test and true positive gate are NOT YET VERIFIED.
   Do not commit before validation. See `docs/C1H4_WEIGHTED_ABTM_RESCUE.md`.
+
+## 2026-11-02 — C1-H5 topology routing trial (pending WSL)
+
+- Baseline pushed clean HEAD `457eb1f` (C1-H4 local rescue validated).
+- C1-H5 adds independent Rust **experimental routing** example only:
+  after a preserved 12-step Jacobi-PCG probe, weighted ABTM topology and
+  boundary strengths admit packed local Cholesky when a numerical weak
+  cut isolates a 96-DOF region within 128 KiB conservative estimate.
+- Otherwise retain the PCG recurrence without restart or factorization;
+  require bit-for-bit match with uninterrupted plain Jacobi-PCG.
+- Separate C1-H3 healthy corpus guard checks 15 observations and zero
+  shadow candidates; it does NOT establish end-to-end weighted routing
+  behavior on real FEM. The thresholds are synthetic-case-specific.
+- Rust test/Clippy, full positive/negative WSL experiment NOT YET RUN.
+  No default HybitSolver, FFI, MPI or public API change.
+- See docs/C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md. Do not commit before gates.

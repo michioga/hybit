@@ -27,6 +27,7 @@ benchmarks/scripts/C1H2_run_spd_corpus.sh
 benchmarks/scripts/C1H3_run_shadow.sh
 benchmarks/scripts/C1H3_shadow_policy.py
 benchmarks/scripts/C1H4_run_positive.sh
+benchmarks/scripts/C1H5_run_routing_trial.sh
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -239,6 +240,7 @@ crates/hybit/examples/abtm_topology_g1b.rs
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 crates/hybit/examples/basic.rs
 crates/hybit/examples/c1h4_weighted_local_rescue.rs
+crates/hybit/examples/c1h5_topology_routing_trial.rs
 crates/hybit/examples/fem_abtm_residual_observer.rs
 crates/hybit/examples/fem_bench.rs
 crates/hybit/examples/fem_block_bench.rs
@@ -302,6 +304,7 @@ docs/C1G_ROBUSTNESS_CORPUS.md
 docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md
+docs/C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md
 docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md
