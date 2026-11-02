@@ -931,3 +931,21 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   claim. No WSL2 Rust compilation of C1-H10 has occurred yet.
 - Next: run smoke/full, workspace Rust tests, strict Clippy, fmt and SHA gates;
   inspect actual timing CSV before commit/push.
+
+## 2026-11-02 — C1-H11 real FEM evidence intake (candidate; no numerical FEM result)
+
+- Base: pushed clean `develop/0.10.0` at `69dfa74`.
+- Research-only Python evidence runner plus user-supplied data manifest. No
+  default Auto changes, FEM matrix generator, new Rust code or PETSc/hypre
+  comparator. Never claim real-FEM rescue before independently verified inputs.
+- Real serial FEM matrix, matching physical RHS, input provenance and SPD
+  evidence are required. FrontISTR MPI rank-local files are rejected.
+- First audit with `mtx_fem_audit` and C1-H1 file validation, then compare
+  Jacobi-PCG and opt-in single-region ABTM Auto over declared budgets/caps,
+  retaining false convergence, regressions, breakdown and process errors.
+- Full results, hashes, original logs and process peak RSS are stored outside
+  the repository. Actual SPD claims and physical load provenance remain the
+  user's independent evidence; the tool does not manufacture either.
+- No actual real FEM data have been provided to the assistant for this stage.
+- Next: user WSL2 code/unit test gates, obtain valid physical FEM serial
+  snapshots, run audit and a preregistered run; inspect outcomes before commit.

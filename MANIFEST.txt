@@ -25,6 +25,8 @@ benchmarks/data/poisson5.mtx
 benchmarks/export-example.md
 benchmarks/scripts/C1H10_analyze.py
 benchmarks/scripts/C1H10_run_rhs_amortization.sh
+benchmarks/scripts/C1H11_real_fem_evidence.py
+benchmarks/scripts/C1H11_run_real_fem.sh
 benchmarks/scripts/C1H2_run_spd_corpus.sh
 benchmarks/scripts/C1H3_run_shadow.sh
 benchmarks/scripts/C1H3_shadow_policy.py
@@ -127,6 +129,7 @@ benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
 benchmarks/scripts/test_C1H10_analyze.py
+benchmarks/scripts/test_C1H11_real_fem_evidence.py
 benchmarks/scripts/test_C1H3_shadow_policy.py
 benchmarks/scripts/test_C1H7_sensitivity.py
 benchmarks/scripts/test_C1H8_natural_region.py
@@ -317,6 +320,7 @@ docs/C1F_PCG_KERNEL_PROFILE.md
 docs/C1G_FORWARD_ERROR.md
 docs/C1G_ROBUSTNESS_CORPUS.md
 docs/C1H10_PREPARED_RHS_AMORTIZATION.md
+docs/C1H11_REAL_FEM_EVIDENCE_INTAKE.md
 docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md
