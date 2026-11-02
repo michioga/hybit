@@ -30,6 +30,8 @@ benchmarks/scripts/C1H4_run_positive.sh
 benchmarks/scripts/C1H5_run_routing_trial.sh
 benchmarks/scripts/C1H6_generate_cases.py
 benchmarks/scripts/C1H6_run_auto_route.sh
+benchmarks/scripts/C1H7_run_sensitivity.sh
+benchmarks/scripts/C1H7_sensitivity.py
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -120,6 +122,7 @@ benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
 benchmarks/scripts/test_C1H3_shadow_policy.py
+benchmarks/scripts/test_C1H7_sensitivity.py
 benchmarks/scripts/test_fem_hybrid_cost_audit.py
 benchmarks/scripts/test_fem_hybrid_crossover.py
 benchmarks/scripts/test_fem_linear_system_probe.py
@@ -309,6 +312,7 @@ docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md
 docs/C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md
 docs/C1H6_ABTM_AUTO_OPTIN.md
+docs/C1H7_ABTM_ROUTING_SENSITIVITY.md
 docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md

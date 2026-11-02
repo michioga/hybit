@@ -865,3 +865,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - No Rust compilation or WSL test of C1-H6 has occurred in assistant environment.
 - Next step: apply guarded patch to clean d012e51, execute C1H6_run_auto_route.sh,
   run Release workspace tests, strict Clippy, fmt and source SHA checks.
+
+## 2026-11-02 — C1-H7 sensitivity candidate (WSL2 evidence pending)
+
+- Base checkpoint: pushed clean `develop/0.10.0` at `867cc8e`.
+- C1-H6 opt-in HyBIT Auto WSL2 gate PASS: localized 160-DOF SPD rescue
+  at 14/30 iterations using 96-DOF Cholesky, global KEEP_PCG; the five
+  C1-G existing SPD controls triggered no local factorization.
+- C1-H7 is **Python/shell-only** instrumentation of actual `fem_bench` Auto.
+  No Rust solver/library modifications and no production-policy claim.
+- Falsification axes: weak-bridge coupling, manufactured RHS, region capacity,
+  initial probe length. Canonical C1-H6 positive/negative arms are required
+  controls; all other classifications and timings are observed evidence.
+- Before commit: run `C1H7_run_sensitivity.sh smoke` and `full`, then
+  workspace tests/strict Clippy/fmt/SHA; inspect `summary.csv` for brittle
+  transitions and unnecessary promotions. Do not cherry-pick successes.
