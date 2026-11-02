@@ -624,6 +624,8 @@ pub struct HybitPreparedSystem {
     general_square_preconditioner: Option<PreparedGeneralSquarePreconditioner>,
     abtm: Option<AbtmMatrix>,
     hybrid: Option<HybridPreconditioner>,
+    // Experimental C1-H9: exact sorted DOFs of the retained local factor.
+    weighted_cached_region: Option<Vec<usize>>,
     algebraic_coarse: Option<TwoLevelBlockJacobiPreconditioner>,
     algebraic_coarse_aggregate_nodes: usize,
     workspace: PcgWorkspace,
@@ -1011,6 +1013,15 @@ impl HybitPreparedSystem {
         report.pcg_kernel_profile = self.workspace.kernel_profile();
         let start = Instant::now();
         certify_final_residual(matrix, b, x, self.options, &mut report)?;
+        // Do not cache a factor from recursive convergence when the
+        // independent original-CSR residual rejects that solve.
+        if self.hybrid_options.abtm_weighted_routing_enabled
+            && report.escalations > 0
+            && report.status == SolveStatus::Breakdown
+        {
+            self.hybrid = None;
+            self.weighted_cached_region = None;
+        }
         report.solve_seconds += start.elapsed().as_secs_f64();
         Ok(report)
     }
@@ -1045,7 +1056,11 @@ impl HybitPreparedSystem {
         // Once a difficult subspace has been learned for this matrix, subsequent
         // RHS vectors reuse the exact local Cholesky factors and skip probe/
         // diagnostics/factorization entirely.
-        if let Some(hybrid) = self.hybrid.as_ref() {
+        if let Some(hybrid) = self
+            .hybrid
+            .as_ref()
+            .filter(|_| !self.hybrid_options.abtm_weighted_routing_enabled)
+        {
             self.workspace.enter_hybrid_kernel_phase();
             let start = Instant::now();
             let outcome = run_hybrid_pcg(
@@ -1373,6 +1388,11 @@ impl HybitPreparedSystem {
             krylov_workspace_bytes: self.workspace.bytes(),
             ..ReportMetrics::default()
         };
+        // On the opt-in path this flag means a local Cholesky factor
+        // was actually reused, not merely that Jacobi was prepared.
+        if self.hybrid_options.abtm_weighted_routing_enabled {
+            base_metrics.preconditioner_reused = false;
+        }
         if let Some(coarse) = self.algebraic_coarse.as_ref() {
             base_metrics.algebraic_coarse_dimension = coarse.coarse_dimension();
             base_metrics.algebraic_coarse_factor_bytes = coarse.factor_bytes();
@@ -1648,8 +1668,18 @@ impl HybitPreparedSystem {
                 break;
             }
 
+            // A matching RHS-selected region may reuse its *numerical* factor.
+            // Matrix identity was already verified by validate_matrix(). The
+            // Jacobi probe still runs on every RHS before this point.
             let factor_start = Instant::now();
-            let next_hybrid =
+            let reuse_factor = self.hybrid_options.abtm_weighted_routing_enabled
+                && self.weighted_cached_region.as_ref() == budgeted.regions.first()
+                && self.hybrid.is_some();
+            let next_hybrid = if reuse_factor {
+                self.hybrid
+                    .take()
+                    .expect("matching weighted factor checked above")
+            } else {
                 match HybridPreconditioner::from_csr32(matrix, budgeted.regions.clone()) {
                     Ok(hybrid) => hybrid,
                     Err(HybitError::NumericalBreakdown(_)) | Err(HybitError::InvalidMatrix(_)) => {
@@ -1657,8 +1687,14 @@ impl HybitPreparedSystem {
                         break;
                     }
                     Err(err) => return Err(err),
-                };
-            metrics.local_factor_seconds += factor_start.elapsed().as_secs_f64();
+                }
+            };
+            if !reuse_factor {
+                metrics.local_factor_seconds += factor_start.elapsed().as_secs_f64();
+            }
+            if self.hybrid_options.abtm_weighted_routing_enabled {
+                metrics.preconditioner_reused = reuse_factor;
+            }
 
             active_regions = budgeted.regions;
             metrics.escalations += 1;
@@ -1785,13 +1821,18 @@ impl HybitPreparedSystem {
         }
 
         let used_hybrid = current_hybrid.is_some() || self.algebraic_coarse.is_some();
-        if current_hybrid.is_some()
-            && outcome.status != SolveStatus::Breakdown
-            && !self.hybrid_options.abtm_weighted_routing_enabled
-        {
-            // Prepared solve-many reuses the strongest successfully learned
-            // multi-stage local-direct state for later RHS vectors.
-            self.hybrid = current_hybrid;
+        if current_hybrid.is_some() && outcome.status != SolveStatus::Breakdown {
+            if self.hybrid_options.abtm_weighted_routing_enabled {
+                // A region helps this RHS only if its promoted solve converged.
+                // Do not cache unsuccessful experimental rescue attempts.
+                if outcome.status == SolveStatus::Converged {
+                    self.weighted_cached_region = active_regions.first().cloned();
+                    self.hybrid = current_hybrid;
+                }
+            } else {
+                // Keep established prepared solve-many behavior unchanged.
+                self.hybrid = current_hybrid;
+            }
         }
 
         Ok(report_from_outcome(
@@ -2541,6 +2582,7 @@ impl HybitSolver {
             general_square_preconditioner,
             abtm,
             hybrid: None,
+            weighted_cached_region: None,
             algebraic_coarse: None,
             algebraic_coarse_aggregate_nodes: 0,
             workspace,

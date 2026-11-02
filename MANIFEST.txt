@@ -34,6 +34,7 @@ benchmarks/scripts/C1H7_run_sensitivity.sh
 benchmarks/scripts/C1H7_sensitivity.py
 benchmarks/scripts/C1H8_natural_region.py
 benchmarks/scripts/C1H8_run_natural_region.sh
+benchmarks/scripts/C1H9_run_prepared_reuse.sh
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -296,6 +297,7 @@ crates/hybit/examples/mtx_fem_spectral.rs
 crates/hybit/examples/multiregion.rs
 crates/hybit/examples/prepared.rs
 crates/hybit/src/lib.rs
+crates/hybit/tests/c1h9_prepared_weighted_reuse.rs
 crates/hybit/tests/dense_block_public_api.rs
 crates/hybit/tests/hybrid_public_api.rs
 crates/hybit/tests/restricted_public_api.rs
@@ -317,6 +319,7 @@ docs/C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md
 docs/C1H6_ABTM_AUTO_OPTIN.md
 docs/C1H7_ABTM_ROUTING_SENSITIVITY.md
 docs/C1H8_NATURAL_ABTM_REGION.md
+docs/C1H9_WEIGHTED_PREPARED_REUSE.md
 docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md

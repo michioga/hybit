@@ -895,3 +895,21 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - WSL2 gates not run for this candidate at packaging time. Run smoke/full,
   C1-H6 and C1-H7 regression, Rust Release, strict Clippy, fmt and SHA before
   considering commit. Keep measured and expected results separate.
+
+## 2026-11-02 — C1-H9 prepared weighted factor reuse (candidate, uncommitted)
+
+- Base `df0e05a` after pushed C1-H8 natural strong-components validation.
+- Experimental opt-in prepared solve-many now reuses local numerical Cholesky
+  only after every RHS independently passes the full ABTM diagnostic and the
+  sorted region DOFs exactly match the stored region. Matrix structure and
+  numeric values are checked by the prepared-context signature gate.
+- An easy/new RHS is never forced to use the old local factor. PCG recurrence
+  stays live when no promotion is chosen; a real change to a local preconditioner
+  restarts PCG. A rejected RHS does not evict an old valid factor.
+- Only successfully converged opt-in promotions may replace the single cache;
+  default Auto learned-factor behavior remains unchanged.
+- New public prepared-API integration test checks scaled hard RHS reuse, no
+  premature reuse on easy RHS, matrix mismatch rejection, cache preservation,
+  and bitwise agreement against a fresh-factor solve.
+- This patch has not been compiled with Rust in the assistant runtime. Do not
+  claim WSL2/full-gate success or commit until verified by the user.
