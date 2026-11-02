@@ -816,3 +816,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   forward-error guarantee. See `docs/C1H3_SHADOW_STALL_GUARD.md`.
 - No Rust/API/FFI/controller modifications. Require WSL Python tests, SHA
   manifest, strict Rust gates, and review before commit/push.
+
+## 2026-11-02 — C1-H4 — weighted ABTM local-rescue experiment (pending WSL)
+
+- Base: pushed clean `develop/0.10.0` HEAD `96710c8` (C1-H3 complete).
+- Adds *independent example only* with constructive SPD localized and global
+  160-DOF chain controls. Numerical normalized coupling masks filter ABTM
+  neighbor expansion after a 12-iteration Jacobi-PCG probe.
+- Local factor: existing `HybridPreconditioner` packed Cholesky, one region
+  capped to 96 DOFs, then at most 18 further PCG steps; baseline gets 30.
+- True residual, reference forward error, factor bytes, all setup times,
+  strong/weak graph boundary cuts and separate global counterexample reported.
+- Objective: demonstrate **manual** local-direct iteration-budget rescue, NOT
+  automatic routing or actual FEM performance. Existing HybitSolver unchanged.
+- WSL Rust compilation, test and true positive gate are NOT YET VERIFIED.
+  Do not commit before validation. See `docs/C1H4_WEIGHTED_ABTM_RESCUE.md`.
