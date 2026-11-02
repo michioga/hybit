@@ -15,6 +15,7 @@ use hybit::{
 struct Args {
     matrix: PathBuf,
     rhs: Option<PathBuf>,
+    xref: Option<PathBuf>,
     relative_tolerance: f64,
     max_iterations: usize,
     overlap_layers: usize,
@@ -46,6 +47,7 @@ impl Args {
     fn parse() -> Result<Self, Box<dyn Error>> {
         let mut matrix = None;
         let mut rhs = None;
+        let mut xref = None;
         let mut relative_tolerance: f64 = 1.0e-8;
         let mut max_iterations = 1000usize;
         let mut overlap_layers = 1usize;
@@ -78,6 +80,7 @@ impl Args {
             match arg.as_str() {
                 "--matrix" => matrix = Some(PathBuf::from(next_value(&mut it, "--matrix")?)),
                 "--rhs" => rhs = Some(PathBuf::from(next_value(&mut it, "--rhs")?)),
+                "--xref" => xref = Some(PathBuf::from(next_value(&mut it, "--xref")?)),
                 "--tol" => relative_tolerance = next_value(&mut it, "--tol")?.parse()?,
                 "--max-iters" => max_iterations = next_value(&mut it, "--max-iters")?.parse()?,
                 "--overlap" => overlap_layers = next_value(&mut it, "--overlap")?.parse()?,
@@ -251,6 +254,9 @@ impl Args {
         }
 
         let matrix = matrix.ok_or("missing matrix path; use --matrix FILE.mtx")?;
+        if xref.is_some() && rhs.is_none() {
+            return Err("--xref requires an explicit --rhs".into());
+        }
         if !relative_tolerance.is_finite() || relative_tolerance <= 0.0 {
             return Err("--tol must be finite and > 0".into());
         }
@@ -285,6 +291,7 @@ impl Args {
         Ok(Self {
             matrix,
             rhs,
+            xref,
             relative_tolerance,
             max_iterations,
             overlap_layers,
@@ -330,6 +337,7 @@ fn print_usage() {
     println!();
     println!("Options:");
     println!("  --rhs FILE          whitespace-separated RHS vector; default: b=A*1");
+    println!("  --xref FILE         optional known/reference solution vector; requires --rhs");
     println!("  --tol VALUE         relative tolerance (default 1e-8)");
     println!("  --max-iters N       maximum PCG iterations (default 1000)");
     println!("  --backend MODE      auto|csr|abtm (default auto)");
@@ -437,6 +445,23 @@ fn relative_error_to_ones(x: &[f64]) -> f64 {
     diff.sqrt() / (x.len() as f64).sqrt().max(f64::MIN_POSITIVE)
 }
 
+/// Relative 2-norm forward error against an externally supplied reference.
+/// For a zero reference vector, return absolute error instead.
+/// Using `hypot` avoids overflow/underflow in the accumulation for finite data.
+fn relative_error_to_reference(x: &[f64], reference: &[f64]) -> f64 {
+    debug_assert_eq!(x.len(), reference.len());
+    let error_norm = x
+        .iter()
+        .zip(reference)
+        .fold(0.0_f64, |sum, (&xi, &ri)| sum.hypot(xi - ri));
+    let reference_norm = reference.iter().fold(0.0_f64, |sum, &ri| sum.hypot(ri));
+    if reference_norm == 0.0 {
+        error_norm
+    } else {
+        error_norm / reference_norm
+    }
+}
+
 fn mib(bytes: usize) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
 }
@@ -501,6 +526,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         matrix.spmv(&vec![1.0; matrix.ncols()])?
     };
 
+    // Reference verification is intentionally outside the timed HyBIT solve.
+    let reference_x = if let Some(path) = args.xref.as_deref() {
+        println!("reference x        : {}", path.display());
+        let reference = load_rhs(path, matrix.ncols())?;
+        let reference_residual = verified_relative_residual(&matrix, &b, &reference)?;
+        if !reference_residual.is_finite() {
+            return Err("non-finite reference residual".into());
+        }
+        println!("reference residual : {:.6e}", reference_residual);
+        Some(reference)
+    } else {
+        None
+    };
+
     let options = SolverOptions {
         relative_tolerance: args.relative_tolerance,
         absolute_tolerance: 0.0,
@@ -538,7 +577,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             "workspace estimate : {:.3} MiB",
             mib(6 * matrix.nrows() * std::mem::size_of::<f64>())
         );
-        if generated_rhs {
+        if let Some(reference) = reference_x.as_deref() {
+            let error = relative_error_to_reference(&x_plain, reference);
+            if !error.is_finite() {
+                return Err("non-finite plain PCG forward error".into());
+            }
+            println!("relative x error   : {:.6e}", error);
+        } else if generated_rhs {
             println!(
                 "relative x error   : {:.6e}",
                 relative_error_to_ones(&x_plain)
@@ -776,7 +821,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         report.solve_seconds * 1.0e3
     );
     println!("total wall         : {:.3} ms", hybit_wall_seconds * 1.0e3);
-    if generated_rhs {
+    if let Some(reference) = reference_x.as_deref() {
+        let error = relative_error_to_reference(&x_hybit, reference);
+        if !error.is_finite() {
+            return Err("non-finite HyBIT forward error".into());
+        }
+        println!("relative x error   : {:.6e}", error);
+    } else if generated_rhs {
         println!(
             "relative x error   : {:.6e}",
             relative_error_to_ones(&x_hybit)
@@ -804,4 +855,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("non-finite independently verified HyBIT residual".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod c1g2_forward_error_tests {
+    use super::relative_error_to_reference;
+
+    #[test]
+    fn exact_and_scaled_errors() {
+        assert_eq!(relative_error_to_reference(&[2.0, 3.0], &[2.0, 3.0]), 0.0);
+        assert!((relative_error_to_reference(&[3.0, 4.0], &[0.0, 4.0]) - 0.75).abs() < 1e-14);
+    }
+
+    #[test]
+    fn zero_reference_reports_absolute_norm() {
+        assert!((relative_error_to_reference(&[3.0, 4.0], &[0.0, 0.0]) - 5.0).abs() < 1e-14);
+    }
 }

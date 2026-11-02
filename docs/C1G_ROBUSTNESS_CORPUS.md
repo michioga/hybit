@@ -129,3 +129,16 @@ Until then, retain existing behavior and label probes/thresholds experimental.
 This document defines **how to assess future work**. It does not claim that
 C1-G1--G4, global sparse-direct fallback, automatic MINRES, or a universal
 robustness guarantee are implemented.
+
+## C1-G2 follow-up: forward error (2026-10-30)
+
+`c1g_p1_island_shell_n72` demonstrated that both observe-only Jacobi and
+monitored Hybrid fail the 240-iteration ceiling at `tol=1e-10`, while at a
+1200-iteration ceiling Jacobi converges in 320 steps and Hybrid needs 588
+steps after a single promotion at step 268. This is a **negative rescue case**;
+it does not justify promotion from a single true-residual growth checkpoint.
+
+An opt-in `fem_bench --rhs ... --xref ...` records a manufactured/reference
+solution's forward error even when the reported status is `MaxIterations`.
+Separate the full-vector forward error from the original-CSR true residual.
+See `docs/C1G_FORWARD_ERROR.md` for exact commands, limitations, and gates.

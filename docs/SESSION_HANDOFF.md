@@ -739,3 +739,47 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - **Next one action:** owner runs the C1-A patch + Python parser tests and
   `poisson5`/`thermal1` WSL2 repeatability gates; review resulting JSON/CSV
   before changing the autonomous escalation policy.
+
+## 2026-10-30 — C1-G2 manufactured island_shell outcome / forward-error candidate
+
+- WSL2 confirmed pushed `develop/0.10.0` **949f00b**, worktree clean after
+  robustness-first documentation update; C1-G synthetic five-matrix corpus
+  SHA and manufactured RHS cross-check PASS.
+- `c1g_p1_island_shell_n72`, 5184 DOF, `tol=1e-10`, single thread, 64-interval
+  observation, experimental rate limit 0.99, same RHS and zero initial guess:
+  cap=240: both status MaxIterations at 240, no escalation, verified relative
+  residual 3.161857e-7. cap=1200: Jacobi observe converged in 320 iterations,
+  verified residual 8.934705e-11, wall 9.709ms; Hybrid promoted at iteration
+  268 (after a true-residual increase from 1.708728e-7 to 1.787744e-4),
+  then converged in 588 total iterations, verified residual 9.680579e-11,
+  8 local 128-DOF factors, 0.545MiB factors, wall 49.215ms (single runs).
+- **No convergence rescue demonstrated.** `fem_bench` returns process exit 0
+  on MaxIterations; classify from `status` and independently verified residual,
+  not shell exit status. The newly observed late residual spike and unnecessary
+  promotion motivate a stronger rescue-aware gate; no automatic policy change.
+- C1-G2 candidate adds benchmark-only `--xref` reporting of forward error for
+  externally provided manufactured reference vectors; no solver/C ABI change.
+  Rust/WLS2 compilation and actual forward-error outputs remain UNVERIFIED
+  until user runs new patch and gates. Do not conflate true residual with
+  forward error, or claim a rescued case without both arms' numerical results.
+
+## 2026-10-30 — FEM-host-neutral rule / FrontISTR-first integration C1-H1 candidate
+
+- **Permanent product scope:** HyBIT is a general-purpose sparse solver for
+  FrontISTR *and other FEM applications*. FrontISTR is **only the first**
+  real-FEM validation/integration target. Do not introduce FrontISTR-specific
+  enums, control files, or data structures into core crates or the public
+  solver contract. See `docs/FEM_HOST_INTEGRATION_0.10.0.md`, ADR-011.
+- Git branch base `949f00b` (pushed); C1-G2 source/docs are already applied,
+  tested on WSL2, but **not yet committed** per user log. Preserve all C1-G2
+  changes and `--xref` output. C1-G2 corpus 5/5 reported converged at
+  1200 iterations, tol `1e-10`; Hybrid was slower/more iterations in the two
+  promoted cases. Rescue NOT demonstrated.
+- C1-H1 adds an **opt-in generic FEM FGMRES benchmark** and a Python audit
+  with FrontISTR serial-dump input convenience. It does not change any core
+  solver, C ABI, automatic routing or production front-end integration.
+- FrontISTR `hecmw_matrix_dump.f90`: .mm/.rhs snapshots have call and rank
+  numbers; rank-local MPI dump does NOT qualify as a full serial matrix.
+- **Validation pending:** user WSL2 Rust tests/Clippy, independent numerical
+  cross-check on a generic corpus, then a real serial FrontISTR snapshot.
+  No C1-H1 commit or push without review; no release or publish.

@@ -18,6 +18,17 @@ performance evidence: false convergence makes a benchmark meaningless.
 
 Use deliberately difficult, separately validated SPD FEM matrices (localized stiffness contrasts, anisotropy, slender structures, multiple hard patches, and global low-energy controls). Classify Jacobi failures, Hybrid rescues, Hybrid failures and regressions at the **same** tolerance, RHS, initial guess, iteration ceiling and memory budget. Verify original-CSR true residual and forward error where a reference solution is available. The complete pre-registered protocol and milestones C1-G1--G4 are in `docs/C1G_ROBUSTNESS_CORPUS.md`. This is a **plan**, not a claim of a newly working fallback or a universal success guarantee.
 
+## First integration target, not a product restriction (2026-10-30)
+
+HyBIT is **FEM-host-neutral**. FrontISTR is the **first** real-FEM host for
+end-to-end verification and integration (serial matrix/RHS dump -> generic
+HyBIT solve -> later Fortran/C ABI). Keep the production solver, public CSR/
+operator contracts, factorization and Krylov methods independent of FrontISTR.
+Other FEM engines shall enter through the same generic contract and thin
+adapters. The defining objective is **numerically correct convergence rescue
+under a memory budget**, not universal Hybrid speedup on already-convergent
+Jacobi-PCG cases. See `docs/FEM_HOST_INTEGRATION_0.10.0.md`.
+
 ## What 0.10.0 must demonstrate
 
 1. **Correctness is non-negotiable.** High-level solver reports independently

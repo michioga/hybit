@@ -106,6 +106,7 @@ benchmarks/scripts/bench-k8d9b-partition-pcg.ps1
 benchmarks/scripts/bench-k8d9c1-refine.ps1
 benchmarks/scripts/fem_hybrid_cost_audit.py
 benchmarks/scripts/fem_hybrid_crossover.py
+benchmarks/scripts/fem_linear_system_probe.py
 benchmarks/scripts/fem_region_sweep.py
 benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
@@ -113,6 +114,7 @@ benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
 benchmarks/scripts/test_fem_hybrid_cost_audit.py
 benchmarks/scripts/test_fem_hybrid_crossover.py
+benchmarks/scripts/test_fem_linear_system_probe.py
 benchmarks/scripts/test_fem_region_sweep.py
 book.toml
 crates/hybit-auto/Cargo.toml
@@ -234,6 +236,7 @@ crates/hybit/examples/basic.rs
 crates/hybit/examples/fem_bench.rs
 crates/hybit/examples/fem_block_bench.rs
 crates/hybit/examples/fem_coarse_crosscheck.rs
+crates/hybit/examples/fem_fgmres_bench.rs
 crates/hybit/examples/fem_rigid_bench.rs
 crates/hybit/examples/fem_structural_auto.rs
 crates/hybit/examples/fem_structural_balance.rs
@@ -286,13 +289,15 @@ docs/ABTM_TOPOLOGY.md
 docs/ARCHITECTURE.md
 docs/C1D_HYBRID_COST_CROSSOVER.md
 docs/C1E_HYBRID_COST_AUDIT.md
-docs/C1_FEM_REGION_SWEEP.md
 docs/C1F_PCG_KERNEL_PROFILE.md
+docs/C1G_FORWARD_ERROR.md
 docs/C1G_ROBUSTNESS_CORPUS.md
+docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md
 docs/DISTRIBUTED_TOPOLOGY.md
 docs/FEM_BENCHMARK.md
+docs/FEM_HOST_INTEGRATION_0.10.0.md
 docs/GENERAL_SQUARE.md
 docs/H1B_FIELD_AWARE_REGION.md
 docs/H1C1_PREPARED_FIELD_REGION.md
