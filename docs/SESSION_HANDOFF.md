@@ -783,3 +783,23 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - **Validation pending:** user WSL2 Rust tests/Clippy, independent numerical
   cross-check on a generic corpus, then a real serial FrontISTR snapshot.
   No C1-H1 commit or push without review; no release or publish.
+
+## 2026-11-02 — C1-H2 observation-only ABTM pilot (candidate)
+
+- FEM host-neutral architecture is binding (FrontISTR first, not exclusive).
+- C1-G2/C1-H1 WSL2 formatting, Debug/Release workspace tests, Clippy,
+  checksum and generic FEM input audits passed. Five-case four-method pilot:
+  ILU(0)+FGMRES rescues local_soft in 93/100 and rotated_anisotropy in 23/240
+  steps, but the high-level auto Hybrid local Cholesky still lacks a positive
+  rescue case. Do not confuse iteration rescue with a hybrid local-direct win.
+- FGMRES with ILU(0) restart 70 on island_shell: tol 1e-11 -> 1.08e-2
+  forward error; tol 1e-12 -> 4.23e-4; tol 1e-13 -> 3.22e-5. True residual
+  is not enough to certify forward error on poorly conditioned systems.
+- This C1-H2 candidate adds **only** a standalone experimental observer:
+  segmented Jacobi-PCG with immutable ABTM structural topology, monitored
+  Jacobi-scaled hotspots, temporal overlap and connected components. Final
+  status, iteration and bitwise solution are compared against uninterrupted
+  Jacobi-PCG. **No solver control changes, no API/FFI change, no automatic
+  hybrid/FGMRES promotion.** See `docs/C1H2_ABTM_RESIDUAL_OBSERVER.md`.
+- WSL2 compilation, Rustfmt/Clippy, corpus observations and bitwise invariance
+  NOT YET TESTED. No C1-H2 commit or push before validation.

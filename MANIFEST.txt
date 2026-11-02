@@ -23,6 +23,7 @@ benchmarks/data/cube8_identity.coords
 benchmarks/data/cube8_identity.mtx
 benchmarks/data/poisson5.mtx
 benchmarks/export-example.md
+benchmarks/scripts/C1H2_run_spd_corpus.sh
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -233,6 +234,7 @@ crates/hybit/examples/abtm_topology_g1.rs
 crates/hybit/examples/abtm_topology_g1b.rs
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 crates/hybit/examples/basic.rs
+crates/hybit/examples/fem_abtm_residual_observer.rs
 crates/hybit/examples/fem_bench.rs
 crates/hybit/examples/fem_block_bench.rs
 crates/hybit/examples/fem_coarse_crosscheck.rs
@@ -292,6 +294,7 @@ docs/C1E_HYBRID_COST_AUDIT.md
 docs/C1F_PCG_KERNEL_PROFILE.md
 docs/C1G_FORWARD_ERROR.md
 docs/C1G_ROBUSTNESS_CORPUS.md
+docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md
