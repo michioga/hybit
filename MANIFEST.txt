@@ -23,6 +23,8 @@ benchmarks/data/cube8_identity.coords
 benchmarks/data/cube8_identity.mtx
 benchmarks/data/poisson5.mtx
 benchmarks/export-example.md
+benchmarks/scripts/C1H10_analyze.py
+benchmarks/scripts/C1H10_run_rhs_amortization.sh
 benchmarks/scripts/C1H2_run_spd_corpus.sh
 benchmarks/scripts/C1H3_run_shadow.sh
 benchmarks/scripts/C1H3_shadow_policy.py
@@ -124,6 +126,7 @@ benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
+benchmarks/scripts/test_C1H10_analyze.py
 benchmarks/scripts/test_C1H3_shadow_policy.py
 benchmarks/scripts/test_C1H7_sensitivity.py
 benchmarks/scripts/test_C1H8_natural_region.py
@@ -249,6 +252,7 @@ crates/hybit/examples/abtm_topology_g1.rs
 crates/hybit/examples/abtm_topology_g1b.rs
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 crates/hybit/examples/basic.rs
+crates/hybit/examples/c1h10_rhs_amortization.rs
 crates/hybit/examples/c1h4_weighted_local_rescue.rs
 crates/hybit/examples/c1h5_topology_routing_trial.rs
 crates/hybit/examples/fem_abtm_residual_observer.rs
@@ -312,6 +316,7 @@ docs/C1E_HYBRID_COST_AUDIT.md
 docs/C1F_PCG_KERNEL_PROFILE.md
 docs/C1G_FORWARD_ERROR.md
 docs/C1G_ROBUSTNESS_CORPUS.md
+docs/C1H10_PREPARED_RHS_AMORTIZATION.md
 docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md

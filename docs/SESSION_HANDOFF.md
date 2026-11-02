@@ -913,3 +913,21 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   and bitwise agreement against a fresh-factor solve.
 - This patch has not been compiled with Rust in the assistant runtime. Do not
   claim WSL2/full-gate success or commit until verified by the user.
+
+## 2026-11-02 — C1-H10 prepared multi-RHS cost experiment (candidate)
+
+- Base: pushed clean `develop/0.10.0` at `bdc3c59`.
+- Evidence-only new Rust example and Python timing/validation scripts; solver core,
+  public APIs, and ordinary Auto policy are unchanged.
+- Compare Jacobi-PCG, RHS-by-RHS fresh opt-in Auto, and opt-in prepared Auto
+  on the same 160-DOF SPD operator and 1/2/4/8/16/32 manufactured RHS.
+- Certify true CSR residual and known-reference forward error on every arm.
+  Require fresh/prepared status, iteration, routing and solution consistency.
+- Include exact scaled hard RHS for matching-factor reuse and exterior-only
+  loads where a cached factor must not be applied.
+- Time full batched paths with rotated arm order and excluded warmups; also
+  record analysis, diagnostic, factor and solve telemetry.
+- No real-FEM, PETSc/hypre, statistically robust speedup, or production-policy
+  claim. No WSL2 Rust compilation of C1-H10 has occurred yet.
+- Next: run smoke/full, workspace Rust tests, strict Clippy, fmt and SHA gates;
+  inspect actual timing CSV before commit/push.
