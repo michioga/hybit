@@ -24,16 +24,6 @@ pub(super) fn candidate(
     if capacity < 2 || capacity >= n {
         return Ok(None);
     }
-    // Deliberately conservative dense upper bound, not actual factor storage.
-    let Some(bytes) = capacity
-        .checked_mul(capacity)
-        .and_then(|v| v.checked_mul(std::mem::size_of::<f64>()))
-    else {
-        return Ok(None);
-    };
-    if bytes > options.max_local_factor_bytes {
-        return Ok(None);
-    }
     let diagonal = matrix.diagonal()?;
     if diagonal.iter().any(|&d| !d.is_finite() || d <= 0.0)
         || residual.iter().any(|v| !v.is_finite())
@@ -64,10 +54,13 @@ pub(super) fn candidate(
     let mut region = Vec::with_capacity(capacity);
     visited[root] = true;
     while let Some(i) = queue.pop_front() {
-        region.push(i);
+        // A queued (capacity + 1)-th strong DOF proves truncation: fail closed.
+        // A component of exactly `capacity` DOFs is accepted only if the
+        // queue becomes empty after all its strong neighbors are examined.
         if region.len() == capacity {
-            break;
+            return Ok(None);
         }
+        region.push(i);
         let start = matrix.row_ptr()[i] as usize;
         let end = matrix.row_ptr()[i + 1] as usize;
         let columns = &matrix.col_idx()[start..end];
@@ -91,7 +84,18 @@ pub(super) fn candidate(
             }
         }
     }
-    if region.len() != capacity {
+    if region.len() < 2 {
+        return Ok(None);
+    }
+    // Charge the actual closed component, not its configured maximum.
+    let Some(bytes) = region
+        .len()
+        .checked_mul(region.len())
+        .and_then(|v| v.checked_mul(std::mem::size_of::<f64>()))
+    else {
+        return Ok(None);
+    };
+    if bytes > options.max_local_factor_bytes {
         return Ok(None);
     }
     region.sort_unstable();
@@ -268,6 +272,105 @@ mod tests {
                 assert!(nr / nb <= 1.0e-10);
             }
         }
+    }
+
+    // C1-H8: verify that a complete strong component may be *smaller* than
+    // the capacity, while a component larger than the cap must fail closed.
+    fn sized_local_chain(local: usize) -> (Csr32Matrix, Vec<f64>) {
+        let n = 160;
+        let mut rows = vec![Vec::<(usize, f64)>::new(); n];
+        let mut diagonal = vec![2.0_f64; n];
+        for i in 0..local - 1 {
+            rows[i].push((i + 1, -1.0));
+            rows[i + 1].push((i, -1.0));
+        }
+        rows[local - 1].push((local, -1.0e-4));
+        rows[local].push((local - 1, -1.0e-4));
+        diagonal[local - 1] += 1.0e-4;
+        diagonal[local] += 1.0e-4;
+        for (i, row) in rows.iter_mut().enumerate() {
+            row.push((i, diagonal[i]));
+            row.sort_unstable_by_key(|&(col, _)| col);
+        }
+        let mut row_ptr = vec![0u32];
+        let mut columns = Vec::new();
+        let mut values = Vec::new();
+        for row in rows {
+            for (col, value) in row {
+                columns.push(col as u32);
+                values.push(value);
+            }
+            row_ptr.push(columns.len() as u32);
+        }
+        let matrix = Csr32Matrix::new(n, n, row_ptr, columns, values).unwrap();
+        let reference = (0..n)
+            .map(|i| {
+                if i < local {
+                    (std::f64::consts::PI * (i + 1) as f64 / (local + 1) as f64).sin()
+                } else {
+                    0.7 + 0.2 * (0.13 * i as f64).sin()
+                }
+            })
+            .collect();
+        (matrix, reference)
+    }
+
+    fn probed_residual(matrix: &Csr32Matrix, reference: &[f64]) -> Vec<f64> {
+        let rhs = matrix.spmv(reference).unwrap();
+        let jacobi = JacobiPreconditioner::from_csr32(matrix).unwrap();
+        let mut x = vec![0.0; matrix.nrows()];
+        let _outcome = pcg(
+            matrix,
+            &jacobi,
+            &rhs,
+            &mut x,
+            SolverOptions {
+                relative_tolerance: 1.0e-10,
+                absolute_tolerance: 0.0,
+                max_iterations: 12,
+            },
+        )
+        .unwrap();
+        rhs.iter()
+            .zip(matrix.spmv(&x).unwrap())
+            .map(|(&bi, ai)| bi - ai)
+            .collect()
+    }
+
+    #[test]
+    fn c1h8_naturally_closed_regions_and_truncated_rejection() {
+        for size in [64, 96, 128] {
+            let (matrix, reference) = sized_local_chain(size);
+            let residual = probed_residual(&matrix, &reference);
+            let mut config = options();
+            config.max_local_region_size = 128;
+            assert_eq!(
+                candidate(&matrix, &residual, config).unwrap(),
+                Some((0..size).collect::<Vec<_>>()),
+                "a closed {size}-DOF strong component must fit cap=128"
+            );
+            config.max_local_region_size = size - 1;
+            assert_eq!(
+                candidate(&matrix, &residual, config).unwrap(),
+                None,
+                "a truncated {size}-DOF component must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn c1h8_memory_bound_uses_actual_region_size() {
+        let (matrix, reference) = sized_local_chain(64);
+        let residual = probed_residual(&matrix, &reference);
+        let mut config = options();
+        config.max_local_region_size = 128;
+        config.max_local_factor_bytes = 8 * 64 * 64;
+        assert_eq!(
+            candidate(&matrix, &residual, config).unwrap(),
+            Some((0..64).collect())
+        );
+        config.max_local_factor_bytes -= 1;
+        assert!(candidate(&matrix, &residual, config).unwrap().is_none());
     }
 
     #[test]

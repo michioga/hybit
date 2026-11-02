@@ -880,3 +880,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Before commit: run `C1H7_run_sensitivity.sh smoke` and `full`, then
   workspace tests/strict Clippy/fmt/SHA; inspect `summary.csv` for brittle
   transitions and unnecessary promotions. Do not cherry-pick successes.
+
+## 2026-11-02 — C1-H8 natural region candidate (uncommitted)
+
+- Base is pushed/clean C1-H7 commit `7a1793f` with 162 sensitivity runs; 36
+  rescues and zero observed unnecessary promotions in the synthetic sweep.
+- Change only the opt-in C1-H6 ABTM strong-component candidate: continue BFS
+  until natural closure and reject on any (capacity+1)-th strong DOF.
+- Factor-byte upper bound uses actual closed region size, not the cap.
+- Extend Rust candidate tests to 64/96/128 DOF and fail-closed truncation;
+  independently audit 36 synthetic CLI cases with genuine `HybitSolver`.
+- Preserve ordinary Auto defaults, no public Rust option/FFI/solver-route
+  changes, and no new cross-RHS factor cache.
+- WSL2 gates not run for this candidate at packaging time. Run smoke/full,
+  C1-H6 and C1-H7 regression, Rust Release, strict Clippy, fmt and SHA before
+  considering commit. Keep measured and expected results separate.

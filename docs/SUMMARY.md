@@ -30,6 +30,7 @@
 - [C1-H5 opt-in topology routing trial](C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md)
 - [C1-H6 opt-in weighted ABTM Auto research path](C1H6_ABTM_AUTO_OPTIN.md)
 - [C1-H7 weighted ABTM routing sensitivity study](C1H7_ABTM_ROUTING_SENSITIVITY.md)
+- [C1-H8 natural-sized ABTM local regions](C1H8_NATURAL_ABTM_REGION.md)
 - [C1-A WSL2 FEM region sweep](C1_FEM_REGION_SWEEP.md)
 - [C1-F opt-in PCG kernel timing](C1F_PCG_KERNEL_PROFILE.md)
 - [C1-D Hybrid cost crossover](C1D_HYBRID_COST_CROSSOVER.md)
