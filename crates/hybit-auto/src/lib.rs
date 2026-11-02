@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
+mod abtm_weighted_routing;
+
 use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,
     LinearOperator, MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind,
@@ -153,6 +155,10 @@ pub struct HybridOptions {
     /// `None` (default) records progress but never triggers *post-probe*
     /// escalation. This is deliberately not an inferred production policy.
     pub progress_monitor_rate_limit: Option<f64>,
+    /// Experimental C1-H6: after the first Jacobi-PCG probe, admit only a
+    /// bounded strong-coupling ABTM region with a weak outer boundary.
+    /// Defaults to false. Incompatible with coarse, overlap or monitoring.
+    pub abtm_weighted_routing_enabled: bool,
     /// Maximum number of local-direct strengthening restarts for one RHS.
     pub max_escalations: usize,
     /// PCG iteration budget for each non-final escalation stage.
@@ -191,6 +197,7 @@ impl Default for HybridOptions {
             profile_pcg_kernels: false,
             progress_monitor_observe_only: false,
             progress_monitor_rate_limit: None,
+            abtm_weighted_routing_enabled: false,
             max_escalations: 3,
             escalation_stage_iterations: 24,
             escalation_residual_ratio: 0.50,
@@ -409,6 +416,20 @@ impl GeneralSquareOptions {
 
 impl HybridOptions {
     pub fn validate(&self) -> Result<(), HybitError> {
+        if self.abtm_weighted_routing_enabled
+            && (!self.enabled
+                || self.progress_monitor_interval != 0
+                || self.progress_monitor_observe_only
+                || self.progress_monitor_rate_limit.is_some()
+                || self.algebraic_coarse.enabled
+                || self.max_escalations != 1
+                || self.max_local_regions != 1
+                || self.overlap_layers != 0)
+        {
+            return Err(HybitError::InvalidArgument(
+                "experimental ABTM weighted routing requires single-stage, single-region, no coarse/overlap/monitor",
+            ));
+        }
         if self.probe_iterations == 0 {
             return Err(HybitError::InvalidArgument("probe_iterations must be > 0"));
         }
@@ -1379,12 +1400,30 @@ impl HybitPreparedSystem {
             ));
         }
 
-        let mut poor_progress = self.hybrid_options.enabled
-            && !self.hybrid_options.progress_monitor_observe_only
-            && probe.status == SolveStatus::MaxIterations
-            && probe.initial_residual > 0.0
-            && probe.final_residual / probe.initial_residual
-                > self.hybrid_options.escalation_residual_ratio;
+        // C1-H6 opt-in replaces *only* the first escalation decision.
+        // A rejected candidate leaves the live PCG recurrence untouched.
+        let mut weighted_first_region = None;
+        let mut routing_diagnostics_seconds = 0.0;
+        let mut poor_progress = if self.hybrid_options.abtm_weighted_routing_enabled {
+            if probe.status == SolveStatus::MaxIterations {
+                let started = Instant::now();
+                let current_residual = residual(matrix, b, x)?;
+                weighted_first_region = abtm_weighted_routing::candidate(
+                    matrix,
+                    &current_residual,
+                    self.hybrid_options,
+                )?;
+                routing_diagnostics_seconds = started.elapsed().as_secs_f64();
+            }
+            weighted_first_region.is_some()
+        } else {
+            self.hybrid_options.enabled
+                && !self.hybrid_options.progress_monitor_observe_only
+                && probe.status == SolveStatus::MaxIterations
+                && probe.initial_residual > 0.0
+                && probe.final_residual / probe.initial_residual
+                    > self.hybrid_options.escalation_residual_ratio
+        };
 
         let mut remaining = self.options.max_iterations.saturating_sub(probe_iterations);
         if remaining == 0 {
@@ -1408,6 +1447,7 @@ impl HybitPreparedSystem {
 
         let mut outcome = probe;
         let mut metrics = base_metrics;
+        metrics.diagnostics_seconds += routing_diagnostics_seconds;
         // Optional C1-B diagnostic: monitor actual CSR residual progress after
         // the initial probe. Segmenting PCG here must never restart its live
         // recurrence; only a successful local-direct strengthening below may
@@ -1539,18 +1579,26 @@ impl HybitPreparedSystem {
         while remaining > 0 && metrics.escalations < self.hybrid_options.max_escalations {
             let diagnostics_start = Instant::now();
             let current_residual = residual(matrix, b, x)?;
-            let risk = numerical_risk_mask(matrix, self.hybrid_options)?;
-            let seeds = residual_seed_mask(
-                &current_residual,
-                self.hybrid_options.residual_seed_fraction,
-            )?;
-            let (selected, core_regions) = discover_core_regions(
-                matrix,
-                &risk,
-                &seeds,
-                &current_residual,
-                self.hybrid_options,
-            )?;
+            let (selected, core_regions) = if let Some(region) = weighted_first_region.take() {
+                let mut selected = DofMask::new(matrix.nrows());
+                for &dof in &region {
+                    selected.set(dof, true)?;
+                }
+                (selected, vec![region])
+            } else {
+                let risk = numerical_risk_mask(matrix, self.hybrid_options)?;
+                let seeds = residual_seed_mask(
+                    &current_residual,
+                    self.hybrid_options.residual_seed_fraction,
+                )?;
+                discover_core_regions(
+                    matrix,
+                    &risk,
+                    &seeds,
+                    &current_residual,
+                    self.hybrid_options,
+                )?
+            };
             metrics.hard_dofs = metrics.hard_dofs.max(selected.count_ones());
 
             if self.abtm.is_none() {
@@ -1560,12 +1608,17 @@ impl HybitPreparedSystem {
                 .abtm
                 .as_ref()
                 .expect("ABTM topology initialized for hybrid escalation");
-            let candidate_regions = expand_regions_with_overlap(
-                abtm,
-                &core_regions,
-                &current_residual,
-                self.hybrid_options,
-            )?;
+            let candidate_regions = if self.hybrid_options.abtm_weighted_routing_enabled {
+                // No overlap growth across the deliberately weak boundary.
+                core_regions
+            } else {
+                expand_regions_with_overlap(
+                    abtm,
+                    &core_regions,
+                    &current_residual,
+                    self.hybrid_options,
+                )?
+            };
             let budgeted = select_regions_with_factor_budget(
                 matrix.nrows(),
                 &active_regions,
@@ -1732,7 +1785,10 @@ impl HybitPreparedSystem {
         }
 
         let used_hybrid = current_hybrid.is_some() || self.algebraic_coarse.is_some();
-        if current_hybrid.is_some() && outcome.status != SolveStatus::Breakdown {
+        if current_hybrid.is_some()
+            && outcome.status != SolveStatus::Breakdown
+            && !self.hybrid_options.abtm_weighted_routing_enabled
+        {
             // Prepared solve-many reuses the strongest successfully learned
             // multi-stage local-direct state for later RHS vectors.
             self.hybrid = current_hybrid;

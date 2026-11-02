@@ -23,6 +23,7 @@ struct Args {
     progress_monitor_interval: usize,
     profile_kernels: bool,
     progress_monitor_observe_only: bool,
+    abtm_weighted_routing_enabled: bool,
     progress_monitor_rate_limit: Option<f64>,
     max_local_region_size: usize,
     max_local_regions: usize,
@@ -55,6 +56,7 @@ impl Args {
         let mut progress_monitor_interval = 0usize;
         let mut profile_kernels = false;
         let mut progress_monitor_observe_only = false;
+        let mut abtm_weighted_routing_enabled = false;
         let mut progress_monitor_rate_limit = None;
         let mut max_local_region_size = 128usize;
         let mut max_local_regions = 8usize;
@@ -91,6 +93,7 @@ impl Args {
                     progress_monitor_interval = next_value(&mut it, "--monitor-iters")?.parse()?
                 }
                 "--monitor-only" => progress_monitor_observe_only = true,
+                "--abtm-weighted-routing" => abtm_weighted_routing_enabled = true,
                 "--profile-kernels" => profile_kernels = true,
                 "--monitor-rate-limit" => {
                     progress_monitor_rate_limit =
@@ -299,6 +302,7 @@ impl Args {
             progress_monitor_interval,
             profile_kernels,
             progress_monitor_observe_only,
+            abtm_weighted_routing_enabled,
             progress_monitor_rate_limit,
             max_local_region_size,
             max_local_regions,
@@ -344,6 +348,7 @@ fn print_usage() {
     println!("  --probe-iters N     HyBIT probe length (default 12)");
     println!("  --monitor-iters N   opt-in true-residual PCG progress interval; 0=off (default)");
     println!("  --monitor-only      record progress; forbid any local-direct escalation");
+    println!("  --abtm-weighted-routing  EXPERIMENTAL opt-in single local-direct candidate");
     println!("  --profile-kernels   opt-in serial SPD PCG kernel timings");
     println!("  --monitor-rate-limit R  opt-in per-iteration slowdown threshold, 0<R<1");
     println!("  --overlap N         topology halo layers (default 1)");
@@ -661,6 +666,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     hybrid.progress_monitor_interval = args.progress_monitor_interval;
     hybrid.profile_pcg_kernels = args.profile_kernels;
     hybrid.progress_monitor_observe_only = args.progress_monitor_observe_only;
+    hybrid.abtm_weighted_routing_enabled = args.abtm_weighted_routing_enabled;
     hybrid.progress_monitor_rate_limit = args.progress_monitor_rate_limit;
     hybrid.overlap_layers = args.overlap_layers;
     hybrid.max_local_region_size = args.max_local_region_size;

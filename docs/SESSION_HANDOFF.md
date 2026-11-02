@@ -847,3 +847,21 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Rust test/Clippy, full positive/negative WSL experiment NOT YET RUN.
   No default HybitSolver, FFI, MPI or public API change.
 - See docs/C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md. Do not commit before gates.
+
+## 2026-11-02 — C1-H6 candidate (uncommitted, user validation pending)
+
+- C1-H5 committed/pushed by user at `d012e51`, branch `develop/0.10.0`, clean.
+- C1-H2 observer, C1-H3 shadow guard, C1-H4 local-direct positive example,
+  and C1-H5 independent routing trial all passed their WSL2 gates.
+- C1-H6 candidate adds a disabled-by-default `HybridOptions` flag for a
+  strong-edge ABTM local region after the normal SPD PCG probe. If absent,
+  the live PCG session continues unmodified. If admitted, reuse existing
+  HybridPreconditioner and only restart on changed preconditioner.
+- Research-only restrictions: one region, one escalation, zero overlap,
+  no coarse or progress monitor; no local-factor reuse across RHS in this mode.
+- Proposed validation: 160-DOF synthetic rescue and bitwise KEEP_PCG control,
+  plus all five C1-G matrices in the **same opt-in Auto path**. If any
+  unexpected escalation or numerical error occurs, do NOT commit.
+- No Rust compilation or WSL test of C1-H6 has occurred in assistant environment.
+- Next step: apply guarded patch to clean d012e51, execute C1H6_run_auto_route.sh,
+  run Release workspace tests, strict Clippy, fmt and source SHA checks.

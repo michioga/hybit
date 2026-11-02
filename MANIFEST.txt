@@ -28,6 +28,8 @@ benchmarks/scripts/C1H3_run_shadow.sh
 benchmarks/scripts/C1H3_shadow_policy.py
 benchmarks/scripts/C1H4_run_positive.sh
 benchmarks/scripts/C1H5_run_routing_trial.sh
+benchmarks/scripts/C1H6_generate_cases.py
+benchmarks/scripts/C1H6_run_auto_route.sh
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -125,6 +127,7 @@ benchmarks/scripts/test_fem_region_sweep.py
 book.toml
 crates/hybit-auto/Cargo.toml
 crates/hybit-auto/LICENSE
+crates/hybit-auto/src/abtm_weighted_routing.rs
 crates/hybit-auto/src/lib.rs
 crates/hybit-core/Cargo.toml
 crates/hybit-core/LICENSE
@@ -305,6 +308,7 @@ docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md
 docs/C1H5_OPTIN_TOPOLOGY_ROUTING_TRIAL.md
+docs/C1H6_ABTM_AUTO_OPTIN.md
 docs/C1_FEM_REGION_SWEEP.md
 docs/DEVELOPMENT_PLAN_0.10.0.md
 docs/DEVELOPMENT_STATUS.md
