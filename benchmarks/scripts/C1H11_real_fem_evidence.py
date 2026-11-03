@@ -80,6 +80,30 @@ def field(part: str, key: str) -> str:
     return hits[0].strip()
 
 
+def validate_unique_grid(budgets: list[int], caps: list[int]) -> None:
+    if len(set(budgets)) != len(budgets) or len(set(caps)) != len(caps):
+        raise ValueError('duplicate budgets/caps would overwrite evidence logs')
+
+
+def append_failure_log(log: Path, cmd: list[str], error: Exception,
+                       stdout: str | bytes | None = None,
+                       stderr: str | bytes | None = None) -> None:
+    def to_text(value: str | bytes | None) -> str:
+        if isinstance(value, bytes):
+            return value.decode('utf-8', errors='replace')
+        return value or ''
+
+    missing = not log.is_file()
+    with log.open('a', encoding='utf-8') as f:
+        if missing:
+            f.write('COMMAND: ' + ' '.join(cmd) + '\n')
+        if stdout:
+            f.write('\n=== PARTIAL STDOUT ===\n' + to_text(stdout))
+        if stderr:
+            f.write('\n=== PARTIAL STDERR ===\n' + to_text(stderr))
+        f.write('\nERROR: ' + repr(error) + '\n')
+
+
 def parsed_output(raw: str, tolerance: float, budget: int, with_xref: bool) -> dict:
     if raw.count('[1/2] Plain Jacobi-PCG') != 1 or raw.count('[2/2] HyBIT Auto') != 1:
         raise ValueError('missing or duplicated baseline/auto report markers')
@@ -116,8 +140,11 @@ def parsed_output(raw: str, tolerance: float, budget: int, with_xref: bool) -> d
                                    or out['plain_iterations'] != out['auto_iterations']):
         raise ValueError('KEEP_PCG baseline status/iteration mismatch')
     for prefix in ('plain', 'auto'):
-        if out[prefix + '_status'] == 'Converged' and out[prefix + '_true_residual'] > tolerance * 1.00001:
+        if out[prefix + '_status'] == 'Converged' and out[prefix + '_true_residual'] > tolerance:
             out['class'] = 'FALSE_REPORTED_CONVERGENCE'
+            return out
+        if out[prefix + '_status'] != 'Converged' and out[prefix + '_true_residual'] <= tolerance:
+            out['class'] = 'STATUS_RESIDUAL_MISMATCH'
             return out
     baseline_success = out['plain_status'] == 'Converged' and out['plain_true_residual'] <= tolerance
     hybrid_success = out['auto_status'] == 'Converged' and out['auto_true_residual'] <= tolerance
@@ -197,6 +224,7 @@ def main() -> int:
         or args.factor_mib <= 0 or not 1 <= args.max_expanded_nnz <= 100000000
         or args.timeout <= 0):
         parser.error('invalid tolerance, probe, budget, factor cap or timeout')
+    validate_unique_grid(args.budgets, args.caps)
     args.repo = args.repo.resolve()
     cases = load_cases(args.manifest.expanduser().resolve())
     out = args.out.expanduser().resolve()
@@ -249,9 +277,12 @@ def main() -> int:
                     else:
                         row.update(parsed_output(cp.stdout, args.tol, budget, case['xref'] is not None))
                     row['peak_process_rss_kib'] = int(rssfile.read_text().strip()) if rssfile.is_file() else None
-                except (subprocess.TimeoutExpired, ValueError, OSError) as e:
+                except subprocess.TimeoutExpired as e:
                     row['class'] = 'TIMEOUT_OR_PARSE_ERROR'
-                    log.write_text('ERROR: ' + repr(e) + '\n', encoding='utf-8')
+                    append_failure_log(log, cmd, e, e.stdout, e.stderr)
+                except (ValueError, OSError) as e:
+                    row['class'] = 'TIMEOUT_OR_PARSE_ERROR'
+                    append_failure_log(log, cmd, e)
                 results.append(row)
                 print(f'{name}: {row["class"]}', flush=True)
     with (out / 'results.csv').open('w', newline='', encoding='utf-8') as f:
@@ -264,7 +295,7 @@ def main() -> int:
         'notes': 'no claim of SPD proof or physical provenance without external documentation; no PETSc/hypre result'
     }, indent=2) + '\n', encoding='utf-8')
     if any(r['class'] in ('TIMEOUT_OR_PARSE_ERROR', 'PROCESS_ERROR', 'FALSE_REPORTED_CONVERGENCE',
-                          'RELIABILITY_REGRESSION') for r in results):
+                          'STATUS_RESIDUAL_MISMATCH', 'RELIABILITY_REGRESSION') for r in results):
         print('C1-H11 outcomes include error or regression: inspect all rows; no cherry-picking')
         return 1
     print('C1-H11 EVIDENCE RUN COMPLETE: classification is empirical, NOT a production policy gate')

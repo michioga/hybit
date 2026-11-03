@@ -90,6 +90,13 @@ converge with original-CSR verified relative residual at/below the same
 failures. Ordinary numerical MaxIterations is **not** silently renamed success.
 The Python tool returns nonzero on error/regression, with full results preserved.
 
+`STATUS_RESIDUAL_MISMATCH` is also an error: a non-Converged status with an
+original-CSR residual already at/below tolerance is not counted as a Hybrid
+rescue. A Converged status with residual above tolerance remains
+`FALSE_REPORTED_CONVERGENCE`. Duplicate budgets or caps are rejected before
+output creation to prevent log-name collisions. On parse errors and timeouts,
+the runner retains already captured output or partial subprocess output.
+
 For a verified real-FEM study, compare repeated physical RHS and appropriate
 external PETSc GAMG / hypre BoomerAMG separately, with their setup, converged
 true residual and peak RSS. These comparator implementations are **not run**

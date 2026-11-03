@@ -2,7 +2,9 @@
 import tempfile
 import unittest
 from pathlib import Path
-from benchmarks.scripts.C1H11_real_fem_evidence import load_cases, parsed_output
+from benchmarks.scripts.C1H11_real_fem_evidence import (
+    append_failure_log, load_cases, parsed_output, validate_unique_grid,
+)
 
 
 def log(plain='MaxIterations', auto='Converged', escalations=1,
@@ -28,6 +30,39 @@ class EvidenceTests(unittest.TestCase):
     def test_false_convergence_rejected(self):
         r = parsed_output(log(auto_res='1e-5'), 1e-10, 100, True)
         self.assertEqual(r['class'], 'FALSE_REPORTED_CONVERGENCE')
+
+    def test_false_convergence_even_at_tiny_threshold_overrun(self):
+        r = parsed_output(log(auto_res='1.000001e-10'), 1e-10, 100, True)
+        self.assertEqual(r['class'], 'FALSE_REPORTED_CONVERGENCE')
+
+    def test_max_iterations_below_tolerance_is_not_rescue(self):
+        r = parsed_output(log(plain_res='1e-12'), 1e-10, 100, True)
+        self.assertEqual(r['class'], 'STATUS_RESIDUAL_MISMATCH')
+
+    def test_auto_max_iterations_below_tolerance_is_mismatch(self):
+        r = parsed_output(log(auto='MaxIterations', auto_res='1e-12'), 1e-10, 100, True)
+        self.assertEqual(r['class'], 'STATUS_RESIDUAL_MISMATCH')
+
+    def test_duplicate_grid_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            validate_unique_grid([120, 120], [128, 256])
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            validate_unique_grid([120, 360], [128, 128])
+        validate_unique_grid([120, 360], [128, 256])
+
+    def test_error_log_keeps_original_stdout_and_timeout_stderr(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'failed.log'
+            p.write_text('COMMAND: fem_bench\nRAW OUTPUT\n', encoding='utf-8')
+            append_failure_log(p, ['fem_bench'], ValueError('bad parse'))
+            self.assertIn('RAW OUTPUT', p.read_text(encoding='utf-8'))
+            self.assertIn('bad parse', p.read_text(encoding='utf-8'))
+            q = Path(d) / 'timeout.log'
+            append_failure_log(q, ['fem_bench'], TimeoutError('slow'),
+                               b'partial out', b'partial err')
+            self.assertIn('COMMAND: fem_bench', q.read_text(encoding='utf-8'))
+            self.assertIn('partial out', q.read_text(encoding='utf-8'))
+            self.assertIn('partial err', q.read_text(encoding='utf-8'))
 
     def test_keep_pcg_status_and_iteration_invariant(self):
         with self.assertRaisesRegex(ValueError, 'KEEP_PCG'):
