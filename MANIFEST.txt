@@ -27,6 +27,7 @@ benchmarks/scripts/C1H10_analyze.py
 benchmarks/scripts/C1H10_run_rhs_amortization.sh
 benchmarks/scripts/C1H11_real_fem_evidence.py
 benchmarks/scripts/C1H11_run_real_fem.sh
+benchmarks/scripts/C1H12_run_abtm_ilu0_word_ops.sh
 benchmarks/scripts/C1H2_run_spd_corpus.sh
 benchmarks/scripts/C1H3_run_shadow.sh
 benchmarks/scripts/C1H3_shadow_policy.py
@@ -245,6 +246,7 @@ crates/hybit/examples/abtm_ilu0_numeric_g4b.rs
 crates/hybit/examples/abtm_ilu0_production_g4f.rs
 crates/hybit/examples/abtm_ilu0_rank_lut_g4c.rs
 crates/hybit/examples/abtm_ilu0_symbolic_g4a.rs
+crates/hybit/examples/abtm_ilu0_word_ops_experiment.rs
 crates/hybit/examples/abtm_local_numeric_refresh_g3d.rs
 crates/hybit/examples/abtm_local_pattern_g3c.rs
 crates/hybit/examples/abtm_metadata_pruning_g2.rs
@@ -321,6 +323,7 @@ docs/C1G_FORWARD_ERROR.md
 docs/C1G_ROBUSTNESS_CORPUS.md
 docs/C1H10_PREPARED_RHS_AMORTIZATION.md
 docs/C1H11_REAL_FEM_EVIDENCE_INTAKE.md
+docs/C1H12_ABTM_ILU0_WORD_OPS.md
 docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md

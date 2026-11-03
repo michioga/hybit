@@ -16,6 +16,7 @@ publish = ["crates-io"]
 [features]
 default = []
 mpi = ["dep:hybit-distributed", "hybit-distributed/mpi", "dep:mpi"]
+ilu0-abtm-experiments = ["hybit-precond/ilu0-abtm-experiments"]
 [dependencies]
 hybit-distributed = { version = "0.10.0", path = "../hybit-distributed", optional = true }
 mpi = { version = "=0.8.0", default-features = false, optional = true }
@@ -68,6 +69,10 @@ required-features = ["mpi"]
 
 [[example]]
 name = "mtx_fem_audit"
+
+[[example]]
+name = "abtm_ilu0_word_ops_experiment"
+required-features = ["ilu0-abtm-experiments"]
 
 [[example]]
 name = "mtx_fem_spectral"

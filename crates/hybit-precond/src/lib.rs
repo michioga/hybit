@@ -126,6 +126,21 @@ struct Ilu0AbtmPreparedWords {
     rank_lut: Vec<[u8; 64]>,
 }
 
+/// Opt-in research variants for ABTM ILU(0) symbolic preparation.
+///
+/// These do not affect the production `Ilu0Abtm` routing or persistent factor
+/// format. The feature is intended solely for controlled numeric experiments.
+#[cfg(feature = "ilu0-abtm-experiments")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ilu0AbtmExperimentalMode {
+    /// Assemble word masks directly from canonical CSR, retaining the rank LUT.
+    DirectLut,
+    /// Derive each rank with a shifted low-bit mask and population count.
+    DirectPopcnt,
+    /// Rotate the pivot word before enumerating bits (XOR clearing), with POPCNT ranks.
+    DirectRotatePopcnt,
+}
+
 impl Ilu0AbtmPreparedWords {
     fn from_csr32(matrix: &Csr32Matrix) -> Result<Self, HybitError> {
         let topology = AbtmTopology::from_csr32(matrix)?;
@@ -170,6 +185,75 @@ impl Ilu0AbtmPreparedWords {
             nnz_prefix,
             rank_lut,
         })
+    }
+
+    /// Build ABTM topology from already canonical, sorted, unique CSR columns.
+    /// Avoids cloning numerical values, constructing a temporary CSR, and
+    /// materializing an intermediate AbtmTopology.
+    fn from_canonical_parts(
+        row_ptr: &[u32],
+        col_idx: &[u32],
+        with_rank_lut: bool,
+    ) -> Result<Self, HybitError> {
+        let n = row_ptr.len() - 1;
+        let mut words = Self {
+            row_ptr: Vec::with_capacity(n + 1),
+            word_indices: Vec::new(),
+            masks: Vec::new(),
+            nnz_prefix: Vec::new(),
+            rank_lut: Vec::new(),
+        };
+        words.row_ptr.push(0);
+
+        for row in 0..n {
+            let start = row_ptr[row] as usize;
+            let end = row_ptr[row + 1] as usize;
+            let mut offset = start;
+            while offset < end {
+                let word_index = col_idx[offset] / 64;
+                let word_start = offset;
+                let mut mask = 0u64;
+                while offset < end && col_idx[offset] / 64 == word_index {
+                    // OR is correct because columns have been canonicalized.
+                    mask |= 1u64 << (col_idx[offset] % 64);
+                    offset += 1;
+                }
+                words.word_indices.push(word_index);
+                words.masks.push(mask);
+                words
+                    .nnz_prefix
+                    .push(u32::try_from(word_start - start).map_err(|_| HybitError::SizeOverflow)?);
+                if with_rank_lut {
+                    let mut table = [u8::MAX; 64];
+                    let mut bits = mask;
+                    let mut rank = 0u8;
+                    while bits != 0 {
+                        table[bits.trailing_zeros() as usize] = rank;
+                        rank = rank.checked_add(1).ok_or(HybitError::SizeOverflow)?;
+                        bits &= bits - 1;
+                    }
+                    words.rank_lut.push(table);
+                }
+                debug_assert_eq!((offset - word_start) as u32, mask.count_ones());
+            }
+            words.row_ptr.push(
+                u32::try_from(words.word_indices.len()).map_err(|_| HybitError::SizeOverflow)?,
+            );
+        }
+
+        Ok(words)
+    }
+
+    #[inline]
+    fn rank<const POPCNT: bool>(&self, word_position: usize, mask: u64, bit: usize) -> usize {
+        if POPCNT {
+            // bit is in 0..64, so the shift is defined even at bit 63.
+            (mask & ((1u64 << bit) - 1)).count_ones() as usize
+        } else {
+            let rank = self.rank_lut[word_position][bit];
+            debug_assert_ne!(rank, u8::MAX);
+            rank as usize
+        }
     }
 
     fn row(&self, row: usize) -> (&[u32], &[u64], &[u32], usize) {
@@ -391,6 +475,36 @@ impl Ilu0Preconditioner {
     /// they are dropped before this constructor returns, so persistent factor
     /// storage is unchanged.
     pub fn from_csr32_general_abtm(matrix: &Csr32Matrix) -> Result<Self, HybitError> {
+        Self::from_csr32_general_abtm_mode::<false, false, false>(matrix)
+    }
+
+    /// Construct an experimental ABTM ILU(0) factor with alternate word operations.
+    ///
+    /// Only available with the explicit `ilu0-abtm-experiments` Cargo feature.
+    /// This does not change the GeneralSquare default or the `Ilu0Abtm` policy.
+    #[cfg(feature = "ilu0-abtm-experiments")]
+    pub fn from_csr32_general_abtm_experimental(
+        matrix: &Csr32Matrix,
+        mode: Ilu0AbtmExperimentalMode,
+    ) -> Result<Self, HybitError> {
+        match mode {
+            Ilu0AbtmExperimentalMode::DirectLut => {
+                Self::from_csr32_general_abtm_mode::<true, false, false>(matrix)
+            }
+            Ilu0AbtmExperimentalMode::DirectPopcnt => {
+                Self::from_csr32_general_abtm_mode::<true, true, false>(matrix)
+            }
+            Ilu0AbtmExperimentalMode::DirectRotatePopcnt => {
+                Self::from_csr32_general_abtm_mode::<true, true, true>(matrix)
+            }
+        }
+    }
+
+    // Const-generic specialization keeps experiment branches off the legacy
+    // numeric path, so the baseline is not charged for feature dispatch.
+    fn from_csr32_general_abtm_mode<const DIRECT: bool, const POPCNT: bool, const ROTATE: bool>(
+        matrix: &Csr32Matrix,
+    ) -> Result<Self, HybitError> {
         if matrix.nrows() != matrix.ncols() {
             return Err(HybitError::InvalidMatrix("ILU(0) requires a square matrix"));
         }
@@ -470,9 +584,12 @@ impl Ilu0Preconditioner {
             }
         }
 
-        let canonical = Csr32Matrix::new(n, n, row_ptr.clone(), col_idx.clone(), lu.clone())?;
-        let words = Ilu0AbtmPreparedWords::from_csr32(&canonical)?;
-        drop(canonical);
+        let words = if DIRECT {
+            Ilu0AbtmPreparedWords::from_canonical_parts(&row_ptr, &col_idx, !POPCNT)?
+        } else {
+            let canonical = Csr32Matrix::new(n, n, row_ptr.clone(), col_idx.clone(), lu.clone())?;
+            Ilu0AbtmPreparedWords::from_csr32(&canonical)?
+        };
 
         let mut adjusted_pivots = 0usize;
 
@@ -520,24 +637,34 @@ impl Ilu0Preconditioner {
                         continue;
                     }
 
-                    let mut bits = row_masks[a] & pivot_masks[b];
-                    bits = ilu0_abtm_mask_strictly_above(bits, aw, lower_col);
+                    let mut bits =
+                        ilu0_abtm_mask_strictly_above(row_masks[a] & pivot_masks[b], aw, lower_col);
 
-                    let row_lut = &words.rank_lut[row_word_base + a];
-                    let pivot_lut = &words.rank_lut[pivot_word_base + b];
+                    // Rotating only the pivot word maps its surviving upper
+                    // bits to low positions without changing numeric order.
+                    let rotation = if ROTATE && aw == pivot_word {
+                        (lower_col % 64 + 1) as u32
+                    } else {
+                        0
+                    };
+                    if rotation != 0 {
+                        bits = bits.rotate_right(rotation);
+                    }
 
                     while bits != 0 {
-                        let bit = bits.trailing_zeros() as usize;
-                        let row_rank = row_lut[bit];
-                        let pivot_rank = pivot_lut[bit];
-                        debug_assert_ne!(row_rank, u8::MAX);
-                        debug_assert_ne!(pivot_rank, u8::MAX);
+                        let scanned_bit = bits.trailing_zeros();
+                        let bit = if ROTATE {
+                            ((scanned_bit + rotation) % 64) as usize
+                        } else {
+                            scanned_bit as usize
+                        };
+                        let row_rank = words.rank::<POPCNT>(row_word_base + a, row_masks[a], bit);
+                        let pivot_rank =
+                            words.rank::<POPCNT>(pivot_word_base + b, pivot_masks[b], bit);
 
-                        let target =
-                            row_ptr[row] as usize + row_prefix[a] as usize + row_rank as usize;
-                        let source = row_ptr[lower_col] as usize
-                            + pivot_prefix[b] as usize
-                            + pivot_rank as usize;
+                        let target = row_ptr[row] as usize + row_prefix[a] as usize + row_rank;
+                        let source =
+                            row_ptr[lower_col] as usize + pivot_prefix[b] as usize + pivot_rank;
 
                         lu[target] -= multiplier * lu[source];
                         if !lu[target].is_finite() {
@@ -546,7 +673,11 @@ impl Ilu0Preconditioner {
                             ));
                         }
 
-                        bits &= bits - 1;
+                        if ROTATE {
+                            bits ^= 1u64 << scanned_bit;
+                        } else {
+                            bits &= bits - 1;
+                        }
                     }
 
                     a += 1;
@@ -597,6 +728,22 @@ impl Ilu0Preconditioner {
             + self.col_idx.len() * std::mem::size_of::<u32>()
             + self.lu.len() * std::mem::size_of::<f64>()
             + self.diag_pos.len() * std::mem::size_of::<u32>()
+    }
+
+    /// Research gate: compare all persistent ILU(0) factor fields bit for bit.
+    #[cfg(feature = "ilu0-abtm-experiments")]
+    pub fn experimental_factor_bits_equal(&self, other: &Self) -> bool {
+        self.n == other.n
+            && self.row_ptr == other.row_ptr
+            && self.col_idx == other.col_idx
+            && self.diag_pos == other.diag_pos
+            && self.adjusted_pivots == other.adjusted_pivots
+            && self.lu.len() == other.lu.len()
+            && self
+                .lu
+                .iter()
+                .zip(&other.lu)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
     }
 }
 
@@ -4892,6 +5039,97 @@ mod ilu0_tests {
             csr.apply(&rhs, &mut z_csr).unwrap();
             abtm.apply(&rhs, &mut z_abtm).unwrap();
             assert_eq!(z_abtm, z_csr);
+        }
+    }
+
+    #[cfg(feature = "ilu0-abtm-experiments")]
+    #[test]
+    fn ilu0_abtm_word_ops_variants_match_csr_bitwise_across_word_boundaries() {
+        let mut row_ptr = vec![0u32];
+        let mut col_idx = Vec::new();
+        let mut values = Vec::new();
+        let n = 141usize;
+
+        for row in 0..n {
+            let mut entries = vec![(row as u32, 16.0), (row as u32, 4.0)];
+            for (index, distance) in [1, 2, 5, 31, 63, 64, 65, 127, 128].iter().enumerate() {
+                let col = (row + distance) % n;
+                entries.push((col as u32, (index as f64 + 1.0) * 0.015));
+            }
+            // An exact-zero off-diagonal entry must not enter any topology.
+            entries.push((((row + 13) % n) as u32, 0.0));
+            entries.reverse(); // Csr32Matrix permits unsorted rows and duplicates.
+            for (col, value) in entries {
+                col_idx.push(col);
+                values.push(value);
+            }
+            row_ptr.push(col_idx.len() as u32);
+        }
+        let wide = Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap();
+
+        for matrix in [base_general_matrix(), duplicate_unsorted_equivalent(), wide] {
+            let csr = Ilu0Preconditioner::from_csr32_general(&matrix).unwrap();
+            let legacy = Ilu0Preconditioner::from_csr32_general_abtm(&matrix).unwrap();
+            assert!(legacy.experimental_factor_bits_equal(&csr));
+
+            let rhs: Vec<f64> = (0..matrix.nrows())
+                .map(|row| 0.5 + (row as f64 * 0.03).sin())
+                .collect();
+            let mut expected = vec![0.0; matrix.nrows()];
+            csr.apply(&rhs, &mut expected).unwrap();
+
+            for mode in [
+                Ilu0AbtmExperimentalMode::DirectLut,
+                Ilu0AbtmExperimentalMode::DirectPopcnt,
+                Ilu0AbtmExperimentalMode::DirectRotatePopcnt,
+            ] {
+                let factor =
+                    Ilu0Preconditioner::from_csr32_general_abtm_experimental(&matrix, mode)
+                        .unwrap();
+                assert!(
+                    factor.experimental_factor_bits_equal(&csr),
+                    "factor differs for mode {mode:?}"
+                );
+                let mut actual = vec![0.0; matrix.nrows()];
+                factor.apply(&rhs, &mut actual).unwrap();
+                assert_eq!(
+                    actual
+                        .iter()
+                        .map(|value| value.to_bits())
+                        .collect::<Vec<_>>(),
+                    expected
+                        .iter()
+                        .map(|value| value.to_bits())
+                        .collect::<Vec<_>>(),
+                    "apply differs for mode {mode:?}"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "ilu0-abtm-experiments")]
+    #[test]
+    fn ilu0_abtm_word_ops_dense_64_bit_masks_match_csr() {
+        let n = 129usize;
+        let row_ptr = (0..=n).map(|r| (r * n) as u32).collect();
+        let mut col_idx = Vec::with_capacity(n * n);
+        let mut values = Vec::with_capacity(n * n);
+        for row in 0..n {
+            for col in 0..n {
+                col_idx.push(col as u32);
+                values.push(if row == col { 300.0 } else { 0.002 });
+            }
+        }
+        let matrix = Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap();
+        let csr = Ilu0Preconditioner::from_csr32_general(&matrix).unwrap();
+        for mode in [
+            Ilu0AbtmExperimentalMode::DirectLut,
+            Ilu0AbtmExperimentalMode::DirectPopcnt,
+            Ilu0AbtmExperimentalMode::DirectRotatePopcnt,
+        ] {
+            let factor =
+                Ilu0Preconditioner::from_csr32_general_abtm_experimental(&matrix, mode).unwrap();
+            assert!(factor.experimental_factor_bits_equal(&csr), "{mode:?}");
         }
     }
 

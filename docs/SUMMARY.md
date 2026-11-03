@@ -34,6 +34,7 @@
 - [C1-H9 RHS-gated weighted ABTM factor reuse](C1H9_WEIGHTED_PREPARED_REUSE.md)
 - [C1-H10 prepared multi-RHS amortization study](C1H10_PREPARED_RHS_AMORTIZATION.md)
 - [C1-H11 real FEM evidence intake and comparison](C1H11_REAL_FEM_EVIDENCE_INTAKE.md)
+- [C1-H12 experimental ABTM ILU(0) bitwise word operations](C1H12_ABTM_ILU0_WORD_OPS.md)
 - [C1-A WSL2 FEM region sweep](C1_FEM_REGION_SWEEP.md)
 - [C1-F opt-in PCG kernel timing](C1F_PCG_KERNEL_PROFILE.md)
 - [C1-D Hybrid cost crossover](C1D_HYBRID_COST_CROSSOVER.md)

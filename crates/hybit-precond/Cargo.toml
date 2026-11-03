@@ -12,6 +12,11 @@ categories.workspace = true
 description = "Jacobi, block Jacobi, two-level coarse, local Cholesky, and weighted Schwarz preconditioners for HyBIT"
 publish = ["crates-io"]
 
+[features]
+default = []
+# Research-only ABTM ILU(0) construction variants; no default routing change.
+ilu0-abtm-experiments = []
+
 [dependencies]
 hybit-core = { version = "0.10.0", path = "../hybit-core" }
 hybit-matrix = { version = "0.10.0", path = "../hybit-matrix" }

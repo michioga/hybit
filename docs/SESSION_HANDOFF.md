@@ -949,3 +949,34 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - No actual real FEM data have been provided to the assistant for this stage.
 - Next: user WSL2 code/unit test gates, obtain valid physical FEM serial
   snapshots, run audit and a preregistered run; inspect outcomes before commit.
+
+## 2026-11-03 — C1-H12 ABTM ILU(0) word-operations candidate (WSL evidence received)
+
+- Remote baseline: pushed `develop/0.10.0` at `9625955`; local WSL tree is
+  authoritative. User provided real nonsymmetric `16_heat_block` matrix/RHS
+  and repeated FGMRES observations; canonical ILU(0) and legacy ABTM ILU(0)
+  both converge in 33 iterations. ABTM factor setup median was slower, while
+  solver-only median appeared faster without a proven explanation.
+- Feature-gated research variants: canonical CSR word masks built directly
+  (`OR` and shifts), direct LUT, shifted `POPCNT` rank, plus a pivot-word
+  `rotate_right`/`XOR` enumeration experiment. Old `Ilu0Abtm` production
+  selection and factor/triangular application format remain unchanged.
+- Added bitwise factor/apply tests and a single-arm-per-process, five-arm,
+  order-rotated WSL benchmark measuring preparation and peak RSS separately.
+- User WSL2 logs: `hybit-precond` experimental Release 30/30 PASS,
+  example compiled, all five full-factor/application bitwise gates PASS,
+  15/15 timed processes exit 0 on `16_heat_block` (37,386 DOF).
+  Each arm has 3 launches × 7 samples. Setup median-of-rounds (ms):
+  CSR 16.187, legacy LUT 18.494, direct LUT **14.884**, direct POPCNT
+  17.846, rotate POPCNT 19.013. Median peak RSS (KiB): 31,296 / 40,224 /
+  34,916 / 31,252 / 31,260 respectively. No FGMRES end-to-end speedup
+  claim for the new methods; independent matrices remain untested.
+- First `cargo fmt --all -- --check` was FAIL (formatting only); the
+  subsequent formatting/SHA correction passed WSL SHA, fmt, and 30/30
+  feature-gated Release tests. Strict workspace Clippy with `-D warnings`
+  then failed on one `collapsible_if` in the research example; a follow-up
+  code/SHA correction is prepared but not yet WSL validated. Full-workspace
+  tests remain unverified. Assistant scratch has no Rust toolchain.
+- Details and experiment protocol: `docs/C1H12_ABTM_ILU0_WORD_OPS.md`.
+- **Next single action:** apply Clippy/SHA fix, validate on WSL, then
+  test direct LUT against legacy on a held-out nonsymmetric matrix.
