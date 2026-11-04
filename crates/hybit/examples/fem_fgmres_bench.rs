@@ -23,6 +23,7 @@ struct Args {
     max_restart: usize,
     policy: GeneralSquareRestartPolicy,
     component_diagnostics: bool,
+    hotspot_diagnostics: bool,
 }
 
 impl Args {
@@ -37,6 +38,7 @@ impl Args {
         let mut max_restart = 70_usize;
         let mut policy = GeneralSquareRestartPolicy::Fixed;
         let mut component_diagnostics = false;
+        let mut hotspot_diagnostics = false;
         let mut it = env::args().skip(1);
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -65,11 +67,13 @@ impl Args {
                     };
                 }
                 "--component-diagnostics" => component_diagnostics = true,
+                "--hotspot-diagnostics" => hotspot_diagnostics = true,
                 "-h" | "--help" => {
                     println!(
                         "Usage: fem_fgmres_bench --matrix FILE.mm --rhs FILE.rhs [--xref known_solution.txt] \\\n  [--tol 1e-8] [--max-iters 3000] [--precond jacobi|ilu0|ilu0-fallback|ilu0-abtm] \\\n  [--restart 30] [--max-restart 70] [--restart-policy fixed|budget-aware|escalating]"
                     );
                     println!("  [--component-diagnostics] (post-solve, experimental)");
+                    println!("  [--hotspot-diagnostics] (post-solve, experimental)");
                     std::process::exit(0);
                 }
                 other => return Err(format!("unknown argument {other}").into()),
@@ -92,6 +96,7 @@ impl Args {
             max_restart,
             policy,
             component_diagnostics,
+            hotspot_diagnostics,
         })
     }
 }
@@ -189,6 +194,8 @@ struct ComponentMetrics {
 
 struct ComponentReport {
     parts: Vec<ComponentMetrics>,
+    row_to_part: Vec<usize>,
+    residuals: Vec<f64>,
     rhs_norm: f64,
     residual_norm: f64,
 }
@@ -231,8 +238,13 @@ fn component_report(
 
     let ax = matrix.spmv(x)?;
     let (mut rhs_norm, mut residual_norm) = (0.0_f64, 0.0_f64);
+    let mut residuals = Vec::with_capacity(n);
     for row in 0..n {
         let residual = rhs[row] - ax[row];
+        if !residual.is_finite() {
+            return Err("component diagnostics require finite true residual entries".into());
+        }
+        residuals.push(residual);
         let part = &mut parts[row_to_part[row]];
         part.rhs_norm = part.rhs_norm.hypot(rhs[row]);
         part.residual_norm = part.residual_norm.hypot(residual);
@@ -241,9 +253,154 @@ fn component_report(
     }
     Ok(ComponentReport {
         parts,
+        row_to_part,
+        residuals,
         rhs_norm,
         residual_norm,
     })
+}
+
+// This is a diagnostic ranking, not a candidate local-direct region.
+// A top-k set does not imply graph connectivity or a numerical improvement.
+const HOTSPOT_CAPACITIES: [usize; 5] = [32, 64, 128, 256, 512];
+
+struct HotspotMetric {
+    // Sorted by descending magnitude, then ascending 0-based row index.
+    rows: Vec<(usize, f64)>,
+    norm: f64,
+}
+
+impl HotspotMetric {
+    fn new(mut rows: Vec<(usize, f64)>) -> Self {
+        rows.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        let norm = stable_norm(rows.iter().map(|&(_, magnitude)| magnitude));
+        Self { rows, norm }
+    }
+
+    fn energy_fraction(&self, k: usize) -> f64 {
+        if self.norm == 0.0 {
+            return 0.0;
+        }
+        // Squaring the ratio of stable norms avoids overflow from r_i * r_i.
+        let top_norm = stable_norm(self.rows.iter().take(k).map(|&(_, value)| value));
+        let fraction = top_norm / self.norm;
+        (fraction * fraction).min(1.0)
+    }
+}
+
+struct HotspotReport {
+    first_row: usize,
+    component_rows: usize,
+    component_norm_fraction: f64,
+    raw: HotspotMetric,
+    row_scaled: Option<HotspotMetric>,
+    row_scaled_unavailable: Option<&'static str>,
+}
+
+fn hotspot_report(
+    matrix: &hybit::Csr32Matrix,
+    components: &ComponentReport,
+) -> Result<HotspotReport, Box<dyn Error>> {
+    let (dominant, part) = components
+        .parts
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| {
+            a.residual_norm
+                .total_cmp(&b.residual_norm)
+                .then(a.rows.cmp(&b.rows))
+                .then(b.first_row.cmp(&a.first_row))
+        })
+        .ok_or("hotspot diagnostics require at least one matrix row")?;
+
+    let mut raw_rows = Vec::with_capacity(part.rows);
+    let mut scaled_rows = Vec::with_capacity(part.rows);
+    let mut scaled_unavailable = None;
+    for (row, &part_id) in components.row_to_part.iter().enumerate() {
+        if part_id != dominant {
+            continue;
+        }
+        let magnitude = components.residuals[row].abs();
+        if !magnitude.is_finite() {
+            return Err("non-finite original-CSR hotspot residual".into());
+        }
+        raw_rows.push((row, magnitude));
+
+        // Maximum coefficient magnitude is a scale heuristic, NOT an SPD
+        // normalization or an independent solver convergence certificate.
+        let start = matrix.row_ptr()[row] as usize;
+        let end = matrix.row_ptr()[row + 1] as usize;
+        let row_max = matrix.values()[start..end]
+            .iter()
+            .fold(0.0_f64, |maximum, &value| maximum.max(value.abs()));
+        let scaled = if row_max > 0.0 && row_max.is_finite() {
+            magnitude / row_max
+        } else if row_max == 0.0 && magnitude == 0.0 {
+            0.0
+        } else {
+            scaled_unavailable = Some("ZERO_OR_NONFINITE_ROW_SCALE");
+            continue;
+        };
+        if !scaled.is_finite() {
+            scaled_unavailable = Some("NONFINITE_SCALED_RESIDUAL");
+        } else {
+            scaled_rows.push((row, scaled));
+        }
+    }
+
+    let row_scaled = if scaled_unavailable.is_none() {
+        Some(HotspotMetric::new(scaled_rows))
+    } else {
+        None
+    };
+    Ok(HotspotReport {
+        first_row: part.first_row,
+        component_rows: part.rows,
+        component_norm_fraction: if components.residual_norm == 0.0 {
+            0.0
+        } else {
+            part.residual_norm / components.residual_norm
+        },
+        raw: HotspotMetric::new(raw_rows),
+        row_scaled,
+        row_scaled_unavailable: scaled_unavailable,
+    })
+}
+
+fn print_hotspot_metric(name: &str, metric: &HotspotMetric) {
+    for k in HOTSPOT_CAPACITIES {
+        println!(
+            "C1H14_TOPK|metric={name}|k={k}|selected_rows={}|component_residual_energy_fraction={:.12e}",
+            k.min(metric.rows.len()),
+            metric.energy_fraction(k)
+        );
+    }
+    for (rank, &(row, magnitude)) in metric.rows.iter().take(5).enumerate() {
+        println!(
+            "C1H14_ROW|metric={name}|rank={}|row_1based={}|magnitude={magnitude:.12e}",
+            rank + 1,
+            row + 1
+        );
+    }
+}
+
+fn print_hotspot_report(report: &HotspotReport) {
+    println!(
+        "C1H14_SUMMARY|scope=dominant_weak_component|first_row_1based={}|rows={}|component_residual_norm_fraction={:.12e}|raw_residual_norm={:.12e}",
+        report.first_row + 1,
+        report.component_rows,
+        report.component_norm_fraction,
+        report.raw.norm
+    );
+    print_hotspot_metric("raw", &report.raw);
+    if let Some(ref metric) = report.row_scaled {
+        print_hotspot_metric("row_max_scaled", metric);
+    } else {
+        println!(
+            "C1H14_SCALED|status=UNAVAILABLE|reason={}",
+            report.row_scaled_unavailable.unwrap_or("UNKNOWN")
+        );
+    }
 }
 
 fn print_component_report(report: &ComponentReport) {
@@ -395,14 +552,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("solver time        : {:.3} ms", report.solve_seconds * 1e3);
     println!("total wall         : {:.3} ms", wall * 1e3);
-    if args.component_diagnostics {
+    if args.component_diagnostics || args.hotspot_diagnostics {
         // Intentionally timed after the existing solve wall-clock metric.
         let diagnostics_start = Instant::now();
-        print_component_report(&component_report(&matrix, &b, &x)?);
-        println!(
-            "C1H13_DIAGNOSTICS|elapsed_ms={:.3}",
-            diagnostics_start.elapsed().as_secs_f64() * 1e3
-        );
+        let components = component_report(&matrix, &b, &x)?;
+        if args.component_diagnostics {
+            print_component_report(&components);
+            println!(
+                "C1H13_DIAGNOSTICS|elapsed_ms={:.3}",
+                diagnostics_start.elapsed().as_secs_f64() * 1e3
+            );
+        }
+        if args.hotspot_diagnostics {
+            print_hotspot_report(&hotspot_report(&matrix, &components)?);
+            println!(
+                "C1H14_DIAGNOSTICS|elapsed_ms={:.3}",
+                diagnostics_start.elapsed().as_secs_f64() * 1e3
+            );
+        }
     }
     // Status is semantic; unlike process errors, MaxIterations is returned as a report.
     // Supervising scripts MUST check status AND verified residual.
@@ -411,7 +578,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod fem_fgmres_bench_tests {
-    use super::{component_report, stable_norm};
+    use super::{component_report, hotspot_report, stable_norm};
     use hybit::Csr32Matrix;
     #[test]
     fn stable_norm_handles_large_and_small_values() {
@@ -461,5 +628,70 @@ mod fem_fgmres_bench_tests {
                 .residual_norm,
             0.0
         );
+    }
+
+    #[test]
+    fn hotspots_are_component_local_and_rank_by_exact_energy() {
+        // One-sided edge 0->1; singleton row 2 is excluded from the dominant
+        // component even though its individual residual is nonzero.
+        let a = Csr32Matrix::new(
+            3,
+            3,
+            vec![0, 2, 3, 4],
+            vec![0, 1, 1, 2],
+            vec![1.0, 1.0, 8.0, 1.0],
+        )
+        .unwrap();
+        let components = component_report(&a, &[3.0, 4.0, 1.0], &[0.0; 3]).unwrap();
+        let report = hotspot_report(&a, &components).unwrap();
+        assert_eq!(report.first_row, 0);
+        assert_eq!(report.component_rows, 2);
+        assert_eq!(report.raw.rows[0].0, 1);
+        assert!((report.raw.energy_fraction(1) - 16.0 / 25.0).abs() < 1e-14);
+        assert_eq!(report.raw.energy_fraction(32), 1.0);
+        let scaled = report.row_scaled.unwrap();
+        assert_eq!(scaled.rows[0].0, 0);
+        assert!((scaled.energy_fraction(1) - 9.0 / 9.25).abs() < 1e-14);
+        assert_eq!(scaled.energy_fraction(512), 1.0);
+    }
+
+    #[test]
+    fn hotspots_handle_zero_residuals_without_fabricated_energy() {
+        let a = Csr32Matrix::new(2, 2, vec![0, 1, 2], vec![0, 1], vec![2.0, 4.0]).unwrap();
+        let components = component_report(&a, &[2.0, 4.0], &[1.0, 1.0]).unwrap();
+        let report = hotspot_report(&a, &components).unwrap();
+        assert_eq!(report.first_row, 0);
+        assert_eq!(report.component_norm_fraction, 0.0);
+        assert_eq!(report.raw.energy_fraction(32), 0.0);
+        assert_eq!(report.row_scaled.unwrap().energy_fraction(32), 0.0);
+    }
+
+    #[test]
+    fn hotspots_handle_extreme_magnitudes_without_squared_overflow() {
+        let a = Csr32Matrix::new(
+            2,
+            2,
+            vec![0, 2, 4],
+            vec![0, 1, 0, 1],
+            vec![1.0, 1.0, 1.0, 1.0],
+        )
+        .unwrap();
+        let components = component_report(&a, &[1e200, 1e-200], &[0.0, 0.0]).unwrap();
+        let report = hotspot_report(&a, &components).unwrap();
+        assert!(report.raw.norm.is_finite());
+        assert_eq!(report.raw.energy_fraction(1), 1.0);
+    }
+
+    #[test]
+    fn nonzero_residual_on_zero_row_disables_scaled_metric_only() {
+        let a = Csr32Matrix::new(1, 1, vec![0, 0], vec![], vec![]).unwrap();
+        let components = component_report(&a, &[1.0], &[0.0]).unwrap();
+        let report = hotspot_report(&a, &components).unwrap();
+        assert_eq!(report.raw.energy_fraction(32), 1.0);
+        assert_eq!(
+            report.row_scaled_unavailable,
+            Some("ZERO_OR_NONFINITE_ROW_SCALE")
+        );
+        assert!(report.row_scaled.is_none());
     }
 }
