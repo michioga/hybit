@@ -1018,3 +1018,45 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   documentation and source hashes, validate on the user's authoritative
   WSL2 tree, then commit/push this evidence-only checkpoint before starting
   the separately gated C1-H15 GeneralSquare local-LU experiment.
+
+### 2026-11-05 C1-H15-A: ABTM Schwarz reference (WSL validation pending)
+
+- Starting checkpoint: `develop/0.10.0` at `dc49e95` (C1-H14 graph regions
+  validated and pushed on WSL; pre-existing untracked Python cache excluded).
+- Experimental file: `crates/hybit/examples/c1h15_schwarz_probe.rs`.
+  Adds complete ABTM BFS-core partitioning, optional one-hop overlap,
+  guarded pivoted dense LU and RAS restricted injection. No production
+  `hybit-auto` change, new public API or PETSc/MKL/PARDISO dependency.
+- Experimental plan: `docs/C1H15_ABTM_SCHWARZ_REFERENCE.md`.
+- Verification status at installation: **not yet run in WSL**; do not treat
+  code generation or an installer pass as a Rust/numerical validation pass.
+- Next prioritized action: run Rust 1.99.1 fmt/test/clippy/build gates, then
+  compare independently verified FGMRES residuals on `11_contact_2beam`
+  and `03_hyperelastic_cylinder` at identical restart/iteration budgets.
+  Record factor memory and peak RSS; inspect `MaxIterations` explicitly.
+
+### 2026-11-05 C1-H15-B1: Real FEM RAS evidence and factor-class decision
+
+- Rust 1.99.1 on WSL: C1-H15-A fmt/integrity, five release tests,
+  strict Clippy, and release example build all PASS.
+- `11_contact_2beam`, FGMRES restart30/max360: ILU0-ABTM true relative
+  residual 1.318012270033e-8 (MaxIterations); uniform dense RAS-LU overlap0
+  1.893700512284e-5 (MaxIterations); overlap1 1.121944120252e-8
+  (MaxIterations). No convergence rescue at restart30.
+- At restart70/max360: ILU0-ABTM converged in 54 iterations with
+  verified relative residual 3.068967556521e-11 (4.849 ms solve), while
+  RAS-LU overlap1 converged in 58 iterations with 6.690243885406e-11
+  (27.625 ms solve; about 4.25x ILU factor bytes).
+- `07_viscoelastic_cylinder` and `08_creep_cylinder` both converge in
+  31 ILU0-ABTM iterations at restart30 and restart70; not rescue cases.
+- Full measurements/provenance and class-aware design decision:
+  `docs/C1H15_B1_REAL_FEM_RAS_EVIDENCE.md`. Evidence remains under
+  `~/c1h11_evidence/c1h15_b1_contact_afTqJx/` and
+  `~/c1h11_evidence/c1h15_screen_WwY5De/`.
+- Decision: do not promote this uniform dense RAS reference to production;
+  keep SPD local Cholesky, GeneralSquare ILU/LU, bounded restart controls,
+  then selective ABTM graph-region local direct rescue after true stall.
+- Single next action: validate and archive this checkpoint; next screen
+  genuinely difficult FEM matrices with bounded restart before coding
+  selective direct correction. Preserve unrelated Python cache and other
+  worktree content.
