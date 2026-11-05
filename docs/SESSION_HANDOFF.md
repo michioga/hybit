@@ -980,3 +980,41 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Details and experiment protocol: `docs/C1H12_ABTM_ILU0_WORD_OPS.md`.
 - **Next single action:** apply Clippy/SHA fix, validate on WSL, then
   test direct LUT against legacy on a held-out nonsymmetric matrix.
+
+## 2026-11-05 — C1-H14-B2 connected residual regions (WSL2 validated; commit pending)
+
+- User's last confirmed pushed branch: `develop/0.10.0` at `155ab59`
+  (C1-H14-B1). B2 graph diagnostic is an uncommitted opt-in example/document
+  change on that tree; unrelated untracked
+  `benchmarks/scripts/__pycache__/` must remain untouched.
+- C1-H14-B2 uses existing ABTM dual topology (`A` and `A^T`) and bounded
+  greedy connected growth on the **postsolve true residual**. It is not a
+  local direct preconditioner, convergence controller or default Auto path.
+- The original B2 patch did not apply to current handoff/hash context;
+  B2 FIX1 applied, then Rustfmt FIX2 applied. User WSL2: SHA strict PASS,
+  `git diff --check` PASS, fmt PASS, `fem_fgmres_bench` release tests
+  **11/11 PASS**, strict Clippy PASS, release example build PASS.
+- Physical nonsymmetric `11_contact_2beam` (756 rows, 28,960 CSR nnz),
+  FGMRES ABTM ILU(0) restart30/360: `MaxIterations`, verified residual
+  `1.318012e-8`. Dominant component358 rows; one 128-row connected region
+  captures **94.34%** of its raw squared-residual energy (matching the
+  unconstrained top-128 oracle); graph setup0.265ms, diagnostics0.930ms,
+  peak RSS8,208KiB. Evidence:
+  `~/c1h11_evidence/c1h14_b2_graph_KTf1ws`.
+- Physical nonsymmetric `01_elastic_hinge` (252,168 rows, 18,846,277 CSR
+  nnz), same restart30/360: `MaxIterations`, verified residual
+  `1.890115e-1` unchanged. Dominant component250,080 rows; unconstrained
+  best 512 rows capture **20.19%**, best observed 512-row connected region
+  **15.56%** of raw squared-residual energy. Dual metadata66,994,172 B,
+  setup317.010ms, diagnostics320.383ms, process RSS929,836KiB,
+  elapsed24.17s. Evidence:
+  `~/c1h11_evidence/c1h14_b2_hinge_ku5Ayq`.
+- **Interpretation, not a convergence claim:** small local residual patch
+  plausibly testable on contact; hinge residual broadly distributed and
+  likely needs broader/coarse correction. No local LU or verified rescue
+  has been tested yet. Third no-rescue-control graph run on
+  `03_hyperelastic_cylinder` remains pending.
+- **Next single action:** integrate these measured results into the B2
+  documentation and source hashes, validate on the user's authoritative
+  WSL2 tree, then commit/push this evidence-only checkpoint before starting
+  the separately gated C1-H15 GeneralSquare local-LU experiment.

@@ -1,5 +1,7 @@
 //! C1-H1: Generic FEM Matrix Market + RHS -> prepared HyBIT FGMRES baseline.
 //! Only input/output plumbing; does not alter production routing.
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -10,6 +12,7 @@ use hybit::{
     GeneralSquareOptions, GeneralSquarePreconditionerPolicy, GeneralSquareRestartPolicy,
     HybitSolver, MatrixProblemClass, SolverOptions, read_matrix_market,
 };
+use hybit_matrix::{AbtmDualTopology, AbtmTopologyRow, DofMask};
 
 #[derive(Debug)]
 struct Args {
@@ -24,6 +27,7 @@ struct Args {
     policy: GeneralSquareRestartPolicy,
     component_diagnostics: bool,
     hotspot_diagnostics: bool,
+    graph_diagnostics: bool,
 }
 
 impl Args {
@@ -39,6 +43,7 @@ impl Args {
         let mut policy = GeneralSquareRestartPolicy::Fixed;
         let mut component_diagnostics = false;
         let mut hotspot_diagnostics = false;
+        let mut graph_diagnostics = false;
         let mut it = env::args().skip(1);
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -68,12 +73,14 @@ impl Args {
                 }
                 "--component-diagnostics" => component_diagnostics = true,
                 "--hotspot-diagnostics" => hotspot_diagnostics = true,
+                "--graph-diagnostics" => graph_diagnostics = true,
                 "-h" | "--help" => {
                     println!(
                         "Usage: fem_fgmres_bench --matrix FILE.mm --rhs FILE.rhs [--xref known_solution.txt] \\\n  [--tol 1e-8] [--max-iters 3000] [--precond jacobi|ilu0|ilu0-fallback|ilu0-abtm] \\\n  [--restart 30] [--max-restart 70] [--restart-policy fixed|budget-aware|escalating]"
                     );
                     println!("  [--component-diagnostics] (post-solve, experimental)");
                     println!("  [--hotspot-diagnostics] (post-solve, experimental)");
+                    println!("  [--graph-diagnostics] (post-solve, experimental)");
                     std::process::exit(0);
                 }
                 other => return Err(format!("unknown argument {other}").into()),
@@ -97,6 +104,7 @@ impl Args {
             policy,
             component_diagnostics,
             hotspot_diagnostics,
+            graph_diagnostics,
         })
     }
 }
@@ -403,6 +411,274 @@ fn print_hotspot_report(report: &HotspotReport) {
     }
 }
 
+// C1-H14-B2 is a *structural* greedy probe. A candidate is added only after
+// an already selected node exposes it through A or A^T. No numeric factor or
+// solver state is modified, and the greedy choice has no optimality claim.
+#[derive(Clone, Copy, Debug)]
+struct GraphCandidate {
+    row: usize,
+    score: f64,
+}
+
+impl PartialEq for GraphCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for GraphCandidate {}
+
+impl PartialOrd for GraphCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for GraphCandidate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.score
+            .total_cmp(&other.score)
+            .then_with(|| other.row.cmp(&self.row))
+    }
+}
+
+struct GraphCoverage {
+    selected: DofMask,
+    seed_rows: Vec<usize>,
+    region_sizes: Vec<usize>,
+    energy_fraction: f64,
+    oracle_fraction: f64,
+    topology_words_visited: usize,
+    neighbor_bits_enqueued: usize,
+}
+
+struct GraphMetricContext<'a> {
+    topology: &'a AbtmDualTopology,
+    metric: &'a HotspotMetric,
+    eligible: DofMask,
+    scores: Vec<f64>,
+}
+
+impl<'a> GraphMetricContext<'a> {
+    fn new(
+        topology: &'a AbtmDualTopology,
+        metric: &'a HotspotMetric,
+    ) -> Result<Self, Box<dyn Error>> {
+        if topology.nrows() != topology.ncols() || metric.rows.is_empty() {
+            return Err("graph diagnostics require square topology and nonempty metric".into());
+        }
+        let mut eligible = DofMask::new(topology.nrows());
+        let mut scores = vec![0.0; topology.nrows()];
+        for &(row, score) in &metric.rows {
+            if row >= topology.nrows()
+                || eligible.contains(row)
+                || !score.is_finite()
+                || score < 0.0
+            {
+                return Err("invalid or duplicated graph hotspot row".into());
+            }
+            eligible.set(row, true)?;
+            scores[row] = score;
+        }
+        Ok(Self {
+            topology,
+            metric,
+            eligible,
+            scores,
+        })
+    }
+
+    fn enqueue_neighbors(
+        &self,
+        row: AbtmTopologyRow<'_>,
+        selected: &DofMask,
+        queued: &mut DofMask,
+        frontier: &mut BinaryHeap<GraphCandidate>,
+        topology_words_visited: &mut usize,
+        neighbor_bits_enqueued: &mut usize,
+    ) -> Result<(), Box<dyn Error>> {
+        for word in row.words() {
+            *topology_words_visited += 1;
+            let wi = word.word_index() as usize;
+            let mut bits = word.mask()
+                & self.eligible.words()[wi]
+                & !selected.words()[wi]
+                & !queued.words()[wi];
+            while bits != 0 {
+                let neighbor = wi * 64 + bits.trailing_zeros() as usize;
+                queued.set(neighbor, true)?;
+                frontier.push(GraphCandidate {
+                    row: neighbor,
+                    score: self.scores[neighbor],
+                });
+                *neighbor_bits_enqueued += 1;
+                bits &= bits - 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn coverage(
+        &self,
+        total_capacity: usize,
+        region_count: usize,
+    ) -> Result<GraphCoverage, Box<dyn Error>> {
+        if region_count == 0 {
+            return Err("graph region count must be positive".into());
+        }
+        let budget = total_capacity.min(self.metric.rows.len());
+        let mut coverage = GraphCoverage {
+            selected: DofMask::new(self.topology.nrows()),
+            seed_rows: Vec::new(),
+            region_sizes: Vec::new(),
+            energy_fraction: 0.0,
+            oracle_fraction: self.metric.energy_fraction(budget),
+            topology_words_visited: 0,
+            neighbor_bits_enqueued: 0,
+        };
+        // If the true residual is zero, any candidate would be fabricated.
+        if self.metric.norm == 0.0 {
+            return Ok(coverage);
+        }
+        for region_index in 0..region_count {
+            let region_budget =
+                budget / region_count + usize::from(region_index < budget % region_count);
+            if region_budget == 0 {
+                break;
+            }
+            let Some(&(seed, _)) = self
+                .metric
+                .rows
+                .iter()
+                .find(|&&(row, _)| !coverage.selected.contains(row))
+            else {
+                break;
+            };
+            let mut queued = DofMask::new(self.topology.nrows());
+            let mut frontier = BinaryHeap::new();
+            queued.set(seed, true)?;
+            frontier.push(GraphCandidate {
+                row: seed,
+                score: self.scores[seed],
+            });
+
+            let mut region_size = 0usize;
+            while region_size < region_budget {
+                let Some(current) = frontier.pop() else {
+                    break;
+                };
+                if coverage.selected.contains(current.row) {
+                    continue;
+                }
+                coverage.selected.set(current.row, true)?;
+                region_size += 1;
+                if region_size == region_budget {
+                    break;
+                }
+                self.enqueue_neighbors(
+                    self.topology.row(current.row)?,
+                    &coverage.selected,
+                    &mut queued,
+                    &mut frontier,
+                    &mut coverage.topology_words_visited,
+                    &mut coverage.neighbor_bits_enqueued,
+                )?;
+                self.enqueue_neighbors(
+                    self.topology.column(current.row)?,
+                    &coverage.selected,
+                    &mut queued,
+                    &mut frontier,
+                    &mut coverage.topology_words_visited,
+                    &mut coverage.neighbor_bits_enqueued,
+                )?;
+            }
+            coverage.seed_rows.push(seed);
+            coverage.region_sizes.push(region_size);
+        }
+        let selected_norm = stable_norm(
+            coverage
+                .selected
+                .indices()
+                .into_iter()
+                .map(|row| self.scores[row]),
+        );
+        let fraction = selected_norm / self.metric.norm;
+        coverage.energy_fraction = (fraction * fraction).min(1.0);
+        Ok(coverage)
+    }
+}
+
+fn print_graph_metric(
+    name: &str,
+    topology: &AbtmDualTopology,
+    metric: &HotspotMetric,
+) -> Result<(), Box<dyn Error>> {
+    let graph = GraphMetricContext::new(topology, metric)?;
+    for regions in [1, 2, 4] {
+        for k in HOTSPOT_CAPACITIES {
+            let result = graph.coverage(k, regions)?;
+            let selected_rows = result.selected.count_ones();
+            let efficiency = if result.oracle_fraction == 0.0 {
+                "NA_ZERO_RESIDUAL".to_string()
+            } else {
+                format!(
+                    "{:.12e}",
+                    (result.energy_fraction / result.oracle_fraction).min(1.0)
+                )
+            };
+            let seeds = result
+                .seed_rows
+                .iter()
+                .map(|row| (row + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sizes = result
+                .region_sizes
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            println!(
+                "C1H14_GRAPH|metric={name}|k={k}|regions_requested={regions}|regions_built={}|selected_rows={selected_rows}|captured_energy_fraction={:.12e}|topk_oracle_energy_fraction={:.12e}|fraction_of_oracle={efficiency}|seeds_1based={seeds}|region_sizes={sizes}|topology_words_visited={}|neighbor_bits_enqueued={}",
+                result.seed_rows.len(),
+                result.energy_fraction,
+                result.oracle_fraction,
+                result.topology_words_visited,
+                result.neighbor_bits_enqueued
+            );
+        }
+    }
+    Ok(())
+}
+
+fn print_graph_report(
+    matrix: &hybit::Csr32Matrix,
+    hotspots: &HotspotReport,
+) -> Result<(), Box<dyn Error>> {
+    let started = Instant::now();
+    let topology = AbtmDualTopology::from_csr32(matrix)?;
+    let preparation_ms = started.elapsed().as_secs_f64() * 1e3;
+    println!(
+        "C1H14_GRAPH_SETUP|topology=abtm_dual_a_or_at|structural_nnz={}|metadata_bytes={}|prepare_ms={preparation_ms:.6}",
+        topology.stats().structural_nnz,
+        topology.stats().total_metadata_bytes()
+    );
+    print_graph_metric("raw", &topology, &hotspots.raw)?;
+    if let Some(ref metric) = hotspots.row_scaled {
+        print_graph_metric("row_max_scaled", &topology, metric)?;
+    } else {
+        println!(
+            "C1H14_GRAPH_SCALED|status=UNAVAILABLE|reason={}",
+            hotspots.row_scaled_unavailable.unwrap_or("UNKNOWN")
+        );
+    }
+    println!(
+        "C1H14_GRAPH_DIAGNOSTICS|elapsed_ms={:.3}",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    Ok(())
+}
+
 fn print_component_report(report: &ComponentReport) {
     let parts = &report.parts;
     let singles = parts.iter().filter(|p| p.rows == 1).count();
@@ -552,7 +828,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("solver time        : {:.3} ms", report.solve_seconds * 1e3);
     println!("total wall         : {:.3} ms", wall * 1e3);
-    if args.component_diagnostics || args.hotspot_diagnostics {
+    if args.component_diagnostics || args.hotspot_diagnostics || args.graph_diagnostics {
         // Intentionally timed after the existing solve wall-clock metric.
         let diagnostics_start = Instant::now();
         let components = component_report(&matrix, &b, &x)?;
@@ -563,12 +839,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 diagnostics_start.elapsed().as_secs_f64() * 1e3
             );
         }
-        if args.hotspot_diagnostics {
-            print_hotspot_report(&hotspot_report(&matrix, &components)?);
-            println!(
-                "C1H14_DIAGNOSTICS|elapsed_ms={:.3}",
-                diagnostics_start.elapsed().as_secs_f64() * 1e3
-            );
+        if args.hotspot_diagnostics || args.graph_diagnostics {
+            let hotspots = hotspot_report(&matrix, &components)?;
+            if args.hotspot_diagnostics {
+                print_hotspot_report(&hotspots);
+                println!(
+                    "C1H14_DIAGNOSTICS|elapsed_ms={:.3}",
+                    diagnostics_start.elapsed().as_secs_f64() * 1e3
+                );
+            }
+            if args.graph_diagnostics {
+                print_graph_report(&matrix, &hotspots)?;
+            }
         }
     }
     // Status is semantic; unlike process errors, MaxIterations is returned as a report.
@@ -578,8 +860,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod fem_fgmres_bench_tests {
-    use super::{component_report, hotspot_report, stable_norm};
+    use super::{GraphMetricContext, HotspotMetric, component_report, hotspot_report, stable_norm};
     use hybit::Csr32Matrix;
+    use hybit_matrix::AbtmDualTopology;
     #[test]
     fn stable_norm_handles_large_and_small_values() {
         assert!((stable_norm([3.0, 4.0]) - 5.0).abs() < 1e-14);
@@ -693,5 +976,78 @@ mod fem_fgmres_bench_tests {
             Some("ZERO_OR_NONFINITE_ROW_SCALE")
         );
         assert!(report.row_scaled.is_none());
+    }
+
+    #[test]
+    fn graph_growth_uses_incoming_edges_and_prefers_higher_residual() {
+        // Edges 0->1 and 2->1 occur without their transposes. Both must be
+        // visible from seed 1; the 2nd chosen row is 2 because its score is 8.
+        let a = Csr32Matrix::new(
+            4,
+            4,
+            vec![0, 2, 3, 5, 6],
+            vec![0, 1, 1, 1, 2, 3],
+            vec![1.0; 6],
+        )
+        .unwrap();
+        let dual = AbtmDualTopology::from_csr32(&a).unwrap();
+        let metric = HotspotMetric::new(vec![(0, 1.0), (1, 9.0), (2, 8.0)]);
+        let graph = GraphMetricContext::new(&dual, &metric).unwrap();
+        let result = graph.coverage(2, 1).unwrap();
+        assert_eq!(result.seed_rows, [1]);
+        assert_eq!(result.selected.indices(), [1, 2]);
+        assert_eq!(result.region_sizes, [2]);
+        assert!((result.energy_fraction - 145.0 / 146.0).abs() < 1e-14);
+        assert_eq!(result.oracle_fraction, result.energy_fraction);
+    }
+
+    #[test]
+    fn multiple_graph_regions_can_capture_disconnected_residual_patches() {
+        let a = Csr32Matrix::new(
+            4,
+            4,
+            vec![0, 2, 3, 5, 6],
+            vec![0, 1, 1, 2, 3, 3],
+            vec![1.0; 6],
+        )
+        .unwrap();
+        let dual = AbtmDualTopology::from_csr32(&a).unwrap();
+        let metric = HotspotMetric::new(vec![(0, 10.0), (1, 1.0), (2, 9.0), (3, 1.0)]);
+        let graph = GraphMetricContext::new(&dual, &metric).unwrap();
+        let one = graph.coverage(4, 1).unwrap();
+        assert_eq!(one.seed_rows, [0]);
+        assert_eq!(one.selected.indices(), [0, 1]);
+        assert_eq!(one.region_sizes, [2]);
+        let two = graph.coverage(4, 2).unwrap();
+        assert_eq!(two.seed_rows, [0, 2]);
+        assert_eq!(two.selected.indices(), [0, 1, 2, 3]);
+        assert_eq!(two.region_sizes, [2, 2]);
+        assert_eq!(two.energy_fraction, 1.0);
+    }
+
+    #[test]
+    fn graph_diagnostics_do_not_fabricate_regions_on_exact_solution() {
+        let a = Csr32Matrix::new(2, 2, vec![0, 1, 2], vec![0, 1], vec![2.0, 4.0]).unwrap();
+        let dual = AbtmDualTopology::from_csr32(&a).unwrap();
+        let metric = HotspotMetric::new(vec![(0, 0.0), (1, 0.0)]);
+        let graph = GraphMetricContext::new(&dual, &metric).unwrap();
+        let result = graph.coverage(32, 4).unwrap();
+        assert_eq!(result.selected.count_ones(), 0);
+        assert!(result.seed_rows.is_empty());
+        assert_eq!(result.energy_fraction, 0.0);
+        assert_eq!(result.oracle_fraction, 0.0);
+    }
+
+    #[test]
+    fn graph_greedy_tie_breaks_by_row_and_respects_budget() {
+        let a =
+            Csr32Matrix::new(3, 3, vec![0, 3, 4, 5], vec![0, 1, 2, 1, 2], vec![1.0; 5]).unwrap();
+        let dual = AbtmDualTopology::from_csr32(&a).unwrap();
+        let metric = HotspotMetric::new(vec![(0, 4.0), (1, 3.0), (2, 3.0)]);
+        let graph = GraphMetricContext::new(&dual, &metric).unwrap();
+        let result = graph.coverage(2, 1).unwrap();
+        assert_eq!(result.seed_rows, [0]);
+        assert_eq!(result.selected.indices(), [0, 1]);
+        assert_eq!(result.selected.count_ones(), 2);
     }
 }

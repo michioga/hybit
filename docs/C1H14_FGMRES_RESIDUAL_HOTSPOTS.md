@@ -1,8 +1,9 @@
 # C1-H14-B1: post-solve FGMRES residual-hotspot diagnostic (opt-in)
 
-Status: experimental candidate. The assistant scratch environment has **not**
-run the Rust 1.99.1 build, unit tests, Clippy, or real-FEM replay. WSL2 gates
-must pass before any commit or performance conclusion.
+Status: **validated opt-in diagnostic** as of the user's 2026-11-04 WSL2
+results. Committed and pushed on `develop/0.10.0` as `155ab59`. The user's
+Rust 1.99.1 SHA, fmt, 7/7 example tests, strict example Clippy and Release
+build passed. This does **not** validate automatic local-direct rescue.
 
 ## Evidence and hypothesis
 
@@ -95,3 +96,23 @@ and equal to one at `k >= component size` for a nonzero residual. On the
 giant component of `01_elastic_hinge`, report whether top-k raw and row-scaled
 energy suggests a narrow concentration; investigate the ABTM structural
 neighborhood separately in C1-H14-B2.
+
+## Actual 2026-11-04 WSL2 observations
+
+- `11_contact_2beam`, ABTM ILU(0), fixed restart 30, 360 iterations:
+  `MaxIterations`, independently verified relative residual `1.318012e-8`;
+  the 358-row dominant component contains effectively all residual energy.
+  Top 32/128/256 raw rows contain **70.06% / 94.34% / 99.71%** of its
+  squared-L2 residual. These rows have **not** been shown connected.
+- `01_elastic_hinge`, same restart and budget: `MaxIterations`, verified
+  relative residual `1.890115e-1`. Of the 250,080-row dominant component,
+  top 32/128/512 raw rows contain **3.24% / 8.53% / 20.19%** of squared-L2
+  residual energy; the corresponding row-max-scaled values are
+  **2.52% / 6.81% / 16.97%**. Thus substantial residual remains outside
+  even the highest-ranked 512 rows.
+- The top raw and scaled row identities differ, so a local region chosen
+  using either ranking must be evaluated separately. No row index alone
+  identifies a physical FEM neighborhood.
+
+Next experiment: `docs/C1H14_FGMRES_GRAPH_REGIONS.md` (B2), comparing these
+top-k unconstrained scores against *connected* ABTM-selected regions.
