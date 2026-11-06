@@ -1144,3 +1144,39 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   evidence: matched-budget Jacobi-PCG failure vs bounded Cholesky Hybrid
   rescue, with independent true residual and peak-RSS gate. GeneralSquare
   coarse/local-direct is a separate later track.
+
+## 2026-11-06 — C1-G2 constructed SPD coarse-space rescue checkpoint
+
+- WSL2 source baseline: pushed `develop/0.10.0` at `72677b6`;
+  documentation-only checkpoint. Existing untracked
+  `benchmarks/scripts/__pycache__/` is unrelated and untouched.
+- Reproducible generated 2D P1 diffusion corpus: SHA-256 and manufactured
+  RHS/exact solution gates passed. The mathematical SPD construction is
+  documented; no independent floating-point Cholesky certificate or
+  held-out real 3D FEM rescue claim is made.
+- At n=144 (20,736 DOF), fixed 600 iterations, tol=1e-10:
+  Jacobi and local Cholesky Hybrid both fail on island_shell, multi_patch,
+  rotated_anisotropy; **explicit graph coarse-only** converges in
+  **99 / 118 / 463 iterations**, all independently verified true residual
+  below 1e-10. Coarse dimension 508, coarse factors 2.301 MiB.
+  This is **3/3 selected constructed pilot baseline failures**, not an
+  automated rescue or held-out population rate.
+- n48/n72 easy controls: graph coarse-only converges in 43 / 60 / 61 / 70 /
+  223 iterations; it adds preparation memory, so speed on solvable controls
+  is not a proven benefit.
+- Aggregation at n=144/600: contiguous needs 342 / 345 / >600,
+  graph 99 / 118 / 463, strong-graph 100 / 118 / 445.
+  Graph aggregation quality is measured; **ABTM-vs-CSR symbolic speedup
+  is not**. All numbers are single-run observations.
+- Accuracy warning: island_shell contiguous coarse reports verified residual
+  9.874271e-11 but forward error 2.382841e-2 at tol=1e-10.
+  At tol=1e-12 this falls to 2.862521e-9 after 648 iterations;
+  graph coarse reaches 1.707861e-8 after 127 iterations. Residual
+  convergence does not guarantee small forward error in ill-conditioned FEM.
+- Evidence, limits, exact configurations, saved log directories and
+  limitations: `docs/C1G_COARSE_RESCUE_EVIDENCE.md` and
+  `docs/C1G_COARSE_AGGREGATION_COMPARISON.md`.
+- **Next single action:** validate this documentation-only checkpoint
+  against authoritative WSL logs/source hashes, commit/push on
+  `develop/0.10.0`; then investigate held-out SPD/physical FEM
+  robustness before changing production autonomy defaults.
