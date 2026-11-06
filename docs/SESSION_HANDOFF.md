@@ -1060,3 +1060,46 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   genuinely difficult FEM matrices with bounded restart before coding
   selective direct correction. Preserve unrelated Python cache and other
   worktree content.
+
+### 2026-11-05 C1-H15-C1: FGMRES restart-boundary trace (WSL pending)
+
+- Base checkpoint: `develop/0.10.0` at `8ebce3d` (C1-H15-A/B1
+  local RAS experiment and class-aware Cholesky/LU decision pushed).
+- On `01_elastic_hinge` (252,168 rows, ILU0-ABTM, max360): fixed30
+  verified residual 1.890115052531e-1 at 18.944 s solver;
+  fixed70 1.434331785548e-1 at 23.658 s; BudgetAware initial30/max70
+  1.321462044752e-1 at 20.558 s. All MaxIterations.
+  Evidence: `~/c1h11_evidence/c1h15_hinge_restart_7YSUt1/`.
+- New research-only example: `crates/hybit/examples/c1h15_restart_trace.rs`.
+  It uses the existing public FGMRES restart-controller callback to emit
+  *exact* restart-boundary residual telemetry and local-workspace bytes.
+- The production BudgetAware policy is private; the example uses a
+  separately maintained matching *mirror*. Verify that its final results
+  agree with the original prepared solver before interpreting decisions.
+- Plan: `docs/C1H15_C1_FGMRES_RESTART_BOUNDARY_TRACE.md`.
+- Validation at installation: **Rust 1.99.1 test, Clippy and FEM replay not
+  yet run**; no claims of convergence rescue or production behavior changes.
+- Next action: WSL fmt/test/clippy/build; mirror-parity check with the
+  authoritative BudgetAware result; inspect actual restart-boundary trace
+  before choosing sparse local LU or global coarse correction.
+
+### 2026-11-05 C1-H15-C1: exact restart-boundary trace accepted
+
+- Confirmed base for evidence: `develop/0.10.0` HEAD `8ebce3d`; C1-H15-C1
+  implementation remains research-only. Input and source hashes recorded in
+  `~/c1h11_evidence/c1h15_c1_trace_ozIYpJ/`.
+- WSL Rust 1.99.1 fmt, 3 tests, Clippy `-D warnings`, release build and
+  source-integrity gates reported PASS. Experiment exit 0.
+- FrontISTR `01_elastic_hinge` with ILU0-ABTM: `budget-aware-mirror` matched
+  production BudgetAware status `MaxIterations`, 360 iterations and printed
+  verified relative residual `1.321462044752e-1`.
+- Restart 30 persisted through boundary 240; growth to 60 applied next;
+  boundary 300 remained 60. No convergence rescue was demonstrated.
+- Cost: factor `228172672` bytes, FGMRES workspace `288522200` bytes,
+  setup `1586.780 ms`, solve `20305.393 ms`, elapsed `24.52 s`,
+  peak RSS `929524 KiB`. One run only: no benchmark uncertainty estimates.
+- Full interpretation: `docs/C1H15_C1_FGMRES_RESTART_BOUNDARY_TRACE.md`.
+- **Next single action:** C1-H15-C2: compare early vs scheduled restart
+  expansion against fixed30/fixed70/current BudgetAware with true residual,
+  identical 360-iteration limit, preparation and solve times, and peak RSS.
+  Do not modify production controller or claim convergence before proof.

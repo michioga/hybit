@@ -258,6 +258,7 @@ crates/hybit/examples/abtm_topology_g1b.rs
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 crates/hybit/examples/basic.rs
 crates/hybit/examples/c1h10_rhs_amortization.rs
+crates/hybit/examples/c1h15_restart_trace.rs
 crates/hybit/examples/c1h15_schwarz_probe.rs
 crates/hybit/examples/c1h4_weighted_local_rescue.rs
 crates/hybit/examples/c1h5_topology_routing_trial.rs
@@ -329,6 +330,7 @@ docs/C1H14_FGMRES_GRAPH_REGIONS.md
 docs/C1H14_FGMRES_RESIDUAL_HOTSPOTS.md
 docs/C1H15_ABTM_SCHWARZ_REFERENCE.md
 docs/C1H15_B1_REAL_FEM_RAS_EVIDENCE.md
+docs/C1H15_C1_FGMRES_RESTART_BOUNDARY_TRACE.md
 docs/C1H2_ABTM_RESIDUAL_OBSERVER.md
 docs/C1H3_SHADOW_STALL_GUARD.md
 docs/C1H4_WEIGHTED_ABTM_RESCUE.md
