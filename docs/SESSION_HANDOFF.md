@@ -1103,3 +1103,44 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   expansion against fixed30/fixed70/current BudgetAware with true residual,
   identical 360-iteration limit, preparation and solve times, and peak RSS.
   Do not modify production controller or claim convergence before proof.
+
+### 2026-11-06 C1-H15-C2: controlled restart-policy probe (WSL pending)
+
+- Base: `develop/0.10.0` at `59a4f7c`, committed and pushed after
+  C1-H15-C1 restart-boundary mirror parity acceptance.
+- New research-only example `crates/hybit/examples/c1h15_restart_policy_probe.rs` is derived from the **exact
+  committed C1 source hash**. Existing `crates/hybit/examples/c1h15_restart_trace.rs` and production
+  FGMRES/ILU0-ABTM are unchanged.
+- Added experimental `early-growth` (4-cycle pressure windows, 1 hit)
+  and `scheduled-growth` (at completed boundaries >=120/240: 60/70),
+  with fixed30, fixed70, and unchanged 2-hit BudgetAware mirror controls.
+- Input: FrontISTR `01_elastic_hinge`, 252168 rows; tol1e-10,
+  maxiters360, identical ILU0-ABTM preconditioner and physical RHS.
+- **At installation: Rust test/Clippy, baseline parity and FEM replay are
+  not yet verified.** None of the new policies is claimed to converge.
+- Plan and fair-comparison constraints: `docs/C1H15_C2_FGMRES_RESTART_CONTROL.md`.
+- **Next single action:** WSL rustfmt and SHA refresh, test/Clippy/build,
+  then independent-process five-policy real-FEM screening with exact
+  true residual, setup/solve time, factor/workspace bytes and peak RSS.
+
+### 2026-11-06 C1-H15-C2: restart-control screen accepted
+
+- Base committed HEAD `59a4f7c`. C2 policy example remains research-only.
+- WSL Rustfmt, source SHA, 5 tests, Clippy and release build all PASS.
+- Five-arm FrontISTR `01_elastic_hinge` experiment recorded at
+  `~/c1h11_evidence/c1h15_c2_restart_tUBaCv/` (input/source hashes and
+  independent-process timing/logs saved).
+- Fixed30 1.890115052531e-1; Fixed70 1.434331785548e-1;
+  BudgetAware mirror **1.321462044752e-1**; Early Growth
+  1.465369425088e-1; Scheduled Growth 1.445092570687e-1.
+  All `MaxIterations` after 360 iterations, tolerance `1e-10`.
+- Early Growth expanded 30→60 after 120 iterations; Scheduled Growth
+  expanded 30→60 after 120 and 60→70 after 240; BudgetAware expanded
+  30→60 after 240. Neither new policy improved the verified residual.
+- Numerical decision: **do not promote** early/scheduled restart policies.
+  No convergence rescue was demonstrated. Complete costs/memory caveats
+  and source provenance: `docs/C1H15_C2_FGMRES_RESTART_CONTROL.md`.
+- **Next single action:** design/run C1-G1 deliberately hard SPD FEM
+  evidence: matched-budget Jacobi-PCG failure vs bounded Cholesky Hybrid
+  rescue, with independent true residual and peak-RSS gate. GeneralSquare
+  coarse/local-direct is a separate later track.
