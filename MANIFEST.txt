@@ -213,6 +213,7 @@ crates/hybit-ffi/Cargo.toml
 crates/hybit-ffi/src/lib.rs
 crates/hybit-krylov/Cargo.toml
 crates/hybit-krylov/LICENSE
+crates/hybit-krylov/examples/c1g3_shadow_reference.rs
 crates/hybit-krylov/src/execution.rs
 crates/hybit-krylov/src/fgmres.rs
 crates/hybit-krylov/src/lib.rs
@@ -322,6 +323,7 @@ docs/ARCHITECTURE.md
 docs/C1D_HYBRID_COST_CROSSOVER.md
 docs/C1E_HYBRID_COST_AUDIT.md
 docs/C1F_PCG_KERNEL_PROFILE.md
+docs/C1G3_A1_SHADOW_CHECKPOINT_REFERENCE.md
 docs/C1G_COARSE_AGGREGATION_COMPARISON.md
 docs/C1G_COARSE_RESCUE_EVIDENCE.md
 docs/C1G_FORWARD_ERROR.md

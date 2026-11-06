@@ -1180,3 +1180,25 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   against authoritative WSL logs/source hashes, commit/push on
   `develop/0.10.0`; then investigate held-out SPD/physical FEM
   robustness before changing production autonomy defaults.
+
+## 2026-11-06 — C1-G3-A1 isolated PCG shadow checkpoint reference
+
+- Source baseline: `develop/0.10.0`, HEAD `9d9e17c` (the validated
+  documentation-only C1-G2 checkpoint). Untracked Python `__pycache__`
+  was not inspected or modified.
+- Added **only** an example under `hybit-krylov/examples`, plus this handoff,
+  an evidence note and the two integrity indexes. Existing solver/source
+  behavior and public production API remain unchanged.
+- The example verifies PCG `PcgSession`/`PcgWorkspace` checkpoint cloning,
+  paired branch continuations, independent true residual-based admission,
+  exact recurrence recovery on rejection, failed-candidate fail-closed
+  behavior, and a bounded trial allowance. Five example tests provide
+  small synthetic SPD verification; WSL Rust numerical gates remain pending.
+- The sample candidate uses an exact Jacobi inverse on a synthetic diagonal
+  SPD operator. It is **not** a local-Cholesky / real-FEM performance claim.
+- Reference and limitations: `docs/C1G3_A1_SHADOW_CHECKPOINT_REFERENCE.md`.
+- Next: run WSL `fmt/test/clippy/run`, freeze this A1 reference. In A2,
+  adapt only an explicit opt-in policy to the actual region selector, then
+  repeat the existing C1-G2 island_shell/multi_patch/anisotropy matrices with
+  independent residual and manufactured forward-error checks. Keep coarse
+  automation and changes to defaults out of A1.
