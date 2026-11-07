@@ -1310,3 +1310,27 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   This is NOT yet real-FEM rollback and does NOT enable autonomous selection.
 - WSL 1.99.1 example tests, Clippy and run are required before committing.
   See `docs/C1G3_A3_A2_ROLLBACK_REFERENCE.md`.
+
+## 2026-11-07 — C1-G3-A3-A3 real-FEM rollback integration
+
+- Baseline: `develop/0.10.0` commit `bde0583` (A3-A2 isolated reference
+  committed and pushed). The untracked Python bytecode cache is untouched.
+- Experimental `shadow_watchdog_iterations` defaults to zero, preserving A2's
+  admission and all non-shadow/default solver routing.
+- For positive watchdog budget, retain the *live* Jacobi PCG checkpoint,
+  advance candidate, replay Jacobi at an equal logical horizon, independently
+  check original-CSR residuals and restore exact Jacobi state when required.
+- Peak clone cap counts two full PCG state copies. Expose `RolledBack` decision,
+  reason, candidate/watchdog iterations, baseline replay, verified norms, time
+  and memory; selected `SolveReport.iterations` remains a single trajectory.
+- WSL Rust 1.99.1 build/test/Clippy and full-horizon n144 FEM evidence are
+  **PENDING**. **Do not enable watchdog/shadow by default or claim a speedup.**
+- See `docs/C1G3_A3_A3_REAL_FEM_ROLLBACK.md` for verification commands.
+
+## 2026-11-07 — C1-G3-A3-A3 watchdog FEM evidence
+
+- `bde0583` + uncommitted A3-A3 rollback patch: WSL Rust 1.99.1 gate PASS (56 hybit-auto tests, Clippy, fem_bench).
+- C1-G3-A3-A3 FEM evidence: 9 timed arms and 2 watchdog decisions PASS; source/input/log hashes, max-600 status, and telemetry verified.
+- `island_shell` safely rolled back 204 Jacobi iterations, preserving original relative residual and x error; `multi_patch` retained the useful candidate; `rotated_anisotropy` did not trigger.
+- Runtime overhead remains significant; all runs MaxIterations at tol 1e-10. Experimental opt-in; defaults unchanged.
+- See `docs/C1G3_A3_A3_WATCHDOG_FEM_EVIDENCE.md`.

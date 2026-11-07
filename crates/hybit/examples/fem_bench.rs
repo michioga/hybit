@@ -26,6 +26,7 @@ struct Args {
     abtm_weighted_routing_enabled: bool,
     progress_monitor_rate_limit: Option<f64>,
     shadow_trial_iterations: usize,
+    shadow_watchdog_iterations: usize,
     shadow_accept_ratio: f64,
     shadow_max_extra_bytes: usize,
     max_local_region_size: usize,
@@ -62,6 +63,7 @@ impl Args {
         let mut abtm_weighted_routing_enabled = false;
         let mut progress_monitor_rate_limit = None;
         let mut shadow_trial_iterations = 0usize;
+        let mut shadow_watchdog_iterations = 0usize;
         let mut shadow_accept_ratio = 0.8_f64;
         let mut shadow_max_extra_bytes = 16usize * 1024 * 1024;
         let mut max_local_region_size = 128usize;
@@ -108,6 +110,10 @@ impl Args {
                 "--shadow-trial-iters" => {
                     shadow_trial_iterations =
                         next_value(&mut it, "--shadow-trial-iters")?.parse()?
+                }
+                "--shadow-watchdog-iters" => {
+                    shadow_watchdog_iterations =
+                        next_value(&mut it, "--shadow-watchdog-iters")?.parse()?
                 }
                 "--shadow-accept-ratio" => {
                     shadow_accept_ratio = next_value(&mut it, "--shadow-accept-ratio")?.parse()?
@@ -308,6 +314,9 @@ impl Args {
         {
             return Err("shadow trial requires 0<accept-ratio<1 and positive max MiB".into());
         }
+        if shadow_watchdog_iterations > 0 && shadow_trial_iterations == 0 {
+            return Err("shadow watchdog requires positive --shadow-trial-iters".into());
+        }
         if escalation_stage_iterations == 0 {
             return Err("--stage-iters must be > 0".into());
         }
@@ -332,6 +341,7 @@ impl Args {
             abtm_weighted_routing_enabled,
             progress_monitor_rate_limit,
             shadow_trial_iterations,
+            shadow_watchdog_iterations,
             shadow_accept_ratio,
             shadow_max_extra_bytes,
             max_local_region_size,
@@ -382,6 +392,7 @@ fn print_usage() {
     println!("  --profile-kernels   opt-in serial SPD PCG kernel timings");
     println!("  --monitor-rate-limit R  opt-in per-iteration slowdown threshold, 0<R<1");
     println!("  --shadow-trial-iters N  EXPERIMENTAL C1-G3-A2 local-factor comparison; 0=off");
+    println!("  --shadow-watchdog-iters N  EXPERIMENTAL post-admission rollback guard; 0=off");
     println!(
         "  --shadow-accept-ratio R required candidate/baseline true-residual ratio (default 0.8)"
     );
@@ -661,6 +672,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map_or_else(|| "none".to_owned(), |rate| format!("{rate:.8}"))
     );
     println!("shadow trial iters : {}", args.shadow_trial_iterations);
+    println!("shadow watchdog iters: {}", args.shadow_watchdog_iterations);
     if args.shadow_trial_iterations > 0 {
         println!("shadow accept ratio: {:.6}", args.shadow_accept_ratio);
         println!(
@@ -712,6 +724,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     hybrid.abtm_weighted_routing_enabled = args.abtm_weighted_routing_enabled;
     hybrid.progress_monitor_rate_limit = args.progress_monitor_rate_limit;
     hybrid.shadow_trial_iterations = args.shadow_trial_iterations;
+    hybrid.shadow_watchdog_iterations = args.shadow_watchdog_iterations;
     hybrid.shadow_accept_ratio = args.shadow_accept_ratio;
     hybrid.shadow_max_extra_bytes = args.shadow_max_extra_bytes;
     hybrid.overlap_layers = args.overlap_layers;
@@ -777,8 +790,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                 trial.baseline_status,
                 trial.candidate_status,
             );
+            if args.shadow_watchdog_iterations > 0 {
+                let candidate_relative = trial
+                    .watchdog_candidate_true_relative
+                    .map_or_else(|| "none".to_owned(), |value| format!("{value:.12e}"));
+                let baseline_relative = trial
+                    .watchdog_baseline_true_relative
+                    .map_or_else(|| "none".to_owned(), |value| format!("{value:.12e}"));
+                println!(
+                    "C1G3A3_WATCHDOG|decision={:?}|reason={:?}|candidate_watchdog_iters={}|baseline_replay_iters={}|candidate_true_relative={}|baseline_true_relative={}|peak_clone_bytes={}|watchdog_ms={:.6}|selected_total_iters={}",
+                    trial.decision,
+                    trial.decision_reason,
+                    trial.watchdog_candidate_iterations,
+                    trial.watchdog_baseline_replay_iterations,
+                    candidate_relative,
+                    baseline_relative,
+                    trial.peak_clone_bytes,
+                    trial.watchdog_seconds * 1e3,
+                    report.iterations,
+                );
+            }
         } else {
             println!("C1G3A2_SHADOW|decision=NotTriggered");
+            if args.shadow_watchdog_iterations > 0 {
+                println!("C1G3A3_WATCHDOG|decision=NotTriggered");
+            }
         }
     }
     if let Some(profile) = report.pcg_kernel_profile {
