@@ -1280,3 +1280,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   are pending.** Do not claim MPI runtime coverage beyond the single-process
   unit tests; multi-rank execution remains a separate gate.
 - See `docs/F3_CI_ALL_FEATURES_PYTHON.md` for boundaries and acceptance.
+
+## 2026-11-07 — C1-G3-A3-A1 decision-reason telemetry
+
+- Built on `develop/0.10.0` commit `fe23aa0`; preserves the already-accepted
+  F1/F2 numerical fix and F3 CI coverage. The untracked Python cache remains
+  untouched.
+- Public experimental `HybridShadowDecisionReason` plus original-CSR
+  checkpoint relative residual and baseline/candidate outcome statuses.
+- Existing A2 `C1G3A2_SHADOW` log keys and order remain unchanged; four new
+  suffix keys explain each numerical admission decision, without altering
+  the short-horizon admission rules or introducing rollback.
+- The horizon dependence and false admission in `island_shell` remain
+  documented limitations; **do not enable shadow routing by default**.
+- WSL Rust 1.99.1 gates and n144 replay are required before commit.
+  See `docs/C1G3_A3_A1_SHADOW_DECISION_TELEMETRY.md`.

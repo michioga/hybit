@@ -759,7 +759,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .candidate_true_relative
                 .map_or_else(|| "none".to_owned(), |value| format!("{value:.12e}"));
             println!(
-                "C1G3A2_SHADOW|decision={:?}|trigger={}|base_iters={}|candidate_iters={}|executed_trial_iters={}|base_true_relative={:.12e}|candidate_true_relative={}|clone_bytes={}|candidate_factor_bytes={}|trial_ms={:.6}",
+                "C1G3A2_SHADOW|decision={:?}|trigger={}|base_iters={}|candidate_iters={}|executed_trial_iters={}|base_true_relative={:.12e}|candidate_true_relative={}|clone_bytes={}|candidate_factor_bytes={}|trial_ms={:.6}|reason={:?}|checkpoint_true_relative={:.12e}|base_status={:?}|candidate_status={:?}",
                 trial.decision,
                 trial.trigger_iteration,
                 trial.baseline_iterations,
@@ -772,6 +772,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 trial.clone_bytes,
                 trial.candidate_factor_bytes,
                 trial.trial_seconds * 1e3,
+                trial.decision_reason,
+                trial.checkpoint_true_relative,
+                trial.baseline_status,
+                trial.candidate_status,
             );
         } else {
             println!("C1G3A2_SHADOW|decision=NotTriggered");

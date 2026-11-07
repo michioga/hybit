@@ -36,11 +36,11 @@ pub use hybit_auto::{
     AlgebraicCoarseOptions, BackendPolicy, ExecutionPolicy, GeneralSquareOptions,
     GeneralSquarePreconditionerPolicy, GeneralSquareRestartPolicy, HybitAnalysis,
     HybitPreparedStructuralSystem, HybitPreparedSystem, HybitSolver, HybridOptions,
-    HybridShadowDecision, HybridShadowTrialReport, LocalFactorSelectionPolicy,
-    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS,
-    STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ, STRUCTURAL_PARALLEL_SPMV_MIN_NNZ,
-    StructuralOptions, StructuralPcgVectorPolicy, StructuralPreconditionerPolicy,
-    StructuralSpmvPolicy,
+    HybridShadowDecision, HybridShadowDecisionReason, HybridShadowTrialReport,
+    LocalFactorSelectionPolicy, STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_N,
+    STRUCTURAL_PARALLEL_PCG_VECTOR_MIN_THREADS, STRUCTURAL_PARALLEL_PRECONDITIONER_MIN_NNZ,
+    STRUCTURAL_PARALLEL_SPMV_MIN_NNZ, StructuralOptions, StructuralPcgVectorPolicy,
+    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,

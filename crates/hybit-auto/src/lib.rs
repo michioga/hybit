@@ -238,6 +238,23 @@ pub enum HybridShadowDecision {
     SkippedCloneBudget,
 }
 
+/// Diagnostic-only explanation of a C1-G3 shadow-trial decision.
+///
+/// This classification never participates in the admission predicate: the
+/// opt-in A2 policy remains the authority for switching PCG recurrences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HybridShadowDecisionReason {
+    Accepted,
+    CandidateExecutionFailed,
+    CandidateNonFiniteResidual,
+    CandidateFalseConvergence,
+    CandidateBreakdown,
+    BaselineAlreadyAtTarget,
+    CandidateNotBelowCheckpoint,
+    CandidateRatioNotMet,
+    CloneBudgetExceeded,
+}
+
 /// C1-G3-A2 diagnostics for a candidate evaluated at a common PCG checkpoint.
 ///
 /// A separate prepared-system accessor exposes this record without changing
@@ -246,10 +263,18 @@ pub enum HybridShadowDecision {
 pub struct HybridShadowTrialReport {
     pub trigger_iteration: usize,
     pub decision: HybridShadowDecision,
+    /// First failed admission predicate, or the successful admission outcome.
+    pub decision_reason: HybridShadowDecisionReason,
     pub baseline_iterations: usize,
     pub candidate_iterations: usize,
+    /// Original-CSR residual at the fork, before either trial branch.
+    pub checkpoint_true_relative: f64,
     pub baseline_true_relative: f64,
     pub candidate_true_relative: Option<f64>,
+    /// None if a clone budget was exceeded before any trial was executed.
+    pub baseline_status: Option<SolveStatus>,
+    /// None if the candidate was skipped or failed before returning a status.
+    pub candidate_status: Option<SolveStatus>,
     pub clone_bytes: usize,
     pub candidate_factor_bytes: usize,
     /// Both trial branches, including independent residual checks, but not
@@ -1675,17 +1700,22 @@ impl HybitPreparedSystem {
                     let true_norm = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
                     let b_norm = scaled_l2_norm(b.iter().copied());
                     metrics.diagnostics_seconds += diagnostics_start.elapsed().as_secs_f64();
+                    let checkpoint_true_relative = if b_norm == 0.0 {
+                        true_norm
+                    } else {
+                        true_norm / b_norm
+                    };
                     self.shadow_trial_report = Some(HybridShadowTrialReport {
                         trigger_iteration: outcome.iterations,
                         decision: HybridShadowDecision::SkippedCloneBudget,
+                        decision_reason: HybridShadowDecisionReason::CloneBudgetExceeded,
                         baseline_iterations: 0,
                         candidate_iterations: 0,
-                        baseline_true_relative: if b_norm == 0.0 {
-                            true_norm
-                        } else {
-                            true_norm / b_norm
-                        },
+                        checkpoint_true_relative,
+                        baseline_true_relative: checkpoint_true_relative,
                         candidate_true_relative: None,
+                        baseline_status: None,
+                        candidate_status: None,
                         clone_bytes,
                         candidate_factor_bytes: 0,
                         trial_seconds: 0.0,
@@ -3053,6 +3083,33 @@ fn shadow_clone_bytes(workspace: &PcgWorkspace, solution_len: usize) -> Result<u
         .ok_or(HybitError::SizeOverflow)
 }
 
+/// Explain a failed A2 admission using the same ordered numerical predicates.
+/// The production branch below still executes its original comparison.
+fn shadow_admission_reason(
+    candidate_status: SolveStatus,
+    base_true: f64,
+    candidate_true: f64,
+    checkpoint_true: f64,
+    target: f64,
+    accept_ratio: f64,
+) -> HybridShadowDecisionReason {
+    if !candidate_true.is_finite() {
+        HybridShadowDecisionReason::CandidateNonFiniteResidual
+    } else if candidate_status == SolveStatus::Converged && candidate_true > target {
+        HybridShadowDecisionReason::CandidateFalseConvergence
+    } else if candidate_status == SolveStatus::Breakdown {
+        HybridShadowDecisionReason::CandidateBreakdown
+    } else if base_true <= target {
+        HybridShadowDecisionReason::BaselineAlreadyAtTarget
+    } else if candidate_true >= checkpoint_true {
+        HybridShadowDecisionReason::CandidateNotBelowCheckpoint
+    } else if candidate_true > accept_ratio * base_true {
+        HybridShadowDecisionReason::CandidateRatioNotMet
+    } else {
+        HybridShadowDecisionReason::Accepted
+    }
+}
+
 /// C1-G3-A2 reference: evaluate the actual local-Cholesky factor at the same
 /// checkpoint as an unchanged, *live* Jacobi-PCG continuation.
 /// The base recurrence is never restarted. The candidate starts fresh on its
@@ -3133,10 +3190,14 @@ fn shadow_compare_local_candidate(
     let mut report = HybridShadowTrialReport {
         trigger_iteration,
         decision: HybridShadowDecision::CandidateFailed,
+        decision_reason: HybridShadowDecisionReason::CandidateExecutionFailed,
         baseline_iterations: base.iterations,
         candidate_iterations: 0,
+        checkpoint_true_relative: relative(checkpoint_true),
         baseline_true_relative: relative(base_true),
         candidate_true_relative: None,
+        baseline_status: Some(base.status),
+        candidate_status: None,
         clone_bytes,
         candidate_factor_bytes: local.factor_bytes(),
         trial_seconds: 0.0,
@@ -3144,6 +3205,15 @@ fn shadow_compare_local_candidate(
     let mut chosen = base;
     if let Ok((candidate_session, candidate_outcome, candidate_true)) = candidate {
         report.candidate_iterations = candidate_outcome.iterations;
+        report.candidate_status = Some(candidate_outcome.status);
+        report.decision_reason = shadow_admission_reason(
+            candidate_outcome.status,
+            base_true,
+            candidate_true,
+            checkpoint_true,
+            target,
+            accept_ratio,
+        );
         if candidate_true.is_finite() {
             report.candidate_true_relative = Some(relative(candidate_true));
             let candidate_false_convergence =
@@ -3841,6 +3911,48 @@ mod tests {
     }
 
     #[test]
+    fn c1g3_a3_shadow_reason_classifies_each_admission_gate() {
+        use HybridShadowDecisionReason as Reason;
+
+        let reason = |status, base, candidate, checkpoint, target| {
+            shadow_admission_reason(status, base, candidate, checkpoint, target, 0.8)
+        };
+        assert_eq!(
+            reason(SolveStatus::MaxIterations, 1.0, f64::NAN, 2.0, 0.1),
+            Reason::CandidateNonFiniteResidual
+        );
+        assert_eq!(
+            reason(SolveStatus::Converged, 1.0, 0.2, 2.0, 0.1),
+            Reason::CandidateFalseConvergence
+        );
+        assert_eq!(
+            reason(SolveStatus::Breakdown, 1.0, 0.2, 2.0, 0.1),
+            Reason::CandidateBreakdown
+        );
+        assert_eq!(
+            reason(SolveStatus::MaxIterations, 0.0, 0.01, 0.1, 0.0),
+            Reason::BaselineAlreadyAtTarget
+        );
+        assert_eq!(
+            reason(SolveStatus::MaxIterations, 1.0, 0.5, 0.5, 0.1),
+            Reason::CandidateNotBelowCheckpoint
+        );
+        assert_eq!(
+            reason(SolveStatus::MaxIterations, 1.0, 0.9, 2.0, 0.1),
+            Reason::CandidateRatioNotMet
+        );
+        assert_eq!(
+            reason(SolveStatus::MaxIterations, 1.0, 0.8, 2.0, 0.1),
+            Reason::Accepted
+        );
+        // An equality at the checkpoint loses, but equality at the ratio passes.
+        assert_eq!(
+            reason(SolveStatus::MaxIterations, 1.0, 0.1, 0.1, 0.0),
+            Reason::CandidateNotBelowCheckpoint
+        );
+    }
+
+    #[test]
     fn c1g3_shadow_accepts_actual_full_local_cholesky() {
         let matrix = poisson_1d(64);
         let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
@@ -3884,6 +3996,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(shadow.decision, HybridShadowDecision::Accepted);
+        assert_eq!(shadow.decision_reason, HybridShadowDecisionReason::Accepted);
+        assert!(shadow.checkpoint_true_relative.is_finite());
+        assert!(shadow.baseline_status.is_some());
+        assert_eq!(shadow.candidate_status, Some(SolveStatus::Converged));
         assert_eq!(shadow.trigger_iteration, 4);
         assert!(shadow.candidate_iterations <= shadow.baseline_iterations);
         assert!(shadow.candidate_factor_bytes > 0);
@@ -3951,6 +4067,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(shadow.decision, HybridShadowDecision::Rejected);
+        assert_ne!(shadow.decision_reason, HybridShadowDecisionReason::Accepted);
+        assert!(shadow.baseline_status.is_some());
+        assert!(shadow.candidate_status.is_some());
         assert_eq!(chosen.iterations, expected.iterations);
         assert_eq!(chosen.final_residual, expected.final_residual);
         assert_eq!(x, expected_x);
@@ -3998,6 +4117,16 @@ mod tests {
         let report = prepared.solve(&matrix, &b, &mut x).unwrap();
         let shadow = prepared.shadow_trial_report().unwrap();
         assert_eq!(shadow.decision, HybridShadowDecision::SkippedCloneBudget);
+        assert_eq!(
+            shadow.decision_reason,
+            HybridShadowDecisionReason::CloneBudgetExceeded
+        );
+        assert_eq!(
+            shadow.checkpoint_true_relative,
+            shadow.baseline_true_relative
+        );
+        assert_eq!(shadow.baseline_status, None);
+        assert_eq!(shadow.candidate_status, None);
         assert_eq!(shadow.candidate_factor_bytes, 0);
         assert_eq!(report.escalations, 0);
         assert!(report.converged());
