@@ -47,16 +47,27 @@ pub trait KrylovExecutionBackend {
     fn scale(&mut self, alpha: f64, x: &mut Self::Vector) -> Result<(), HybitError>;
 
     fn l2_norm(&mut self, x: &Self::Vector) -> Result<f64, HybitError> {
+        // Deliberately returns `Inf`/`NaN` instead of an error on overflow:
+        // `pcg_with_execution` must be able to download the updated `x` and
+        // report `Ok(Breakdown)` for a mid-iteration non-finite residual, the
+        // same outcome every other breakdown branch in that function returns.
+        // If this returned `Err` here, the `?` in the caller would skip the
+        // download and the CPU backend would report `Err + x un-updated`
+        // while a backend whose fused update returns the norm as a value
+        // (Rayon) reports `Ok(Breakdown) + x updated` for the same breakdown.
+        // Callers must therefore check `is_finite()` on the returned norm;
+        // the initial-residual path does so via `checked_pcg_target`, which
+        // still turns a non-finite initial norm into `Err(NumericalBreakdown)`.
         let sumsq = self.dot(x, x)?;
-        if !sumsq.is_finite() || sumsq < 0.0 {
-            return Err(HybitError::NumericalBreakdown(
-                "non-finite or negative squared norm in Krylov backend",
-            ));
-        }
         Ok(sumsq.sqrt())
     }
 
     /// PCG fused update hook. GPU backends can override this with one kernel.
+    ///
+    /// Contract: a non-finite residual norm is returned as `Ok(Inf)`/`Ok(NaN)`,
+    /// never as `Err`, so the caller can download the updated solution and
+    /// return `Ok(Breakdown)`. Other failures (e.g. dimension mismatch) are
+    /// still `Err`.
     fn update_x_r_and_norm(
         &mut self,
         solution: &mut Self::Vector,
@@ -704,6 +715,122 @@ mod tests {
         for (serial_value, parallel_value) in serial_x.iter().zip(&rayon_x) {
             assert!((serial_value - parallel_value).abs() <= 1.0e-14);
         }
+    }
+
+    #[test]
+    fn resident_backends_report_nonfinite_residual_norm_as_value_not_error() {
+        // F1 contract: `update_x_r_and_norm` must return `Ok(Inf)` — never
+        // `Err` — when the residual norm overflows, so `pcg_with_execution`
+        // can download the updated `x` and return `Ok(Breakdown)` on every
+        // backend. `alpha = 0` leaves `x`/`r` untouched; only the norm overflows.
+        let a = IdentityOperator(2);
+        let m = IdentityPreconditioner(2);
+        let mut cpu = CpuKrylovExecution::new(&a, &m);
+        let mut solution = cpu.allocate_vector(2).unwrap();
+        let mut residual = vec![1.0e200, 1.0e200];
+        let direction = vec![0.0; 2];
+        let operator_direction = vec![0.0; 2];
+        let norm = cpu
+            .update_x_r_and_norm(
+                &mut solution,
+                &mut residual,
+                &direction,
+                &operator_direction,
+                0.0,
+            )
+            .unwrap();
+        assert!(norm.is_infinite());
+        assert_eq!(solution, vec![0.0; 2]);
+
+        let mut rayon = RayonKrylovExecution::new(&a, &m);
+        let mut solution = rayon.allocate_vector(2).unwrap();
+        let mut residual = vec![1.0e200, 1.0e200];
+        let norm = rayon
+            .update_x_r_and_norm(
+                &mut solution,
+                &mut residual,
+                &direction,
+                &operator_direction,
+                0.0,
+            )
+            .unwrap();
+        assert!(norm.is_infinite());
+        assert_eq!(solution, vec![0.0; 2]);
+    }
+
+    /// Fault-injection operator (not an SPD matrix): its first `apply` is on
+    /// `x = 0`, so the initial residual is finite, but the second `apply` is
+    /// on `p = [1e-300, 1]` and returns `Ap = [1e284, -1e-16 + 1e-31]`, so
+    /// `denom = p.Ap` is ~`1e-31`, `alpha` is ~`1e31`, and the updated
+    /// residual component `-alpha * 1e284` overflows to `-Inf`. This drives
+    /// exactly the mid-iteration branch F1 is about.
+    struct TinyDenomOperator;
+
+    impl LinearOperator for TinyDenomOperator {
+        fn rows(&self) -> usize {
+            2
+        }
+
+        fn cols(&self) -> usize {
+            2
+        }
+
+        fn apply(&self, x: &[f64], y: &mut [f64]) -> Result<(), HybitError> {
+            y[0] = 1.0e284 * x[1];
+            y[1] = (-1.0e-16 + 1.0e-31) * x[1];
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn resident_backends_agree_on_mid_iteration_nonfinite_residual() {
+        // F1: before the fix the CPU backend returned `Err(NumericalBreakdown)`
+        // with `x` left at its initial value, while Rayon returned
+        // `Ok(Breakdown)` with the updated `x`. Both must now agree.
+        let a = TinyDenomOperator;
+        let m = IdentityPreconditioner(2);
+        let rhs = vec![1.0e-300, 1.0];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 32,
+        };
+
+        let mut cpu_x = vec![0.0; 2];
+        let mut cpu_backend = CpuKrylovExecution::new(&a, &m);
+        let mut cpu_workspace = ResidentPcgWorkspace::allocate_with(&mut cpu_backend, 2).unwrap();
+        let cpu = pcg_with_execution(
+            &mut cpu_backend,
+            &rhs,
+            &mut cpu_x,
+            options,
+            &mut cpu_workspace,
+        )
+        .unwrap();
+
+        let mut rayon_x = vec![0.0; 2];
+        let mut rayon_backend = RayonKrylovExecution::new(&a, &m);
+        let mut rayon_workspace =
+            ResidentPcgWorkspace::allocate_with(&mut rayon_backend, 2).unwrap();
+        let rayon = pcg_with_execution(
+            &mut rayon_backend,
+            &rhs,
+            &mut rayon_x,
+            options,
+            &mut rayon_workspace,
+        )
+        .unwrap();
+
+        for outcome in [cpu, rayon] {
+            assert_eq!(outcome.status, SolveStatus::Breakdown);
+            // Iteration 1, not the `denom <= 0` early exit (which reports 0).
+            assert_eq!(outcome.iterations, 1);
+            assert!(outcome.final_residual.is_infinite());
+        }
+        // The updated solution was downloaded on both backends.
+        assert_eq!(cpu_x, rayon_x);
+        assert!(cpu_x[1] > 1.0e30);
+        assert!(cpu_x[0].is_finite());
     }
 
     #[test]

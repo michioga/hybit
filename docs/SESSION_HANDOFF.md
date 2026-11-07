@@ -1248,3 +1248,20 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Evidence, limitations and raw-log directories are recorded in
   `docs/C1G3_A2_SHADOW_HORIZON_EVIDENCE.md`. The A2 trial remains opt-in and
   disabled by default. Commit this checkpoint separately before F1/F2 work.
+
+## 2026-11-07 — F1/F2 numerical reliability hardening
+
+- Anchored to `develop/0.10.0` HEAD `7fb48f3` after the accepted A2
+  real-FEM shadow evidence checkpoint. Existing untracked Python cache is
+  intentionally untouched.
+- F1: resident CPU l2 norm passes non-finite residual norms back to PCG,
+  allowing a consistent `Ok(Breakdown)` and updated solution download on
+  CPU/Rayon after a mid-iteration overflow; new fault-injection tests.
+- F2: CSR certification demotes a purported successful solve when the
+  computed tolerance threshold itself is non-finite; overflow and valid
+  finite-threshold regression tests.
+- This is the narrow third-party v1 fix, **not** the broader v2 scaled norm
+  rewrite, whose subnormal reciprocal-overflow issue needs separate work.
+- The patch leaves default selection and A2 opt-in behavior unchanged.
+  **WSL 1.99.1 release tests and Clippy are required before committing.**
+- See `docs/F1F2_NUMERICAL_CERTIFICATION_HARDENING.md`.

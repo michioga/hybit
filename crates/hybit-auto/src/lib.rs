@@ -3311,8 +3311,13 @@ fn certify_final_residual(
     // A mismatch between the recursive convergence test and the original
     // system is a numerical reliability breakdown, not a successful solve.
     // Never promote a previously unsuccessful Krylov status based on this check.
+    // The threshold itself must be finite: with `relative_tolerance > 1` and
+    // a huge `b_norm` the product overflows to `Inf`, and `true_residual > Inf`
+    // is always false, so an unconverged solve would escape demotion — the
+    // same overflow hole `checked_pcg_target` already closes on the PCG side.
     if !true_residual.is_finite()
         || !b_norm.is_finite()
+        || !target.is_finite()
         || (report.status == SolveStatus::Converged && true_residual > target)
     {
         report.status = SolveStatus::Breakdown;
@@ -4171,6 +4176,69 @@ mod tests {
             assert_eq!(report.final_residual, rhs);
             assert_eq!(report.relative_residual, 1.0);
         }
+    }
+
+    #[test]
+    fn final_csr_certification_downgrades_when_threshold_overflows() {
+        // F2: `relative_tolerance > 1` with a huge `b_norm` makes
+        // `relative_tolerance * b_norm` overflow to `Inf`. Before the fix
+        // `true_residual > Inf` was false, so a genuinely unconverged solve
+        // kept `Converged`. The threshold itself must be treated as a failure.
+        let a = poisson_1d(1);
+        let b = [1.0e308];
+        let x = [0.0];
+        let options = SolverOptions {
+            relative_tolerance: 2.0,
+            absolute_tolerance: 0.0,
+            max_iterations: 1000,
+        };
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::Converged,
+                iterations: 1,
+                initial_residual: l2_norm(&b),
+                final_residual: 0.0,
+            },
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, options, &mut report).unwrap();
+        assert_eq!(report.status, SolveStatus::Breakdown);
+        assert_eq!(report.final_residual, 1.0e308);
+        assert_eq!(report.relative_residual, 1.0);
+    }
+
+    #[test]
+    fn final_csr_certification_keeps_converged_when_threshold_is_finite() {
+        // Guard for the F2 fix: a `relative_tolerance > 1` must not demote a
+        // solve whose threshold is finite and whose true residual meets it.
+        let a = poisson_1d(1);
+        let b = [1.0];
+        let x = [0.5];
+        let options = SolverOptions {
+            relative_tolerance: 2.0,
+            absolute_tolerance: 0.0,
+            max_iterations: 1000,
+        };
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::Converged,
+                iterations: 1,
+                initial_residual: l2_norm(&b),
+                final_residual: 0.0,
+            },
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, options, &mut report).unwrap();
+        assert_eq!(report.status, SolveStatus::Converged);
+        assert_eq!(report.final_residual, 0.0);
     }
 
     #[test]
