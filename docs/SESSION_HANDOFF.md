@@ -1295,3 +1295,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   documented limitations; **do not enable shadow routing by default**.
 - WSL Rust 1.99.1 gates and n144 replay are required before commit.
   See `docs/C1G3_A3_A1_SHADOW_DECISION_TELEMETRY.md`.
+
+## 2026-11-07 — C1-G3-A3-A2 isolated PCG rollback reference
+
+- Base commit `5888e9f` (`develop/0.10.0`), after A3-A1 telemetry and
+  the five-case A2 numerical/log regression pass.
+- New standalone `hybit-krylov` example validates bounded PCG checkpoint
+  capture, *live* baseline replay, candidate post-trial watchdog, exact
+  `x/session/workspace` rollback and iteration accounting.
+- Synthetic diagonal SPD illustrates short-horizon false admission: after
+  two more iterations a weakened candidate deteriorates, and the previously
+  saved Jacobi recurrence can be restored without a restart.
+- Existing Rust sources and production API/selection are **unchanged**.
+  This is NOT yet real-FEM rollback and does NOT enable autonomous selection.
+- WSL 1.99.1 example tests, Clippy and run are required before committing.
+  See `docs/C1G3_A3_A2_ROLLBACK_REFERENCE.md`.
