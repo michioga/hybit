@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Install Open MPI (for mpi-sys)
+        run: sudo apt-get update && sudo apt-get install -y libopenmpi-dev openmpi-bin
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.99.1
@@ -24,8 +26,8 @@ jobs:
         run: cargo +1.99.1 fmt --all -- --check
       - name: Clippy (no default features)
         run: cargo +1.99.1 clippy --workspace --all-targets --no-default-features -- -D warnings
-      - name: Clippy (default features)
-        run: cargo +1.99.1 clippy --workspace --all-targets -- -D warnings
+      - name: Clippy (all features)
+        run: cargo +1.99.1 clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   test:
     name: Rust ${{ matrix.rust }} on ${{ matrix.os }}
@@ -51,6 +53,33 @@ jobs:
         run: cargo +${{ matrix.rust }} test --workspace --release
       - name: Build facade examples
         run: cargo +${{ matrix.rust }} build --release -p hybit --examples
+
+  test-all-features:
+    name: Linux all-features (MPI and experimental ILU0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Open MPI (for mpi-sys)
+        run: sudo apt-get update && sudo apt-get install -y libopenmpi-dev openmpi-bin
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - name: Test workspace (all features)
+        run: cargo +1.99.1 test --workspace --all-features --locked
+
+  python-tests:
+    name: Python benchmark tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Run benchmark script tests
+        run: python -m pytest --import-mode=importlib benchmarks/scripts/ -q
 
   docs:
     name: mdBook

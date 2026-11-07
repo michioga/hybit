@@ -1265,3 +1265,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - The patch leaves default selection and A2 opt-in behavior unchanged.
   **WSL 1.99.1 release tests and Clippy are required before committing.**
 - See `docs/F1F2_NUMERICAL_CERTIFICATION_HARDENING.md`.
+
+## 2026-11-07 — F3 CI all-features/MPI/Python coverage
+
+- Based on `develop/0.10.0` HEAD `3d0633f` (F1/F2 accepted). Narrow
+  `.github/workflows/ci.yml` change: install Open MPI in Linux lint job,
+  replace default Clippy with `--all-features` Clippy, keep no-default Clippy.
+- Add a Linux Rust 1.99.1 `--workspace --all-features` test job to exercise
+  the `mpi` and experimental `ilu0-abtm-experiments` feature gates.
+  Add a Python 3.12 job running the importlib-mode pytest benchmark suite.
+- Existing release matrix (Linux stable/1.99.1 and Windows stable), mdBook,
+  and package-manifest gates are preserved. No production Rust code changed.
+- **WSL all-feature tests/Clippy, Python pytest, and GitHub Actions results
+  are pending.** Do not claim MPI runtime coverage beyond the single-process
+  unit tests; multi-rank execution remains a separate gate.
+- See `docs/F3_CI_ALL_FEATURES_PYTHON.md` for boundaries and acceptance.
