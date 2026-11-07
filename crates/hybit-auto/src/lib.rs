@@ -155,6 +155,18 @@ pub struct HybridOptions {
     /// `None` (default) records progress but never triggers *post-probe*
     /// escalation. This is deliberately not an inferred production policy.
     pub progress_monitor_rate_limit: Option<f64>,
+    /// Experimental C1-G3-A2: compare a newly constructed local-Cholesky
+    /// candidate against continuing the same live Jacobi-PCG recurrence.
+    /// Zero (default) leaves the existing escalation path unchanged.
+    /// Currently supported only for one local stage, no coarse/weighted
+    /// routing, and no kernel profiling. This is not an automatic policy.
+    pub shadow_trial_iterations: usize,
+    /// Require candidate true residual <= this times the baseline true
+    /// residual at equal trial budgets. Experimental; not a tuned default.
+    pub shadow_accept_ratio: f64,
+    /// Maximum additional bytes for one cloned PCG workspace and solution.
+    /// Local Cholesky factor bytes and temporary setup allocations are separate.
+    pub shadow_max_extra_bytes: usize,
     /// Experimental C1-H6: after the first Jacobi-PCG probe, admit only a
     /// bounded strong-coupling ABTM region with a weak outer boundary.
     /// Defaults to false. Incompatible with coarse, overlap or monitoring.
@@ -197,6 +209,9 @@ impl Default for HybridOptions {
             profile_pcg_kernels: false,
             progress_monitor_observe_only: false,
             progress_monitor_rate_limit: None,
+            shadow_trial_iterations: 0,
+            shadow_accept_ratio: 0.8,
+            shadow_max_extra_bytes: 16 * 1024 * 1024,
             abtm_weighted_routing_enabled: false,
             max_escalations: 3,
             escalation_stage_iterations: 24,
@@ -212,6 +227,34 @@ impl Default for HybridOptions {
             overlap_layers: 1,
         }
     }
+}
+
+/// Experimental C1-G3-A2 outcome for a single local-Cholesky shadow trial.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HybridShadowDecision {
+    Accepted,
+    Rejected,
+    CandidateFailed,
+    SkippedCloneBudget,
+}
+
+/// C1-G3-A2 diagnostics for a candidate evaluated at a common PCG checkpoint.
+///
+/// A separate prepared-system accessor exposes this record without changing
+/// the established `SolveReport` layout or its production semantics.
+#[derive(Clone, Debug)]
+pub struct HybridShadowTrialReport {
+    pub trigger_iteration: usize,
+    pub decision: HybridShadowDecision,
+    pub baseline_iterations: usize,
+    pub candidate_iterations: usize,
+    pub baseline_true_relative: f64,
+    pub candidate_true_relative: Option<f64>,
+    pub clone_bytes: usize,
+    pub candidate_factor_bytes: usize,
+    /// Both trial branches, including independent residual checks, but not
+    /// the local factorization setup charged to `local_factor_seconds`.
+    pub trial_seconds: f64,
 }
 
 /// Execution policy for the fine-grid CSR SpMV used by structural PCG.
@@ -416,6 +459,28 @@ impl GeneralSquareOptions {
 
 impl HybridOptions {
     pub fn validate(&self) -> Result<(), HybitError> {
+        if self.shadow_trial_iterations > 0
+            && (!self.enabled
+                || self.max_escalations != 1
+                || self.algebraic_coarse.enabled
+                || self.abtm_weighted_routing_enabled
+                || self.progress_monitor_observe_only
+                || self.profile_pcg_kernels)
+        {
+            return Err(HybitError::InvalidArgument(
+                "experimental shadow trial requires one local stage, no coarse/weighted routing, observation-only or profiling",
+            ));
+        }
+        if self.shadow_trial_iterations > 0
+            && (!self.shadow_accept_ratio.is_finite()
+                || self.shadow_accept_ratio <= 0.0
+                || self.shadow_accept_ratio >= 1.0
+                || self.shadow_max_extra_bytes == 0)
+        {
+            return Err(HybitError::InvalidArgument(
+                "shadow trial requires an acceptance ratio in (0,1) and positive clone budget",
+            ));
+        }
         if self.abtm_weighted_routing_enabled
             && (!self.enabled
                 || self.progress_monitor_interval != 0
@@ -633,6 +698,7 @@ pub struct HybitPreparedSystem {
     general_square_options: GeneralSquareOptions,
     fgmres_workspace: Option<FgmresWorkspace>,
     solve_sequence: usize,
+    shadow_trial_report: Option<HybridShadowTrialReport>,
 }
 
 struct AlgebraicTwoLevelHybrid<'a> {
@@ -908,6 +974,10 @@ impl HybitPreparedSystem {
     pub fn solve_count(&self) -> usize {
         self.solve_sequence
     }
+    /// Last solve's C1-G3-A2 trial result; `None` when no candidate was tried.
+    pub fn shadow_trial_report(&self) -> Option<&HybridShadowTrialReport> {
+        self.shadow_trial_report.as_ref()
+    }
     pub fn krylov_workspace_bytes(&self) -> usize {
         self.workspace.bytes()
             + self
@@ -1001,6 +1071,7 @@ impl HybitPreparedSystem {
         b: &[f64],
         x: &mut [f64],
     ) -> Result<SolveReport, HybitError> {
+        self.shadow_trial_report = None;
         // C1-F is strictly opt-in for the established serial SPD PCG path.
         let enabled = self.hybrid_options.profile_pcg_kernels
             && self.problem_class == MatrixProblemClass::Spd
@@ -1597,6 +1668,31 @@ impl HybitPreparedSystem {
         let mut current_hybrid: Option<HybridPreconditioner> = None;
 
         while remaining > 0 && metrics.escalations < self.hybrid_options.max_escalations {
+            if self.hybrid_options.shadow_trial_iterations > 0 {
+                let clone_bytes = shadow_clone_bytes(&self.workspace, x.len())?;
+                if clone_bytes > self.hybrid_options.shadow_max_extra_bytes {
+                    let diagnostics_start = Instant::now();
+                    let true_norm = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
+                    let b_norm = scaled_l2_norm(b.iter().copied());
+                    metrics.diagnostics_seconds += diagnostics_start.elapsed().as_secs_f64();
+                    self.shadow_trial_report = Some(HybridShadowTrialReport {
+                        trigger_iteration: outcome.iterations,
+                        decision: HybridShadowDecision::SkippedCloneBudget,
+                        baseline_iterations: 0,
+                        candidate_iterations: 0,
+                        baseline_true_relative: if b_norm == 0.0 {
+                            true_norm
+                        } else {
+                            true_norm / b_norm
+                        },
+                        candidate_true_relative: None,
+                        clone_bytes,
+                        candidate_factor_bytes: 0,
+                        trial_seconds: 0.0,
+                    });
+                    break;
+                }
+            }
             let diagnostics_start = Instant::now();
             let current_residual = residual(matrix, b, x)?;
             let (selected, core_regions) = if let Some(region) = weighted_first_region.take() {
@@ -1694,6 +1790,61 @@ impl HybitPreparedSystem {
             }
             if self.hybrid_options.abtm_weighted_routing_enabled {
                 metrics.preconditioner_reused = reuse_factor;
+            }
+
+            if self.hybrid_options.shadow_trial_iterations > 0 {
+                let trial_budget = self.hybrid_options.shadow_trial_iterations.min(remaining);
+                let operator = operator_for_backend(matrix, self.abtm.as_ref(), self.backend);
+                let jacobi = self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "prepared SPD Jacobi preconditioner is unavailable",
+                ))?;
+                let (trial_outcome, trial_report) = shadow_compare_local_candidate(
+                    matrix,
+                    operator,
+                    jacobi,
+                    &next_hybrid,
+                    b,
+                    x,
+                    &mut current_pcg,
+                    &mut self.workspace,
+                    self.options,
+                    trial_budget,
+                    self.hybrid_options.shadow_accept_ratio,
+                    outcome.iterations,
+                )?;
+                let accepted = trial_report.decision == HybridShadowDecision::Accepted;
+                metrics.restart_seconds += trial_report.trial_seconds;
+                remaining = remaining.saturating_sub(trial_outcome.iterations);
+                outcome = combine_outcomes(outcome, trial_outcome);
+                self.shadow_trial_report = Some(trial_report);
+                if accepted {
+                    active_regions = budgeted.regions;
+                    metrics.escalations += 1;
+                    metrics.local_direct_regions = next_hybrid.region_count();
+                    metrics.largest_local_region = next_hybrid.largest_region();
+                    metrics.local_factor_dofs = next_hybrid.local_dofs();
+                    metrics.unique_local_factor_dofs = next_hybrid.unique_local_dofs();
+                    metrics.local_factor_bytes = next_hybrid.factor_bytes();
+                    let stage_ratio = if trial_outcome.initial_residual == 0.0 {
+                        0.0
+                    } else {
+                        trial_outcome.final_residual / trial_outcome.initial_residual
+                    };
+                    metrics.escalation_stages.push(HybridEscalationStageReport {
+                        stage: 1,
+                        iterations: trial_outcome.iterations,
+                        initial_residual: trial_outcome.initial_residual,
+                        final_residual: trial_outcome.final_residual,
+                        residual_ratio: stage_ratio,
+                        local_direct_regions: next_hybrid.region_count(),
+                        unique_local_factor_dofs: next_hybrid.unique_local_dofs(),
+                        local_factor_bytes: next_hybrid.factor_bytes(),
+                    });
+                    current_hybrid = Some(next_hybrid);
+                }
+                // C1-G3-A2 deliberately allows only one candidate evaluation.
+                // Continue using the selected live recurrence below.
+                break;
             }
 
             active_regions = budgeted.regions;
@@ -1829,7 +1980,7 @@ impl HybitPreparedSystem {
                     self.weighted_cached_region = active_regions.first().cloned();
                     self.hybrid = current_hybrid;
                 }
-            } else {
+            } else if self.hybrid_options.shadow_trial_iterations == 0 {
                 // Keep established prepared solve-many behavior unchanged.
                 self.hybrid = current_hybrid;
             }
@@ -2590,6 +2741,7 @@ impl HybitSolver {
             general_square_options: self.general_square_options,
             fgmres_workspace,
             solve_sequence: 0,
+            shadow_trial_report: None,
         })
     }
 
@@ -2888,6 +3040,131 @@ fn run_hybrid_pcg(
     } else {
         pcg_with_workspace(operator, local, b, x, options, workspace)
     }
+}
+
+fn shadow_clone_bytes(workspace: &PcgWorkspace, solution_len: usize) -> Result<usize, HybitError> {
+    workspace
+        .bytes()
+        .checked_add(
+            solution_len
+                .checked_mul(std::mem::size_of::<f64>())
+                .ok_or(HybitError::SizeOverflow)?,
+        )
+        .ok_or(HybitError::SizeOverflow)
+}
+
+/// C1-G3-A2 reference: evaluate the actual local-Cholesky factor at the same
+/// checkpoint as an unchanged, *live* Jacobi-PCG continuation.
+/// The base recurrence is never restarted. The candidate starts fresh on its
+/// own copied solution/session/workspace and can replace the base only after
+/// independent original-CSR residual checks. The candidate factor is owned
+/// by the caller, so it remains available if the branch is accepted.
+#[allow(clippy::too_many_arguments)]
+fn shadow_compare_local_candidate(
+    matrix: &Csr32Matrix,
+    operator: &dyn LinearOperator,
+    jacobi: &JacobiPreconditioner,
+    local: &HybridPreconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    base_session: &mut PcgSession,
+    base_workspace: &mut PcgWorkspace,
+    options: SolverOptions,
+    trial_iterations: usize,
+    accept_ratio: f64,
+    trigger_iteration: usize,
+) -> Result<(KrylovOutcome, HybridShadowTrialReport), HybitError> {
+    let started = Instant::now();
+    let clone_bytes = shadow_clone_bytes(base_workspace, x.len())?;
+    let checkpoint_true = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
+    let b_norm = scaled_l2_norm(b.iter().copied());
+    let target = options
+        .absolute_tolerance
+        .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
+    if !checkpoint_true.is_finite() || !b_norm.is_finite() || !target.is_finite() {
+        return Err(HybitError::NumericalBreakdown(
+            "shadow comparison has a non-finite checkpoint norm",
+        ));
+    }
+
+    let mut candidate_x = x.to_vec();
+    let mut candidate_workspace = base_workspace.clone();
+    candidate_workspace.enter_hybrid_kernel_phase();
+    let candidate = (|| {
+        let mut session = pcg_start_with_workspace(
+            operator,
+            local,
+            b,
+            &mut candidate_x,
+            options,
+            &mut candidate_workspace,
+        )?;
+        let result = pcg_continue_with_workspace(
+            operator,
+            local,
+            b,
+            &mut candidate_x,
+            trial_iterations,
+            &mut session,
+            &mut candidate_workspace,
+        )?;
+        let true_norm = scaled_l2_norm(residual(matrix, b, &candidate_x)?.into_iter());
+        Ok::<_, HybitError>((session, result, true_norm))
+    })();
+
+    // This is the actual pre-existing PCG recurrence, advanced in place.
+    let base = pcg_continue_with_workspace(
+        operator,
+        jacobi,
+        b,
+        x,
+        trial_iterations,
+        base_session,
+        base_workspace,
+    )?;
+    let base_true = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
+    if !base_true.is_finite() {
+        return Err(HybitError::NumericalBreakdown(
+            "shadow baseline has a non-finite true residual",
+        ));
+    }
+
+    let relative = |norm: f64| if b_norm == 0.0 { norm } else { norm / b_norm };
+    let mut report = HybridShadowTrialReport {
+        trigger_iteration,
+        decision: HybridShadowDecision::CandidateFailed,
+        baseline_iterations: base.iterations,
+        candidate_iterations: 0,
+        baseline_true_relative: relative(base_true),
+        candidate_true_relative: None,
+        clone_bytes,
+        candidate_factor_bytes: local.factor_bytes(),
+        trial_seconds: 0.0,
+    };
+    let mut chosen = base;
+    if let Ok((candidate_session, candidate_outcome, candidate_true)) = candidate {
+        report.candidate_iterations = candidate_outcome.iterations;
+        if candidate_true.is_finite() {
+            report.candidate_true_relative = Some(relative(candidate_true));
+            let candidate_false_convergence =
+                candidate_outcome.status == SolveStatus::Converged && candidate_true > target;
+            if !candidate_false_convergence && candidate_outcome.status != SolveStatus::Breakdown {
+                report.decision = HybridShadowDecision::Rejected;
+                if base_true > target
+                    && candidate_true < checkpoint_true
+                    && candidate_true <= accept_ratio * base_true
+                {
+                    x.copy_from_slice(&candidate_x);
+                    *base_session = candidate_session;
+                    *base_workspace = candidate_workspace;
+                    chosen = candidate_outcome;
+                    report.decision = HybridShadowDecision::Accepted;
+                }
+            }
+        }
+    }
+    report.trial_seconds = started.elapsed().as_secs_f64();
+    Ok((chosen, report))
 }
 
 fn combine_outcomes(first: KrylovOutcome, second: KrylovOutcome) -> KrylovOutcome {
@@ -3556,6 +3833,197 @@ mod tests {
             row_ptr.push(col_idx.len() as u32);
         }
         Csr32Matrix::new(n, n, row_ptr, col_idx, values).unwrap()
+    }
+
+    #[test]
+    fn c1g3_shadow_accepts_actual_full_local_cholesky() {
+        let matrix = poisson_1d(64);
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let local = HybridPreconditioner::from_csr32(&matrix, vec![(0..64).collect()]).unwrap();
+        let b = vec![1.0; 64];
+        let mut x = vec![0.0; 64];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 128,
+        };
+        let mut workspace = PcgWorkspace::new(64);
+        let mut session =
+            pcg_start_with_workspace(&matrix, &jacobi, &b, &mut x, options, &mut workspace)
+                .unwrap();
+        let probe = pcg_continue_with_workspace(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            4,
+            &mut session,
+            &mut workspace,
+        )
+        .unwrap();
+        assert_eq!(probe.iterations, 4);
+
+        let (chosen, shadow) = shadow_compare_local_candidate(
+            &matrix,
+            &matrix,
+            &jacobi,
+            &local,
+            &b,
+            &mut x,
+            &mut session,
+            &mut workspace,
+            options,
+            8,
+            0.8,
+            4,
+        )
+        .unwrap();
+        assert_eq!(shadow.decision, HybridShadowDecision::Accepted);
+        assert_eq!(shadow.trigger_iteration, 4);
+        assert!(shadow.candidate_iterations <= shadow.baseline_iterations);
+        assert!(shadow.candidate_factor_bytes > 0);
+        assert_eq!(shadow.clone_bytes, 64 * 6 * std::mem::size_of::<f64>());
+        assert!(shadow.candidate_true_relative.unwrap() < shadow.baseline_true_relative);
+        assert_eq!(chosen.status, SolveStatus::Converged);
+        assert!(session.is_finished());
+        let verified = scaled_l2_norm(residual(&matrix, &b, &x).unwrap().into_iter());
+        assert!(verified / l2_norm(&b) <= options.relative_tolerance);
+    }
+
+    #[test]
+    fn c1g3_shadow_rejection_keeps_exact_live_jacobi_recurrence() {
+        let matrix = poisson_1d(64);
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let local = HybridPreconditioner::from_csr32(&matrix, vec![(0..2).collect()]).unwrap();
+        let b = vec![1.0; 64];
+        let mut x = vec![0.0; 64];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 128,
+        };
+        let mut workspace = PcgWorkspace::new(64);
+        let mut session =
+            pcg_start_with_workspace(&matrix, &jacobi, &b, &mut x, options, &mut workspace)
+                .unwrap();
+        pcg_continue_with_workspace(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            4,
+            &mut session,
+            &mut workspace,
+        )
+        .unwrap();
+        let mut expected_x = x.clone();
+        let mut expected_session = session;
+        let mut expected_workspace = workspace.clone();
+        let expected = pcg_continue_with_workspace(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut expected_x,
+            2,
+            &mut expected_session,
+            &mut expected_workspace,
+        )
+        .unwrap();
+
+        let (chosen, shadow) = shadow_compare_local_candidate(
+            &matrix,
+            &matrix,
+            &jacobi,
+            &local,
+            &b,
+            &mut x,
+            &mut session,
+            &mut workspace,
+            options,
+            2,
+            1.0e-12,
+            4,
+        )
+        .unwrap();
+        assert_eq!(shadow.decision, HybridShadowDecision::Rejected);
+        assert_eq!(chosen.iterations, expected.iterations);
+        assert_eq!(chosen.final_residual, expected.final_residual);
+        assert_eq!(x, expected_x);
+        let actual_next = pcg_continue_with_workspace(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            3,
+            &mut session,
+            &mut workspace,
+        )
+        .unwrap();
+        let expected_next = pcg_continue_with_workspace(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut expected_x,
+            3,
+            &mut expected_session,
+            &mut expected_workspace,
+        )
+        .unwrap();
+        assert_eq!(actual_next.iterations, expected_next.iterations);
+        assert_eq!(x, expected_x);
+    }
+
+    #[test]
+    fn c1g3_shadow_clone_budget_skips_candidate_and_preserves_solution() {
+        let matrix = poisson_1d(64);
+        let b = vec![1.0; 64];
+        let mut solver = HybitSolver::new();
+        solver
+            .set_hybrid_options(HybridOptions {
+                max_escalations: 1,
+                probe_iterations: 4,
+                escalation_residual_ratio: 1.0e-30,
+                shadow_trial_iterations: 8,
+                shadow_max_extra_bytes: 1,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+        let mut prepared = solver.prepare(&matrix).unwrap();
+        let mut x = vec![0.0; 64];
+        let report = prepared.solve(&matrix, &b, &mut x).unwrap();
+        let shadow = prepared.shadow_trial_report().unwrap();
+        assert_eq!(shadow.decision, HybridShadowDecision::SkippedCloneBudget);
+        assert_eq!(shadow.candidate_factor_bytes, 0);
+        assert_eq!(report.escalations, 0);
+        assert!(report.converged());
+        assert!(!prepared.has_cached_hybrid());
+    }
+
+    #[test]
+    fn c1g3_shadow_is_disabled_by_default_and_rejects_incompatible_policies() {
+        let defaults = HybridOptions::default();
+        assert_eq!(defaults.shadow_trial_iterations, 0);
+        let invalid = HybridOptions {
+            shadow_trial_iterations: 4,
+            ..defaults
+        };
+        assert!(invalid.validate().is_err());
+        let supported = HybridOptions {
+            max_escalations: 1,
+            ..invalid
+        };
+        supported.validate().unwrap();
+        assert!(
+            HybridOptions {
+                algebraic_coarse: AlgebraicCoarseOptions {
+                    enabled: true,
+                    ..AlgebraicCoarseOptions::default()
+                },
+                ..supported
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     fn block_diagonal(

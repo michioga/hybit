@@ -25,6 +25,9 @@ struct Args {
     progress_monitor_observe_only: bool,
     abtm_weighted_routing_enabled: bool,
     progress_monitor_rate_limit: Option<f64>,
+    shadow_trial_iterations: usize,
+    shadow_accept_ratio: f64,
+    shadow_max_extra_bytes: usize,
     max_local_region_size: usize,
     max_local_regions: usize,
     max_local_factor_bytes: usize,
@@ -58,6 +61,9 @@ impl Args {
         let mut progress_monitor_observe_only = false;
         let mut abtm_weighted_routing_enabled = false;
         let mut progress_monitor_rate_limit = None;
+        let mut shadow_trial_iterations = 0usize;
+        let mut shadow_accept_ratio = 0.8_f64;
+        let mut shadow_max_extra_bytes = 16usize * 1024 * 1024;
         let mut max_local_region_size = 128usize;
         let mut max_local_regions = 8usize;
         let mut max_local_factor_bytes = 64usize * 1024 * 1024;
@@ -98,6 +104,19 @@ impl Args {
                 "--monitor-rate-limit" => {
                     progress_monitor_rate_limit =
                         Some(next_value(&mut it, "--monitor-rate-limit")?.parse()?);
+                }
+                "--shadow-trial-iters" => {
+                    shadow_trial_iterations =
+                        next_value(&mut it, "--shadow-trial-iters")?.parse()?
+                }
+                "--shadow-accept-ratio" => {
+                    shadow_accept_ratio = next_value(&mut it, "--shadow-accept-ratio")?.parse()?
+                }
+                "--shadow-max-mib" => {
+                    let mib: usize = next_value(&mut it, "--shadow-max-mib")?.parse()?;
+                    shadow_max_extra_bytes = mib
+                        .checked_mul(1024 * 1024)
+                        .ok_or("--shadow-max-mib is too large")?;
                 }
                 "--max-region" => {
                     max_local_region_size = next_value(&mut it, "--max-region")?.parse()?
@@ -281,6 +300,14 @@ impl Args {
         if max_escalations == 0 {
             return Err("--max-escalations must be > 0".into());
         }
+        if shadow_trial_iterations > 0
+            && (!shadow_accept_ratio.is_finite()
+                || shadow_accept_ratio <= 0.0
+                || shadow_accept_ratio >= 1.0
+                || shadow_max_extra_bytes == 0)
+        {
+            return Err("shadow trial requires 0<accept-ratio<1 and positive max MiB".into());
+        }
         if escalation_stage_iterations == 0 {
             return Err("--stage-iters must be > 0".into());
         }
@@ -304,6 +331,9 @@ impl Args {
             progress_monitor_observe_only,
             abtm_weighted_routing_enabled,
             progress_monitor_rate_limit,
+            shadow_trial_iterations,
+            shadow_accept_ratio,
+            shadow_max_extra_bytes,
             max_local_region_size,
             max_local_regions,
             max_local_factor_bytes,
@@ -351,6 +381,11 @@ fn print_usage() {
     println!("  --abtm-weighted-routing  EXPERIMENTAL opt-in single local-direct candidate");
     println!("  --profile-kernels   opt-in serial SPD PCG kernel timings");
     println!("  --monitor-rate-limit R  opt-in per-iteration slowdown threshold, 0<R<1");
+    println!("  --shadow-trial-iters N  EXPERIMENTAL C1-G3-A2 local-factor comparison; 0=off");
+    println!(
+        "  --shadow-accept-ratio R required candidate/baseline true-residual ratio (default 0.8)"
+    );
+    println!("  --shadow-max-mib N    additional cloned-state budget MiB (default 16)");
     println!("  --overlap N         topology halo layers (default 1)");
     println!("  --max-region N      maximum local Cholesky order (default 128)");
     println!("  --max-regions N     maximum number of local regions (default 8)");
@@ -625,6 +660,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         args.progress_monitor_rate_limit
             .map_or_else(|| "none".to_owned(), |rate| format!("{rate:.8}"))
     );
+    println!("shadow trial iters : {}", args.shadow_trial_iterations);
+    if args.shadow_trial_iterations > 0 {
+        println!("shadow accept ratio: {:.6}", args.shadow_accept_ratio);
+        println!(
+            "shadow clone budget: {:.3} MiB",
+            mib(args.shadow_max_extra_bytes)
+        );
+    }
     println!("stage iterations   : {}", args.escalation_stage_iterations);
     println!("algebraic coarse   : {}", args.algebraic_coarse_enabled);
     if args.algebraic_coarse_enabled {
@@ -668,6 +711,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     hybrid.progress_monitor_observe_only = args.progress_monitor_observe_only;
     hybrid.abtm_weighted_routing_enabled = args.abtm_weighted_routing_enabled;
     hybrid.progress_monitor_rate_limit = args.progress_monitor_rate_limit;
+    hybrid.shadow_trial_iterations = args.shadow_trial_iterations;
+    hybrid.shadow_accept_ratio = args.shadow_accept_ratio;
+    hybrid.shadow_max_extra_bytes = args.shadow_max_extra_bytes;
     hybrid.overlap_layers = args.overlap_layers;
     hybrid.max_local_region_size = args.max_local_region_size;
     hybrid.max_local_regions = args.max_local_regions;
@@ -690,7 +736,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut x_hybit = vec![0.0; matrix.ncols()];
     let hybit_wall_start = Instant::now();
-    let report = solver.solve_csr32(&matrix, &b, &mut x_hybit)?;
+    let (report, shadow) = if args.shadow_trial_iterations > 0 {
+        let mut prepared = solver.prepare(&matrix)?;
+        let report = prepared.solve(&matrix, &b, &mut x_hybit)?;
+        (report, prepared.shadow_trial_report().cloned())
+    } else {
+        (solver.solve_csr32(&matrix, &b, &mut x_hybit)?, None)
+    };
     let hybit_wall_seconds = hybit_wall_start.elapsed().as_secs_f64();
     let hybit_verified = verified_relative_residual(&matrix, &b, &x_hybit)?;
 
@@ -701,6 +753,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("reported residual  : {:.6e}", report.relative_residual);
     println!("verified residual  : {:.6e}", hybit_verified);
     println!("escalations        : {}", report.escalations);
+    if args.shadow_trial_iterations > 0 {
+        if let Some(trial) = shadow {
+            let candidate_relative = trial
+                .candidate_true_relative
+                .map_or_else(|| "none".to_owned(), |value| format!("{value:.12e}"));
+            println!(
+                "C1G3A2_SHADOW|decision={:?}|trigger={}|base_iters={}|candidate_iters={}|executed_trial_iters={}|base_true_relative={:.12e}|candidate_true_relative={}|clone_bytes={}|candidate_factor_bytes={}|trial_ms={:.6}",
+                trial.decision,
+                trial.trigger_iteration,
+                trial.baseline_iterations,
+                trial.candidate_iterations,
+                trial
+                    .baseline_iterations
+                    .saturating_add(trial.candidate_iterations),
+                trial.baseline_true_relative,
+                candidate_relative,
+                trial.clone_bytes,
+                trial.candidate_factor_bytes,
+                trial.trial_seconds * 1e3,
+            );
+        } else {
+            println!("C1G3A2_SHADOW|decision=NotTriggered");
+        }
+    }
     if let Some(profile) = report.pcg_kernel_profile {
         println!("kernel base starts : {}", profile.base.starts);
         println!(

@@ -1202,3 +1202,49 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   repeat the existing C1-G2 island_shell/multi_patch/anisotropy matrices with
   independent residual and manufactured forward-error checks. Keep coarse
   automation and changes to defaults out of A1.
+
+## 2026-11-06 — C1-G3-A2 experimental local-Cholesky shadow trial
+
+- Anchored at `develop/0.10.0` HEAD `8da0913` (accepted A1 reference);
+  untracked `benchmarks/scripts/__pycache__/` is not touched.
+- Behind `HybridOptions.shadow_trial_iterations > 0`, compare the existing
+  real selected-region local Cholesky against an independent, unchanged
+  Jacobi-PCG continuation at the *same* escalation checkpoint. Admit only
+  a finite, independently checked, ratio-improving candidate; otherwise
+  retain the baseline PCG session and continue without Krylov restart.
+- Scope is a single local escalation, no coarse, ABTM weighted routing,
+  observation-only mode or kernel profiling. The default remains disabled.
+  The new optional `HybitPreparedSystem::shadow_trial_report()` contains
+  branch residuals, executed steps, clone/factor bytes, time and decision.
+- The benchmark accepts `--shadow-trial-iters`, `--shadow-accept-ratio`,
+  `--shadow-max-mib` and emits `C1G3A2_SHADOW|...` evidence; normal output
+  remains unchanged when the feature is off.
+- Four additional focused tests cover accepted actual Cholesky, exact
+  recurrence on rejected candidates, clone-budget skip, policy constraints.
+- **WSL Rust build/test/clippy and real n144 FEM data are pending.**
+  A short-trial advantage is not an end-to-end performance guarantee.
+- Plan and boundary: `docs/C1G3_A2_REAL_FEM_LOCAL_SHADOW.md`.
+
+## 2026-11-07 — C1-G3-A2 shadow horizon evidence and review intake
+
+- A2's WSL Rust 1.99.1 acceptance completed: 50/50 hybit-auto release tests,
+  auto and fem_bench Clippy -D warnings, release build, fmt, source SHA256 PASS.
+  The source is based on HEAD `8da0913` but includes three uncommitted A2
+  Rust changes identified by exact SHA256; the commit ID alone is not enough.
+- n144 manufactured SPD FEM: 9 observe/legacy/shadow arms, 2 full-budget
+  shadow trials, and 8 horizon trials; 19 numerical logs were preflight
+  validated. **All runs ended MaxIterations at 600**, not converged.
+- island_shell short shadow (32/64) accepted a candidate that later made the
+  final residual about 146 times worse than unchanged Jacobi and forward
+  relative error 0.522 vs 1.72e-7. A full-remaining trial rejected it.
+  multi_patch's full-remaining trial accepted the candidate; short horizons
+  also changed decisions non-monotonically. Shadow decisions are therefore
+  **not** a production-grade autonomous rescue policy.
+- Independent external review (2026-11-07) found F1 backend-specific
+  non-finite behavior, F2 certification target overflow, and CI/MPI/Python
+  coverage gaps. The supplied v2 fix additionally needs a subnormal-norm
+  reciprocal-overflow correction; do not apply either old-HEAD patch directly
+  over uncommitted A2 source. Fix in a separate anchored change.
+- Evidence, limitations and raw-log directories are recorded in
+  `docs/C1G3_A2_SHADOW_HORIZON_EVIDENCE.md`. The A2 trial remains opt-in and
+  disabled by default. Commit this checkpoint separately before F1/F2 work.
