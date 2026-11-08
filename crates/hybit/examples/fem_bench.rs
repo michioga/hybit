@@ -810,6 +810,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                     report.iterations,
                 );
             }
+            let phase = trial.phase_cost;
+            let trial_attributed = phase.trial_clone_seconds
+                + phase.trial_candidate_seconds
+                + phase.trial_baseline_seconds
+                + phase.trial_verification_seconds;
+            let watchdog_attributed = phase.watchdog_candidate_seconds
+                + phase.watchdog_baseline_seconds
+                + phase.watchdog_verification_seconds;
+            println!(
+                "C1G3A4_COST|checkpoint_ms={:.6}|factor_ms={:.6}|trial_clone_ms={:.6}|trial_candidate_ms={:.6}|trial_baseline_ms={:.6}|trial_verify_ms={:.6}|trial_other_ms={:.6}|watchdog_candidate_ms={:.6}|watchdog_baseline_ms={:.6}|watchdog_verify_ms={:.6}|watchdog_other_ms={:.6}|trial_ms={:.6}|watchdog_ms={:.6}",
+                phase.checkpoint_capture_seconds * 1e3,
+                report.local_factor_seconds * 1e3,
+                phase.trial_clone_seconds * 1e3,
+                phase.trial_candidate_seconds * 1e3,
+                phase.trial_baseline_seconds * 1e3,
+                phase.trial_verification_seconds * 1e3,
+                (trial.trial_seconds - trial_attributed).max(0.0) * 1e3,
+                phase.watchdog_candidate_seconds * 1e3,
+                phase.watchdog_baseline_seconds * 1e3,
+                phase.watchdog_verification_seconds * 1e3,
+                (trial.watchdog_seconds - watchdog_attributed).max(0.0) * 1e3,
+                trial.trial_seconds * 1e3,
+                trial.watchdog_seconds * 1e3,
+            );
         } else {
             println!("C1G3A2_SHADOW|decision=NotTriggered");
             if args.shadow_watchdog_iterations > 0 {

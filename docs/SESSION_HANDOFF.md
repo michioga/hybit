@@ -1334,3 +1334,24 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - `island_shell` safely rolled back 204 Jacobi iterations, preserving original relative residual and x error; `multi_patch` retained the useful candidate; `rotated_anisotropy` did not trigger.
 - Runtime overhead remains significant; all runs MaxIterations at tol 1e-10. Experimental opt-in; defaults unchanged.
 - See `docs/C1G3_A3_A3_WATCHDOG_FEM_EVIDENCE.md`.
+
+## 2026-11-08 — C1-G3-A4-A1 shadow phase-cost decomposition
+
+- Baseline: `develop/0.10.0` commit `f66f76c` (A3-A3 real-FEM rollback,
+  eight GitHub CI jobs passed). The untracked Python cache is untouched.
+- Instrument eight disjoint-to-first-order phases of the existing opt-in
+  shadow admission and full-horizon watchdog. Report the breakdown separately
+  from inclusive trial/watchdog totals and local factor setup; no policy,
+  PCG arithmetic or default behavior is changed.
+- WSL Rust 1.99.1 test/Clippy/build and repeated n144 FEM timing/numerical
+  comparisons are **PENDING**. Do not claim a speedup or enable the shadow
+  feature by default.
+- See `docs/C1G3_A4_A1_SHADOW_PHASE_COST.md` for acceptance and limits.
+
+## 2026-11-08 — C1-G3-A4-A1 phase-cost evidence accepted
+
+- `f66f76c` with uncommitted A4-A1 telemetry: WSL Rust 1.99.1 acceptance PASS (56 hybit-auto tests, Clippy, fem_bench build).
+- 45/45 n144 real-FEM numerical/status/decision/phase-cost records PASS (3 cases x 3 arms x 5 repeats); summary CSV validated against every raw log/time pair; 12 corpus input hashes verified.
+- On island_shell: RolledBack preserves Jacobi residual/solution; on multi_patch: Accepted preserves useful A2 candidate; on rotated_anisotropy: NotTriggered. All MaxIterations at 600.
+- Cost decomposition identifies watchdog candidate continuation plus full Jacobi replay as main overhead; CSR verification ~0.15 ms. No speedup or A4-A2 safety promotion asserted.
+- See `docs/C1G3_A4_A1_PHASE_COST_EVIDENCE.md`; shadow default unchanged.

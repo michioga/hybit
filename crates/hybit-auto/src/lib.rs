@@ -269,6 +269,23 @@ pub enum HybridShadowDecisionReason {
     WatchdogCandidateFalseConvergence,
 }
 
+/// C1-G3-A4-A1 experimental wall-clock phase accounting for a shadow trial.
+///
+/// This is telemetry, not a new admission policy. Each field is measured in
+/// seconds; timer overhead means sub-phase sums need not equal enclosing totals
+/// exactly. Local factor setup is already charged to the solve report.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HybridShadowPhaseCost {
+    pub checkpoint_capture_seconds: f64,
+    pub trial_clone_seconds: f64,
+    pub trial_candidate_seconds: f64,
+    pub trial_baseline_seconds: f64,
+    pub trial_verification_seconds: f64,
+    pub watchdog_candidate_seconds: f64,
+    pub watchdog_baseline_seconds: f64,
+    pub watchdog_verification_seconds: f64,
+}
+
 /// C1-G3-A2 diagnostics for a candidate evaluated at a common PCG checkpoint.
 ///
 /// A separate prepared-system accessor exposes this record without changing
@@ -304,6 +321,8 @@ pub struct HybridShadowTrialReport {
     pub watchdog_candidate_true_relative: Option<f64>,
     pub watchdog_baseline_true_relative: Option<f64>,
     pub watchdog_seconds: f64,
+    /// Opt-in shadow phase breakdown, for cost attribution only.
+    pub phase_cost: HybridShadowPhaseCost,
 }
 
 /// Execution policy for the fine-grid CSR SpMV used by structural PCG.
@@ -1759,6 +1778,7 @@ impl HybitPreparedSystem {
                         watchdog_candidate_true_relative: None,
                         watchdog_baseline_true_relative: None,
                         watchdog_seconds: 0.0,
+                        phase_cost: HybridShadowPhaseCost::default(),
                     });
                     break;
                 }
@@ -1871,6 +1891,7 @@ impl HybitPreparedSystem {
                 // Two live vector checkpoints are briefly resident while
                 // comparing branches: the candidate trial and this rollback
                 // fork. Their combined bytes were checked before factorization.
+                let checkpoint_started = Instant::now();
                 let rollback_checkpoint = if self.hybrid_options.shadow_watchdog_iterations > 0 {
                     Some(ShadowBaselineCheckpoint::capture(
                         x,
@@ -1880,6 +1901,7 @@ impl HybitPreparedSystem {
                 } else {
                     None
                 };
+                let checkpoint_capture_seconds = checkpoint_started.elapsed().as_secs_f64();
                 let (trial_outcome, mut trial_report) = shadow_compare_local_candidate(
                     matrix,
                     operator,
@@ -1894,6 +1916,9 @@ impl HybitPreparedSystem {
                     self.hybrid_options.shadow_accept_ratio,
                     outcome.iterations,
                 )?;
+                if self.hybrid_options.shadow_watchdog_iterations > 0 {
+                    trial_report.phase_cost.checkpoint_capture_seconds = checkpoint_capture_seconds;
+                }
                 let mut selected_outcome = trial_outcome;
                 if let Some(checkpoint) = rollback_checkpoint {
                     trial_report.peak_clone_bytes = trial_report
@@ -1928,6 +1953,12 @@ impl HybitPreparedSystem {
                         trial_report.watchdog_baseline_true_relative =
                             Some(watched.baseline_true_relative);
                         trial_report.watchdog_seconds = watched.seconds;
+                        trial_report.phase_cost.watchdog_candidate_seconds =
+                            watched.phase_cost.watchdog_candidate_seconds;
+                        trial_report.phase_cost.watchdog_baseline_seconds =
+                            watched.phase_cost.watchdog_baseline_seconds;
+                        trial_report.phase_cost.watchdog_verification_seconds =
+                            watched.phase_cost.watchdog_verification_seconds;
                         if watched.rolled_back {
                             trial_report.decision = HybridShadowDecision::RolledBack;
                             trial_report.decision_reason = watched.reason;
@@ -3212,6 +3243,7 @@ struct ShadowWatchdogResult {
     candidate_true_relative: Option<f64>,
     baseline_true_relative: f64,
     seconds: f64,
+    phase_cost: HybridShadowPhaseCost,
 }
 
 /// C1-G3-A3-A3: an independently verified *original CSR* comparison after
@@ -3245,6 +3277,7 @@ fn shadow_post_admission_watchdog(
         ));
     }
 
+    let candidate_started = Instant::now();
     let candidate_result = if watchdog_budget == 0 {
         Ok(None)
     } else {
@@ -3258,6 +3291,11 @@ fn shadow_post_admission_watchdog(
             workspace,
         )
         .map(Some)
+    };
+    let watchdog_candidate_seconds = if watchdog_budget == 0 {
+        0.0
+    } else {
+        candidate_started.elapsed().as_secs_f64()
     };
     let candidate_iterations = candidate_result
         .as_ref()
@@ -3274,6 +3312,7 @@ fn shadow_post_admission_watchdog(
         .ok_or(HybitError::SizeOverflow)?;
     // The original CSR is authoritative for all comparisons, not the selected
     // ABTM backend or the possibly drifting recursive Krylov norm.
+    let candidate_verify_started = Instant::now();
     let candidate_true = if candidate_result.is_ok() {
         residual(verify_matrix, b, x)
             .map(|r| scaled_l2_norm(r.into_iter()))
@@ -3281,8 +3320,10 @@ fn shadow_post_admission_watchdog(
     } else {
         f64::NAN
     };
+    let candidate_verification_seconds = candidate_verify_started.elapsed().as_secs_f64();
 
     // Restarting Jacobi here would lose its true Krylov search direction.
+    let baseline_started = Instant::now();
     let replay = pcg_continue_with_workspace(
         operator,
         jacobi,
@@ -3292,8 +3333,12 @@ fn shadow_post_admission_watchdog(
         &mut checkpoint.session,
         &mut checkpoint.workspace,
     )?;
+    let watchdog_baseline_seconds = baseline_started.elapsed().as_secs_f64();
+    let baseline_verify_started = Instant::now();
     let baseline_true = scaled_l2_norm(residual(verify_matrix, b, &checkpoint.x)?.into_iter());
     let b_norm = scaled_l2_norm(b.iter().copied());
+    let watchdog_verification_seconds =
+        candidate_verification_seconds + baseline_verify_started.elapsed().as_secs_f64();
     let target = options
         .absolute_tolerance
         .max(options.relative_tolerance * b_norm.max(f64::MIN_POSITIVE));
@@ -3350,6 +3395,12 @@ fn shadow_post_admission_watchdog(
         candidate_true_relative: candidate_true.is_finite().then(|| relative(candidate_true)),
         baseline_true_relative: relative(baseline_true),
         seconds: started.elapsed().as_secs_f64(),
+        phase_cost: HybridShadowPhaseCost {
+            watchdog_candidate_seconds,
+            watchdog_baseline_seconds,
+            watchdog_verification_seconds,
+            ..HybridShadowPhaseCost::default()
+        },
     })
 }
 
@@ -3403,6 +3454,7 @@ fn shadow_compare_local_candidate(
 ) -> Result<(KrylovOutcome, HybridShadowTrialReport), HybitError> {
     let started = Instant::now();
     let clone_bytes = shadow_clone_bytes(base_workspace, x.len())?;
+    let checkpoint_verify_started = Instant::now();
     let checkpoint_true = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
     let b_norm = scaled_l2_norm(b.iter().copied());
     let target = options
@@ -3413,10 +3465,15 @@ fn shadow_compare_local_candidate(
             "shadow comparison has a non-finite checkpoint norm",
         ));
     }
+    let checkpoint_verification_seconds = checkpoint_verify_started.elapsed().as_secs_f64();
 
+    let clone_started = Instant::now();
     let mut candidate_x = x.to_vec();
     let mut candidate_workspace = base_workspace.clone();
     candidate_workspace.enter_hybrid_kernel_phase();
+    let trial_clone_seconds = clone_started.elapsed().as_secs_f64();
+    let candidate_started = Instant::now();
+    let mut candidate_verification_seconds = 0.0;
     let candidate = (|| {
         let mut session = pcg_start_with_workspace(
             operator,
@@ -3435,11 +3492,17 @@ fn shadow_compare_local_candidate(
             &mut session,
             &mut candidate_workspace,
         )?;
-        let true_norm = scaled_l2_norm(residual(matrix, b, &candidate_x)?.into_iter());
+        let candidate_verify_started = Instant::now();
+        let true_result = residual(matrix, b, &candidate_x).map(|r| scaled_l2_norm(r.into_iter()));
+        candidate_verification_seconds = candidate_verify_started.elapsed().as_secs_f64();
+        let true_norm = true_result?;
         Ok::<_, HybitError>((session, result, true_norm))
     })();
+    let trial_candidate_seconds =
+        (candidate_started.elapsed().as_secs_f64() - candidate_verification_seconds).max(0.0);
 
     // This is the actual pre-existing PCG recurrence, advanced in place.
+    let baseline_started = Instant::now();
     let base = pcg_continue_with_workspace(
         operator,
         jacobi,
@@ -3449,7 +3512,12 @@ fn shadow_compare_local_candidate(
         base_session,
         base_workspace,
     )?;
+    let trial_baseline_seconds = baseline_started.elapsed().as_secs_f64();
+    let baseline_verify_started = Instant::now();
     let base_true = scaled_l2_norm(residual(matrix, b, x)?.into_iter());
+    let trial_verification_seconds = checkpoint_verification_seconds
+        + candidate_verification_seconds
+        + baseline_verify_started.elapsed().as_secs_f64();
     if !base_true.is_finite() {
         return Err(HybitError::NumericalBreakdown(
             "shadow baseline has a non-finite true residual",
@@ -3477,6 +3545,13 @@ fn shadow_compare_local_candidate(
         watchdog_candidate_true_relative: None,
         watchdog_baseline_true_relative: None,
         watchdog_seconds: 0.0,
+        phase_cost: HybridShadowPhaseCost {
+            trial_clone_seconds,
+            trial_candidate_seconds,
+            trial_baseline_seconds,
+            trial_verification_seconds,
+            ..HybridShadowPhaseCost::default()
+        },
     };
     let mut chosen = base;
     if let Ok((candidate_session, candidate_outcome, candidate_true)) = candidate {
@@ -4281,6 +4356,15 @@ mod tests {
         assert!(shadow.candidate_factor_bytes > 0);
         assert_eq!(shadow.clone_bytes, 64 * 6 * std::mem::size_of::<f64>());
         assert!(shadow.candidate_true_relative.unwrap() < shadow.baseline_true_relative);
+        for seconds in [
+            shadow.phase_cost.trial_clone_seconds,
+            shadow.phase_cost.trial_candidate_seconds,
+            shadow.phase_cost.trial_baseline_seconds,
+            shadow.phase_cost.trial_verification_seconds,
+        ] {
+            assert!(seconds.is_finite() && seconds >= 0.0);
+        }
+        assert!(shadow.phase_cost.checkpoint_capture_seconds == 0.0);
         assert_eq!(chosen.status, SolveStatus::Converged);
         assert!(session.is_finished());
         let verified = scaled_l2_norm(residual(&matrix, &b, &x).unwrap().into_iter());
@@ -4546,6 +4630,13 @@ mod tests {
         );
         assert_eq!(watched.selected.iterations, expected.iterations);
         assert_eq!(watched.baseline_replay_iterations, expected.iterations);
+        for seconds in [
+            watched.phase_cost.watchdog_candidate_seconds,
+            watched.phase_cost.watchdog_baseline_seconds,
+            watched.phase_cost.watchdog_verification_seconds,
+        ] {
+            assert!(seconds.is_finite() && seconds >= 0.0);
+        }
         assert_eq!(x, expected_x);
         assert_eq!(session.final_residual(), expected_session.final_residual());
 
