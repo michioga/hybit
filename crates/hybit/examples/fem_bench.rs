@@ -27,6 +27,7 @@ struct Args {
     progress_monitor_rate_limit: Option<f64>,
     shadow_trial_iterations: usize,
     shadow_watchdog_iterations: usize,
+    shadow_reuse_baseline_trial: bool,
     shadow_accept_ratio: f64,
     shadow_max_extra_bytes: usize,
     max_local_region_size: usize,
@@ -64,6 +65,7 @@ impl Args {
         let mut progress_monitor_rate_limit = None;
         let mut shadow_trial_iterations = 0usize;
         let mut shadow_watchdog_iterations = 0usize;
+        let mut shadow_reuse_baseline_trial = false;
         let mut shadow_accept_ratio = 0.8_f64;
         let mut shadow_max_extra_bytes = 16usize * 1024 * 1024;
         let mut max_local_region_size = 128usize;
@@ -115,6 +117,7 @@ impl Args {
                     shadow_watchdog_iterations =
                         next_value(&mut it, "--shadow-watchdog-iters")?.parse()?
                 }
+                "--shadow-reuse-baseline" => shadow_reuse_baseline_trial = true,
                 "--shadow-accept-ratio" => {
                     shadow_accept_ratio = next_value(&mut it, "--shadow-accept-ratio")?.parse()?
                 }
@@ -317,6 +320,11 @@ impl Args {
         if shadow_watchdog_iterations > 0 && shadow_trial_iterations == 0 {
             return Err("shadow watchdog requires positive --shadow-trial-iters".into());
         }
+        if shadow_reuse_baseline_trial
+            && (shadow_trial_iterations == 0 || shadow_watchdog_iterations == 0)
+        {
+            return Err("--shadow-reuse-baseline requires trial and watchdog".into());
+        }
         if escalation_stage_iterations == 0 {
             return Err("--stage-iters must be > 0".into());
         }
@@ -342,6 +350,7 @@ impl Args {
             progress_monitor_rate_limit,
             shadow_trial_iterations,
             shadow_watchdog_iterations,
+            shadow_reuse_baseline_trial,
             shadow_accept_ratio,
             shadow_max_extra_bytes,
             max_local_region_size,
@@ -393,6 +402,7 @@ fn print_usage() {
     println!("  --monitor-rate-limit R  opt-in per-iteration slowdown threshold, 0<R<1");
     println!("  --shadow-trial-iters N  EXPERIMENTAL C1-G3-A2 local-factor comparison; 0=off");
     println!("  --shadow-watchdog-iters N  EXPERIMENTAL post-admission rollback guard; 0=off");
+    println!("  --shadow-reuse-baseline  EXPERIMENTAL A4-A2 exact Jacobi trial-prefix reuse");
     println!(
         "  --shadow-accept-ratio R required candidate/baseline true-residual ratio (default 0.8)"
     );
@@ -673,6 +683,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("shadow trial iters : {}", args.shadow_trial_iterations);
     println!("shadow watchdog iters: {}", args.shadow_watchdog_iterations);
+    println!(
+        "shadow reuse baseline: {}",
+        args.shadow_reuse_baseline_trial
+    );
     if args.shadow_trial_iterations > 0 {
         println!("shadow accept ratio: {:.6}", args.shadow_accept_ratio);
         println!(
@@ -725,6 +739,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     hybrid.progress_monitor_rate_limit = args.progress_monitor_rate_limit;
     hybrid.shadow_trial_iterations = args.shadow_trial_iterations;
     hybrid.shadow_watchdog_iterations = args.shadow_watchdog_iterations;
+    hybrid.shadow_reuse_baseline_trial = args.shadow_reuse_baseline_trial;
     hybrid.shadow_accept_ratio = args.shadow_accept_ratio;
     hybrid.shadow_max_extra_bytes = args.shadow_max_extra_bytes;
     hybrid.overlap_layers = args.overlap_layers;
@@ -798,7 +813,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .watchdog_baseline_true_relative
                     .map_or_else(|| "none".to_owned(), |value| format!("{value:.12e}"));
                 println!(
-                    "C1G3A3_WATCHDOG|decision={:?}|reason={:?}|candidate_watchdog_iters={}|baseline_replay_iters={}|candidate_true_relative={}|baseline_true_relative={}|peak_clone_bytes={}|watchdog_ms={:.6}|selected_total_iters={}",
+                    "C1G3A3_WATCHDOG|decision={:?}|reason={:?}|candidate_watchdog_iters={}|baseline_replay_iters={}|candidate_true_relative={}|baseline_true_relative={}|peak_clone_bytes={}|watchdog_ms={:.6}|selected_total_iters={}|baseline_reused_iters={}",
                     trial.decision,
                     trial.decision_reason,
                     trial.watchdog_candidate_iterations,
@@ -808,6 +823,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     trial.peak_clone_bytes,
                     trial.watchdog_seconds * 1e3,
                     report.iterations,
+                    trial.watchdog_baseline_reused_iterations,
                 );
             }
             let phase = trial.phase_cost;

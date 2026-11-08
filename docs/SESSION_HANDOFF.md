@@ -1355,3 +1355,28 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - On island_shell: RolledBack preserves Jacobi residual/solution; on multi_patch: Accepted preserves useful A2 candidate; on rotated_anisotropy: NotTriggered. All MaxIterations at 600.
 - Cost decomposition identifies watchdog candidate continuation plus full Jacobi replay as main overhead; CSR verification ~0.15 ms. No speedup or A4-A2 safety promotion asserted.
 - See `docs/C1G3_A4_A1_PHASE_COST_EVIDENCE.md`; shadow default unchanged.
+
+## 2026-11-08 — C1-G3-A4-A2 exact baseline prefix reuse
+
+- Baseline `develop/0.10.0` at `a6555e1`: A4-A1 watchdog phase-cost
+  checkpoint committed and pushed. The original numerical watchdog and
+  default routes are unchanged unless A4-A2 is explicitly enabled.
+- New **opt-in** `shadow_reuse_baseline_trial=false` by default, with
+  `fem_bench --shadow-reuse-baseline` for same-binary A/B comparison.
+- When trial horizons and MaxIterations status match, swap the completed
+  exact Jacobi PCG vectors, session and solution into the existing rollback
+  checkpoint. Replay only the missing tail. No third vector clone.
+- Expected for n144: island_shell replay 204 -> 172 (32 reused),
+  multi_patch 588 -> 524 (64 reused), rotated_anisotropy not triggered.
+  These are **predictions**, not measured A4-A2 results.
+- WSL Rust 1.99.1 test/Clippy/build and 60-run real-FEM A/B numerical,
+  peak-RSS and whole-solve timing are **PENDING**. Do not claim speedup.
+- See `docs/C1G3_A4_A2_BASELINE_REUSE.md` for the numerical/memory gates.
+
+## 2026-11-08 — C1-G3-A4-A2 measured baseline reuse accepted
+
+- A4-A2 experimental Jacobi prefix reuse from `a6555e1` (uncommitted): Rust 1.99.1 release tests 58/58, Clippy and fem_bench build PASS.
+- n144 real-FEM 3 cases x 4 modes x 5 repeats = **60/60** frozen numerical/decision/phase-cost checks PASS.
+- Exact Jacobi trial prefix reused: 32 / 64 iterations for island_shell / multi_patch; selected CSR residuals unchanged.
+- Median whole-solve savings: island_shell 1.369 ms (1.20%); multi_patch 4.046 ms (2.12%). These are five-run local results.
+- Default disabled; same-binary control remains available. See `docs/C1G3_A4_A2_BASELINE_REUSE_EVIDENCE.md`.
