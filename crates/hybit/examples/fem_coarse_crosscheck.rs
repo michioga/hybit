@@ -4,11 +4,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    Csr32Matrix, JacobiPreconditioner, Preconditioner, SolveStatus, SolverOptions,
+    Csr32Matrix, JacobiPreconditioner, PcgWorkspace, Preconditioner, SolveStatus, SolverOptions,
     TwoLevelAggregation, TwoLevelBasis, TwoLevelBlockJacobiPreconditioner,
     TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy, TwoLevelTransferOptions,
     TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy, pcg, read_matrix_market,
 };
+use hybit_krylov::{pcg_continue_with_workspace, pcg_start_with_workspace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
@@ -31,6 +32,8 @@ struct Args {
     transfer_value_storage: TwoLevelTransferValueStoragePolicy,
     report_c1h12a4: bool,
     certified_restart: bool,
+    cert_periodic_check: Option<usize>,
+    cert_gap_ratio: f64,
 }
 
 impl Args {
@@ -47,6 +50,8 @@ impl Args {
         let mut transfer_value_storage = TwoLevelTransferValueStoragePolicy::F32;
         let mut report_c1h12a4 = false;
         let mut certified_restart = false;
+        let mut cert_periodic_check = None;
+        let mut cert_gap_ratio = 2.0_f64;
 
         let mut it = env::args().skip(1);
         while let Some(arg) = it.next() {
@@ -99,6 +104,13 @@ impl Args {
                 }
                 "--report-c1h12a4" => report_c1h12a4 = true,
                 "--certified-restart" => certified_restart = true,
+                "--cert-periodic-check" => {
+                    cert_periodic_check =
+                        Some(next_value(&mut it, "--cert-periodic-check")?.parse()?);
+                }
+                "--cert-gap-ratio" => {
+                    cert_gap_ratio = next_value(&mut it, "--cert-gap-ratio")?.parse()?;
+                }
                 "-h" | "--help" => {
                     print_usage();
                     std::process::exit(0);
@@ -129,6 +141,15 @@ impl Args {
         if certified_restart && mode == Mode::ProbeThenCoarse {
             return Err("--certified-restart currently supports only jacobi/direct modes".into());
         }
+        if cert_periodic_check.is_some_and(|n| n == 0 || n > max_iterations) {
+            return Err("--cert-periodic-check must be in 1..=max-iters".into());
+        }
+        if cert_periodic_check.is_some() && !certified_restart {
+            return Err("--cert-periodic-check requires --certified-restart".into());
+        }
+        if !cert_gap_ratio.is_finite() || cert_gap_ratio <= 1.0 {
+            return Err("--cert-gap-ratio must be finite and > 1".into());
+        }
 
         Ok(Self {
             matrix,
@@ -143,6 +164,8 @@ impl Args {
             transfer_value_storage,
             report_c1h12a4,
             certified_restart,
+            cert_periodic_check,
+            cert_gap_ratio,
         })
     }
 }
@@ -170,6 +193,10 @@ fn print_usage() {
     println!("  --coarse-values f64|f32 (default: f32)");
     println!("  --report-c1h12a4    emit one machine-readable diagnostic row");
     println!("  --certified-restart opt-in true-residual validation and PCG restart");
+    println!("  --cert-periodic-check N  A6 periodic true-residual sampling every N iterations");
+    println!(
+        "  --cert-gap-ratio X      A6 restart when true/recursive residual gap exceeds X (default: 2)"
+    );
 }
 
 fn norm2(x: &[f64]) -> f64 {
@@ -305,6 +332,141 @@ fn pcg_certified_restart(
     }
 }
 
+/// A6 experimental periodic certificate. Advance one *resumable* PCG
+/// recurrence between checks; rebuild it only when an independently measured
+/// residual gap is excessive or a recursive convergence claim is false.
+/// The preconditioner and original CSR never change during the solve.
+#[derive(Debug, Clone, Copy)]
+struct PeriodicCertifiedOutcome {
+    base: CertifiedPcgOutcome,
+    periodic_checks: usize,
+    proactive_restarts: usize,
+    peak_gap_ratio: f64,
+    check_ms: f64,
+}
+
+fn pcg_certified_periodic(
+    matrix: &Csr32Matrix,
+    preconditioner: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+    check_every: usize,
+    trigger_ratio: f64,
+) -> Result<PeriodicCertifiedOutcome, Box<dyn Error>> {
+    if check_every == 0 || !trigger_ratio.is_finite() || trigger_ratio <= 1.0 {
+        return Err("invalid periodic certification policy".into());
+    }
+    let bnorm = norm2(b).max(f64::MIN_POSITIVE);
+    let mut workspace = PcgWorkspace::new(matrix.nrows());
+    let mut session =
+        pcg_start_with_workspace(matrix, preconditioner, b, x, options, &mut workspace)?;
+    let mut iterations = 0usize;
+    let mut true_checks = 0usize;
+    let mut periodic_checks = 0usize;
+    let mut restarts = 0usize;
+    let mut proactive_restarts = 0usize;
+    let mut rejected_recursive_convergences = 0usize;
+    let mut peak_gap_ratio = 0.0_f64;
+    let mut check_ms = 0.0_f64;
+
+    loop {
+        let remaining = options.max_iterations - iterations;
+        let step = remaining.min(check_every);
+        let out = pcg_continue_with_workspace(
+            matrix,
+            preconditioner,
+            b,
+            x,
+            step,
+            &mut session,
+            &mut workspace,
+        )?;
+        iterations += out.iterations;
+        let reported_final_residual = out.final_residual;
+
+        let verify_start = Instant::now();
+        let true_relative = verified_relative_residual(matrix, b, x)?;
+        check_ms += verify_start.elapsed().as_secs_f64() * 1.0e3;
+        true_checks += 1;
+        periodic_checks += 1;
+        if !true_relative.is_finite() {
+            return Err("nonfinite A6 true residual".into());
+        }
+
+        let recursive_relative = out.final_residual / bnorm;
+        let raw_gap = true_relative / recursive_relative.max(f64::MIN_POSITIVE);
+        let gap_ratio = if raw_gap.is_finite() {
+            raw_gap
+        } else {
+            f64::MAX
+        };
+        peak_gap_ratio = peak_gap_ratio.max(gap_ratio);
+
+        let certified =
+            out.status == SolveStatus::Converged && true_relative <= options.relative_tolerance;
+        let terminate =
+            certified || out.status == SolveStatus::Breakdown || remaining == out.iterations;
+        if terminate {
+            let status = if certified {
+                SolveStatus::Converged
+            } else if out.status == SolveStatus::Breakdown {
+                SolveStatus::Breakdown
+            } else {
+                SolveStatus::MaxIterations
+            };
+            return Ok(PeriodicCertifiedOutcome {
+                base: CertifiedPcgOutcome {
+                    status,
+                    iterations,
+                    reported_final_residual,
+                    true_checks,
+                    restarts,
+                    rejected_recursive_convergences,
+                    final_true_relative: true_relative,
+                },
+                periodic_checks,
+                proactive_restarts,
+                peak_gap_ratio,
+                check_ms,
+            });
+        }
+
+        let false_recursive = out.status == SolveStatus::Converged;
+        let excessive_gap =
+            gap_ratio >= trigger_ratio && true_relative > options.relative_tolerance;
+        if false_recursive || excessive_gap {
+            // Starting PCG anew recomputes r=b-A*x and resets p, z and r^T M^-1 r.
+            // Merely overwriting the recurrence residual would break conjugacy.
+            if out.iterations == 0 {
+                return Ok(PeriodicCertifiedOutcome {
+                    base: CertifiedPcgOutcome {
+                        status: SolveStatus::Breakdown,
+                        iterations,
+                        reported_final_residual,
+                        true_checks,
+                        restarts,
+                        rejected_recursive_convergences,
+                        final_true_relative: true_relative,
+                    },
+                    periodic_checks,
+                    proactive_restarts,
+                    peak_gap_ratio,
+                    check_ms,
+                });
+            }
+            if false_recursive {
+                rejected_recursive_convergences += 1;
+            } else {
+                proactive_restarts += 1;
+            }
+            restarts += 1;
+            session =
+                pcg_start_with_workspace(matrix, preconditioner, b, x, options, &mut workspace)?;
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse()?;
     println!(
@@ -414,15 +576,35 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let solve_start = Instant::now();
     let mut certified = None;
+    let mut periodic = None;
     let (status, total_iterations, reported_final_residual, probe_ms) = match args.mode {
         Mode::JacobiOnly => {
             let jacobi = jacobi_only
                 .as_ref()
                 .ok_or("missing Jacobi preconditioner")?;
             if args.certified_restart {
-                let out = pcg_certified_restart(&matrix, jacobi, &b, &mut x, options)?;
-                certified = Some(out);
-                (out.status, out.iterations, out.reported_final_residual, 0.0)
+                if let Some(every) = args.cert_periodic_check {
+                    let out = pcg_certified_periodic(
+                        &matrix,
+                        jacobi,
+                        &b,
+                        &mut x,
+                        options,
+                        every,
+                        args.cert_gap_ratio,
+                    )?;
+                    periodic = Some(out);
+                    (
+                        out.base.status,
+                        out.base.iterations,
+                        out.base.reported_final_residual,
+                        0.0,
+                    )
+                } else {
+                    let out = pcg_certified_restart(&matrix, jacobi, &b, &mut x, options)?;
+                    certified = Some(out);
+                    (out.status, out.iterations, out.reported_final_residual, 0.0)
+                }
             } else {
                 let out = pcg(&matrix, jacobi, &b, &mut x, options)?;
                 (out.status, out.iterations, out.final_residual, 0.0)
@@ -431,9 +613,28 @@ fn main() -> Result<(), Box<dyn Error>> {
         Mode::DirectCoarse => {
             let coarse = coarse.as_ref().ok_or("missing coarse preconditioner")?;
             if args.certified_restart {
-                let out = pcg_certified_restart(&matrix, coarse, &b, &mut x, options)?;
-                certified = Some(out);
-                (out.status, out.iterations, out.reported_final_residual, 0.0)
+                if let Some(every) = args.cert_periodic_check {
+                    let out = pcg_certified_periodic(
+                        &matrix,
+                        coarse,
+                        &b,
+                        &mut x,
+                        options,
+                        every,
+                        args.cert_gap_ratio,
+                    )?;
+                    periodic = Some(out);
+                    (
+                        out.base.status,
+                        out.base.iterations,
+                        out.base.reported_final_residual,
+                        0.0,
+                    )
+                } else {
+                    let out = pcg_certified_restart(&matrix, coarse, &b, &mut x, options)?;
+                    certified = Some(out);
+                    (out.status, out.iterations, out.reported_final_residual, 0.0)
+                }
             } else {
                 let out = pcg(&matrix, coarse, &b, &mut x, options)?;
                 (out.status, out.iterations, out.final_residual, 0.0)
@@ -479,6 +680,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             certified.rejected_recursive_convergences,
             certified.final_true_relative,
             certified.status,
+        );
+    }
+    if let Some(periodic) = periodic {
+        println!(
+            "C1H12A6|policy=PeriodicCertifiedRestart|check_every={}|trigger_ratio={:.6}|true_checks={}|periodic_checks={}|restarts={}|proactive_restarts={}|rejected_recursive_convergences={}|peak_gap_ratio={:.12e}|check_ms={:.6}|final_true_relative={:.12e}|global_iterations={total_iterations}|status={:?}",
+            args.cert_periodic_check.unwrap_or(0),
+            args.cert_gap_ratio,
+            periodic.base.true_checks,
+            periodic.periodic_checks,
+            periodic.base.restarts,
+            periodic.proactive_restarts,
+            periodic.base.rejected_recursive_convergences,
+            periodic.peak_gap_ratio,
+            periodic.check_ms,
+            periodic.base.final_true_relative,
+            periodic.base.status,
         );
     }
 
@@ -588,5 +805,84 @@ mod c1h12a5_tests {
         if out.final_true_relative > 1e-22 {
             assert_ne!(out.status, SolveStatus::Converged);
         }
+    }
+
+    #[test]
+    fn periodic_certificate_converges_on_small_spd() {
+        let matrix = three_by_three_spd();
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let b = matrix.spmv(&[1.0, 1.0, 1.0]).unwrap();
+        let mut x = vec![0.0; 3];
+        let out = pcg_certified_periodic(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            SolverOptions {
+                relative_tolerance: 1e-10,
+                absolute_tolerance: 0.0,
+                max_iterations: 30,
+            },
+            1,
+            2.0,
+        )
+        .unwrap();
+        assert_eq!(out.base.status, SolveStatus::Converged);
+        assert!(out.base.final_true_relative <= 1e-10);
+        assert!(out.base.iterations <= 30);
+        assert!(out.periodic_checks > 0);
+        assert_eq!(out.base.true_checks, out.periodic_checks);
+        assert_eq!(out.base.restarts, 0);
+        assert!(out.check_ms.is_finite());
+    }
+
+    #[test]
+    fn periodic_certificate_rejects_sub_machine_false_convergence() {
+        let matrix = three_by_three_spd();
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let b = vec![0.7, -0.8, 1.3];
+        let mut x = vec![0.0; 3];
+        let out = pcg_certified_periodic(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            SolverOptions {
+                relative_tolerance: 1e-22,
+                absolute_tolerance: 0.0,
+                max_iterations: 30,
+            },
+            2,
+            2.0,
+        )
+        .unwrap();
+        assert!(out.base.iterations <= 30);
+        assert!(out.base.true_checks >= 1);
+        assert!(out.base.final_true_relative.is_finite());
+        if out.base.final_true_relative > 1e-22 {
+            assert_ne!(out.base.status, SolveStatus::Converged);
+        }
+    }
+
+    #[test]
+    fn periodic_certificate_rejects_bad_policy() {
+        let matrix = three_by_three_spd();
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let b = vec![1.0; 3];
+        let options = SolverOptions {
+            relative_tolerance: 1e-10,
+            absolute_tolerance: 0.0,
+            max_iterations: 30,
+        };
+        assert!(
+            pcg_certified_periodic(&matrix, &jacobi, &b, &mut [0.0; 3], options, 0, 2.0).is_err()
+        );
+        assert!(
+            pcg_certified_periodic(&matrix, &jacobi, &b, &mut [0.0; 3], options, 2, f64::NAN)
+                .is_err()
+        );
+        assert!(
+            pcg_certified_periodic(&matrix, &jacobi, &b, &mut [0.0; 3], options, 2, 1.0).is_err()
+        );
     }
 }
