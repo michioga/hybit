@@ -4,14 +4,15 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hybit::{
-    JacobiPreconditioner, SolverOptions, TwoLevelAggregation, TwoLevelBasis,
-    TwoLevelBlockJacobiPreconditioner, TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy,
-    TwoLevelTransferOptions, TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy,
-    pcg, read_matrix_market,
+    Csr32Matrix, JacobiPreconditioner, Preconditioner, SolveStatus, SolverOptions,
+    TwoLevelAggregation, TwoLevelBasis, TwoLevelBlockJacobiPreconditioner,
+    TwoLevelCoarseApplyPolicy, TwoLevelTransferApplyPolicy, TwoLevelTransferOptions,
+    TwoLevelTransferStoragePolicy, TwoLevelTransferValueStoragePolicy, pcg, read_matrix_market,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
+    JacobiOnly,
     DirectCoarse,
     ProbeThenCoarse,
 }
@@ -25,6 +26,11 @@ struct Args {
     max_iterations: usize,
     probe_iterations: usize,
     mode: Mode,
+    aggregation: TwoLevelAggregation,
+    basis: TwoLevelBasis,
+    transfer_value_storage: TwoLevelTransferValueStoragePolicy,
+    report_c1h12a4: bool,
+    certified_restart: bool,
 }
 
 impl Args {
@@ -32,10 +38,15 @@ impl Args {
         let mut matrix = None;
         let mut dofs_per_node = 3usize;
         let mut target_coarse_dimension = 1536usize;
-        let mut relative_tolerance = 1.0e-8;
+        let mut relative_tolerance = 1.0e-8_f64;
         let mut max_iterations = 3000usize;
         let mut probe_iterations = 12usize;
         let mut mode = Mode::DirectCoarse;
+        let mut aggregation = TwoLevelAggregation::Graph;
+        let mut basis = TwoLevelBasis::JacobiSmoothed;
+        let mut transfer_value_storage = TwoLevelTransferValueStoragePolicy::F32;
+        let mut report_c1h12a4 = false;
+        let mut certified_restart = false;
 
         let mut it = env::args().skip(1);
         while let Some(arg) = it.next() {
@@ -52,15 +63,42 @@ impl Args {
                 }
                 "--mode" => {
                     mode = match next_value(&mut it, "--mode")?.as_str() {
+                        "jacobi" | "jacobi-only" => Mode::JacobiOnly,
                         "direct" | "coarse-only" => Mode::DirectCoarse,
                         "probe" | "probe-coarse" => Mode::ProbeThenCoarse,
                         other => {
-                            return Err(
-                                format!("unknown mode '{other}'; use direct|probe-coarse").into()
-                            );
+                            return Err(format!(
+                                "unknown mode '{other}'; use jacobi|direct|probe-coarse"
+                            )
+                            .into());
                         }
                     }
                 }
+                "--coarse-aggregation" => {
+                    aggregation = match next_value(&mut it, "--coarse-aggregation")?.as_str() {
+                        "contiguous" => TwoLevelAggregation::Contiguous,
+                        "graph" => TwoLevelAggregation::Graph,
+                        "strong-graph" => TwoLevelAggregation::StrongGraph,
+                        other => return Err(format!("unknown aggregation '{other}'").into()),
+                    }
+                }
+                "--coarse-basis" => {
+                    basis = match next_value(&mut it, "--coarse-basis")?.as_str() {
+                        "piecewise" => TwoLevelBasis::PiecewiseConstant,
+                        "smoothed" => TwoLevelBasis::JacobiSmoothed,
+                        other => return Err(format!("unknown basis '{other}'").into()),
+                    }
+                }
+                "--coarse-values" => {
+                    transfer_value_storage = match next_value(&mut it, "--coarse-values")?.as_str()
+                    {
+                        "f64" => TwoLevelTransferValueStoragePolicy::F64,
+                        "f32" => TwoLevelTransferValueStoragePolicy::F32,
+                        other => return Err(format!("unknown transfer values '{other}'").into()),
+                    }
+                }
+                "--report-c1h12a4" => report_c1h12a4 = true,
+                "--certified-restart" => certified_restart = true,
                 "-h" | "--help" => {
                     print_usage();
                     std::process::exit(0);
@@ -85,6 +123,12 @@ impl Args {
         if probe_iterations >= max_iterations {
             return Err("--probe-iters must be smaller than --max-iters".into());
         }
+        if !relative_tolerance.is_finite() || relative_tolerance <= 0.0 {
+            return Err("--tol must be finite and positive".into());
+        }
+        if certified_restart && mode == Mode::ProbeThenCoarse {
+            return Err("--certified-restart currently supports only jacobi/direct modes".into());
+        }
 
         Ok(Self {
             matrix,
@@ -94,6 +138,11 @@ impl Args {
             max_iterations,
             probe_iterations,
             mode,
+            aggregation,
+            basis,
+            transfer_value_storage,
+            report_c1h12a4,
+            certified_restart,
         })
     }
 }
@@ -115,7 +164,12 @@ fn print_usage() {
     println!("  --tol X              relative tolerance (default: 1e-8)");
     println!("  --max-iters N        total PCG iteration budget (default: 3000)");
     println!("  --probe-iters N      Jacobi probe iterations in probe-coarse mode (default: 12)");
-    println!("  --mode direct|probe-coarse (default: direct)");
+    println!("  --mode jacobi|direct|probe-coarse (default: direct)");
+    println!("  --coarse-aggregation contiguous|graph|strong-graph (default: graph)");
+    println!("  --coarse-basis piecewise|smoothed (default: smoothed)");
+    println!("  --coarse-values f64|f32 (default: f32)");
+    println!("  --report-c1h12a4    emit one machine-readable diagnostic row");
+    println!("  --certified-restart opt-in true-residual validation and PCG restart");
 }
 
 fn norm2(x: &[f64]) -> f64 {
@@ -150,6 +204,105 @@ fn verified_relative_residual(
         .sum::<f64>()
         .sqrt();
     Ok(r / norm2(b).max(f64::MIN_POSITIVE))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CertifiedPcgOutcome {
+    status: SolveStatus,
+    iterations: usize,
+    reported_final_residual: f64,
+    true_checks: usize,
+    restarts: usize,
+    rejected_recursive_convergences: usize,
+    final_true_relative: f64,
+}
+
+/// Experimental wrapper: never treat a recursively converged PCG segment as
+/// solved until the original CSR certifies b - A*x.  If the certificate fails,
+/// restart the unchanged PCG/preconditioner at the current x and spend only
+/// the remaining global iteration budget. Production PCG remains untouched.
+fn pcg_certified_restart(
+    matrix: &Csr32Matrix,
+    preconditioner: &dyn Preconditioner,
+    b: &[f64],
+    x: &mut [f64],
+    options: SolverOptions,
+) -> Result<CertifiedPcgOutcome, Box<dyn Error>> {
+    let mut iterations = 0;
+    let mut true_checks = 0;
+    let mut restarts = 0;
+    let mut rejected_recursive_convergences = 0;
+    let mut reported_final_residual = norm2(b);
+    let threshold = options.relative_tolerance;
+
+    loop {
+        let remaining = options.max_iterations - iterations;
+        if remaining == 0 {
+            let final_true_relative = verified_relative_residual(matrix, b, x)?;
+            return Ok(CertifiedPcgOutcome {
+                status: SolveStatus::MaxIterations,
+                iterations,
+                reported_final_residual,
+                true_checks,
+                restarts,
+                rejected_recursive_convergences,
+                final_true_relative,
+            });
+        }
+
+        let mut segment_options = options;
+        segment_options.max_iterations = remaining;
+        let out = pcg(matrix, preconditioner, b, x, segment_options)?;
+        iterations += out.iterations;
+        reported_final_residual = out.final_residual;
+        let final_true_relative = verified_relative_residual(matrix, b, x)?;
+        true_checks += 1;
+        if !final_true_relative.is_finite() {
+            return Err("nonfinite certified true residual".into());
+        }
+        if out.status == SolveStatus::Converged && final_true_relative <= threshold {
+            return Ok(CertifiedPcgOutcome {
+                status: SolveStatus::Converged,
+                iterations,
+                reported_final_residual,
+                true_checks,
+                restarts,
+                rejected_recursive_convergences,
+                final_true_relative,
+            });
+        }
+        if out.status == SolveStatus::Converged {
+            rejected_recursive_convergences += 1;
+            if iterations < options.max_iterations && out.iterations > 0 {
+                restarts += 1;
+                continue;
+            }
+            // Either the budget is exhausted or a zero-step recurrence
+            // repeatedly claims convergence contrary to original CSR.
+            return Ok(CertifiedPcgOutcome {
+                status: if iterations == options.max_iterations {
+                    SolveStatus::MaxIterations
+                } else {
+                    SolveStatus::Breakdown
+                },
+                iterations,
+                reported_final_residual,
+                true_checks,
+                restarts,
+                rejected_recursive_convergences,
+                final_true_relative,
+            });
+        }
+        return Ok(CertifiedPcgOutcome {
+            status: out.status,
+            iterations,
+            reported_final_residual,
+            true_checks,
+            restarts,
+            rejected_recursive_convergences,
+            final_true_relative,
+        });
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -196,44 +349,61 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("coarse DOFs/node   : {}", args.dofs_per_node);
     println!("coarse target dim  : {}", args.target_coarse_dimension);
     println!("aggregate target   : {} nodes", aggregate_nodes);
-    println!("coarse aggregation : Graph");
-    println!("coarse basis       : JacobiSmoothed");
-    println!("coarse transfer    : Parallel / Wide / F32");
+    println!("coarse aggregation : {:?}", args.aggregation);
+    println!("coarse basis       : {:?}", args.basis);
+    println!(
+        "coarse transfer    : Parallel / Wide / {:?}",
+        args.transfer_value_storage
+    );
     println!("coarse apply req.  : Auto");
 
     let setup_start = Instant::now();
-    let coarse =
+    let coarse = if args.mode == Mode::JacobiOnly {
+        None
+    } else {
+        Some(
         TwoLevelBlockJacobiPreconditioner::from_csr32_with_aggregation_basis_and_transfer_options(
             &matrix,
             args.dofs_per_node,
             aggregate_nodes,
-            TwoLevelAggregation::Graph,
-            TwoLevelBasis::JacobiSmoothed,
+            args.aggregation,
+            args.basis,
             TwoLevelCoarseApplyPolicy::Auto,
             TwoLevelTransferOptions {
                 apply_policy: TwoLevelTransferApplyPolicy::Parallel,
                 storage_policy: TwoLevelTransferStoragePolicy::Wide,
-                value_storage_policy: TwoLevelTransferValueStoragePolicy::F32,
+                value_storage_policy: args.transfer_value_storage,
             },
-        )?;
+        )?)
+    };
     let coarse_setup_ms = setup_start.elapsed().as_secs_f64() * 1.0e3;
-    println!("coarse dimension   : {}", coarse.coarse_dimension());
-    println!("coarse apply eff.  : {:?}", coarse.coarse_apply_policy());
-    println!("coarse aggregate   : {} nodes", coarse.aggregate_nodes());
-    println!(
-        "coarse memory      : {:.3} MiB",
-        coarse.factor_bytes() as f64 / (1024.0 * 1024.0)
-    );
-    println!("coarse setup       : {:.3} ms", coarse_setup_ms);
-    println!("transfer nnz       : {}", coarse.transfer_nnz());
-    println!(
-        "transfer index     : {:.3} MiB",
-        coarse.transfer_index_bytes() as f64 / (1024.0 * 1024.0)
-    );
-    println!(
-        "transfer values    : {:.3} MiB",
-        coarse.transfer_value_bytes() as f64 / (1024.0 * 1024.0)
-    );
+    if let Some(coarse) = &coarse {
+        println!("coarse dimension   : {}", coarse.coarse_dimension());
+        println!("coarse apply eff.  : {:?}", coarse.coarse_apply_policy());
+        println!("coarse aggregate   : {} nodes", coarse.aggregate_nodes());
+        println!(
+            "coarse memory      : {:.3} MiB",
+            coarse.factor_bytes() as f64 / (1024.0 * 1024.0)
+        );
+        println!("coarse setup       : {:.3} ms", coarse_setup_ms);
+        println!("transfer nnz       : {}", coarse.transfer_nnz());
+        println!(
+            "transfer index     : {:.3} MiB",
+            coarse.transfer_index_bytes() as f64 / (1024.0 * 1024.0)
+        );
+        println!(
+            "transfer values    : {:.3} MiB",
+            coarse.transfer_value_bytes() as f64 / (1024.0 * 1024.0)
+        );
+    }
+
+    let jacobi_setup_start = Instant::now();
+    let jacobi_only = if args.mode == Mode::JacobiOnly {
+        Some(JacobiPreconditioner::from_csr32(&matrix)?)
+    } else {
+        None
+    };
+    let jacobi_setup_ms = jacobi_setup_start.elapsed().as_secs_f64() * 1.0e3;
 
     let options = SolverOptions {
         relative_tolerance: args.relative_tolerance,
@@ -243,12 +413,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut x = vec![0.0; matrix.ncols()];
 
     let solve_start = Instant::now();
+    let mut certified = None;
     let (status, total_iterations, reported_final_residual, probe_ms) = match args.mode {
+        Mode::JacobiOnly => {
+            let jacobi = jacobi_only
+                .as_ref()
+                .ok_or("missing Jacobi preconditioner")?;
+            if args.certified_restart {
+                let out = pcg_certified_restart(&matrix, jacobi, &b, &mut x, options)?;
+                certified = Some(out);
+                (out.status, out.iterations, out.reported_final_residual, 0.0)
+            } else {
+                let out = pcg(&matrix, jacobi, &b, &mut x, options)?;
+                (out.status, out.iterations, out.final_residual, 0.0)
+            }
+        }
         Mode::DirectCoarse => {
-            let out = pcg(&matrix, &coarse, &b, &mut x, options)?;
-            (out.status, out.iterations, out.final_residual, 0.0)
+            let coarse = coarse.as_ref().ok_or("missing coarse preconditioner")?;
+            if args.certified_restart {
+                let out = pcg_certified_restart(&matrix, coarse, &b, &mut x, options)?;
+                certified = Some(out);
+                (out.status, out.iterations, out.reported_final_residual, 0.0)
+            } else {
+                let out = pcg(&matrix, coarse, &b, &mut x, options)?;
+                (out.status, out.iterations, out.final_residual, 0.0)
+            }
         }
         Mode::ProbeThenCoarse => {
+            let coarse = coarse.as_ref().ok_or("missing coarse preconditioner")?;
             let jacobi = JacobiPreconditioner::from_csr32(&matrix)?;
             let mut probe_options = options;
             probe_options.max_iterations = args.probe_iterations;
@@ -266,7 +458,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut coarse_options = options;
                 coarse_options.max_iterations =
                     args.max_iterations.saturating_sub(probe.iterations);
-                let coarse_out = pcg(&matrix, &coarse, &b, &mut x, coarse_options)?;
+                let coarse_out = pcg(&matrix, coarse, &b, &mut x, coarse_options)?;
                 (
                     coarse_out.status,
                     probe.iterations + coarse_out.iterations,
@@ -279,6 +471,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let solve_ms = solve_start.elapsed().as_secs_f64() * 1.0e3;
     let bnorm = norm2(&b).max(f64::MIN_POSITIVE);
     let verified = verified_relative_residual(&matrix, &b, &x)?;
+    if let Some(certified) = certified {
+        println!(
+            "C1H12A5|policy=CertifiedRestart|true_checks={}|restarts={}|rejected_recursive_convergences={}|final_true_relative={:.12e}|global_iterations={total_iterations}|status={:?}",
+            certified.true_checks,
+            certified.restarts,
+            certified.rejected_recursive_convergences,
+            certified.final_true_relative,
+            certified.status,
+        );
+    }
 
     println!("status             : {:?}", status);
     println!("iterations         : {}", total_iterations);
@@ -296,9 +498,95 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("solver time        : {:.3} ms", solve_ms);
     println!(
         "total wall         : {:.3} ms",
-        load_ms + coarse_setup_ms + solve_ms
+        load_ms + coarse_setup_ms + jacobi_setup_ms + solve_ms
     );
-    println!("relative x error   : {:.6e}", relative_error_to_ones(&x));
+    let x_error = relative_error_to_ones(&x);
+    println!("relative x error   : {:.6e}", x_error);
+    if args.report_c1h12a4 {
+        println!(
+            "C1H12A4|mode={:?}|aggregation={:?}|basis={:?}|transfer_values={:?}|rows={}|nnz={}|coarse_dimension={}|coarse_factor_bytes={}|status={:?}|iterations={total_iterations}|tol={:.12e}|reported_relative={:.12e}|verified_true_relative={verified:.12e}|relative_x_error={x_error:.12e}|load_ms={load_ms:.6}|setup_ms={:.6}|solve_ms={solve_ms:.6}|total_wall_ms={:.6}",
+            args.mode,
+            args.aggregation,
+            args.basis,
+            args.transfer_value_storage,
+            matrix.nrows(),
+            matrix.nnz(),
+            coarse.as_ref().map_or(0, |c| c.coarse_dimension()),
+            coarse.as_ref().map_or(0, |c| c.factor_bytes()),
+            status,
+            args.relative_tolerance,
+            reported_final_residual / bnorm,
+            coarse_setup_ms + jacobi_setup_ms,
+            load_ms + coarse_setup_ms + jacobi_setup_ms + solve_ms,
+        );
+    }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod c1h12a5_tests {
+    use super::*;
+
+    fn three_by_three_spd() -> Csr32Matrix {
+        Csr32Matrix::new(
+            3,
+            3,
+            vec![0, 2, 5, 7],
+            vec![0, 1, 0, 1, 2, 1, 2],
+            vec![2.1, -0.2, -0.2, 1.8, -0.3, -0.3, 2.6],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn certified_pcg_converges_on_small_spd() {
+        let matrix = three_by_three_spd();
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let b = matrix.spmv(&[1.0, 1.0, 1.0]).unwrap();
+        let mut x = vec![0.0; 3];
+        let out = pcg_certified_restart(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            SolverOptions {
+                relative_tolerance: 1e-10,
+                absolute_tolerance: 0.0,
+                max_iterations: 30,
+            },
+        )
+        .unwrap();
+        assert_eq!(out.status, SolveStatus::Converged);
+        assert!(out.final_true_relative <= 1e-10);
+        assert_eq!(out.true_checks, 1);
+        assert_eq!(out.rejected_recursive_convergences, 0);
+        assert_eq!(out.restarts, 0);
+    }
+
+    #[test]
+    fn certified_pcg_never_claims_unverified_sub_machine_tolerance() {
+        let matrix = three_by_three_spd();
+        let jacobi = JacobiPreconditioner::from_csr32(&matrix).unwrap();
+        let b = vec![0.7, -0.8, 1.3];
+        let mut x = vec![0.0; 3];
+        let out = pcg_certified_restart(
+            &matrix,
+            &jacobi,
+            &b,
+            &mut x,
+            SolverOptions {
+                relative_tolerance: 1e-22,
+                absolute_tolerance: 0.0,
+                max_iterations: 30,
+            },
+        )
+        .unwrap();
+        assert!(out.iterations <= 30);
+        assert!(out.true_checks >= 1);
+        assert!(out.final_true_relative.is_finite());
+        if out.final_true_relative > 1e-22 {
+            assert_ne!(out.status, SolveStatus::Converged);
+        }
+    }
 }

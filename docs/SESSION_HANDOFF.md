@@ -1380,3 +1380,117 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Exact Jacobi trial prefix reused: 32 / 64 iterations for island_shell / multi_patch; selected CSR residuals unchanged.
 - Median whole-solve savings: island_shell 1.369 ms (1.20%); multi_patch 4.046 ms (2.12%). These are five-run local results.
 - Default disabled; same-binary control remains available. See `docs/C1G3_A4_A2_BASELINE_REUSE_EVIDENCE.md`.
+
+## 2026-11-09 — C1-H12-A2 ABTM AMG-symbolic comparison candidate
+
+- Anchor: clean/pushed `develop/0.10.0` HEAD `4593c20`; PETSc 3.24.4
+  benchmark is a **comparison-only** external baseline. Future AMG logic
+  must be HyBIT-native Rust without PETSc/hypre linkage or code copying.
+- The isolated `c1h12_a2_abtm_symbolic_probe` example compares the same
+  scalar strong-coupling graph with CSR adjacency-list two-hop unions vs
+  ABTM topology-word OR. The strength calculation is shared; the two-hop
+  proxy is not a computed Galerkin operator and never changes PCG routing.
+- Synthetic exact-equivalence tests, three n144 corpus probes, Rust 1.99.1
+  build/Clippy/format and source SHA integrity are **PENDING owner WSL run**.
+  Assistant environment has no Rust compiler; no runtime advantage is claimed.
+- Next one action: run `benchmarks/scripts/C1H12_A2_abtm_symbolic.sh --run`
+  after this patch passes `--dry-run`, then review the raw exact structure,
+  ABTM conversion cost, symbolic kernel time and peak RSS before deciding
+  which AMG symbolic stage should use ABTM.
+
+## 2026-11-09 — C1-H12-A2 accepted on owner WSL; C1-H12-A3 candidate
+
+- Owner Ubuntu 26.04 `~/hybit`, `develop/0.10.0` HEAD `4593c20`, A2
+  uncommitted diagnostic patch applied with `--dry-run` / `--apply` PASS.
+  Rust 1.99.1 release example 2/2 tests, Clippy and build PASS.
+- A2 user-run 3/3 exact structural equivalence at n=20,736 PASS. Measured
+  CSR versus ABTM two-hop symbolic kernel medians: island_shell
+  2.061053 / 2.227068 ms (ABTM slower 8.1%); multi_patch
+  1.768415 / 2.241998 ms (ABTM slower 26.8%); rotated_anisotropy
+  3.654784 / 3.140171 ms (ABTM faster 14.1%). Conversion + temporary CSR
+  stage for rotated_anisotropy = 1.696403 ms, not in kernel times. These
+  are not full AMG or solve-time speedups. Raw evidence owner-side:
+  `~/c1h11_evidence/c1h12_a2_symbolic_FH3k8I/`.
+- A3 adds an isolated exact Boolean candidate `P^T A P` comparison for the
+  existing *contiguous one-hot* coarse basis: CSR concat/sort versus
+  optimized stamped CSR versus ABTM word-OR. A separate sparse numerical
+  `P^T A P` assembly audits exact zero cancellations and structural keys.
+- A3 assistant synthetic 20,736-DOF Poisson smoke: for aggregate sizes
+  4/16/40, all structural/numerical-reference gates PASS, and optimized
+  CSR stamp wins over ABTM in all three (0.353/0.123/0.078 ms versus
+  0.466/0.225/0.193 ms). This is not the owner C1-G FEM corpus.
+- Assistant Rust 1.99.1 A3 example tests 3/3, strict Clippy, release build
+  and rustfmt PASS. The **owner WSL 9-case corpus run is PENDING**. There
+  is no production AMG/backend change, commit or push.
+- **Next one action:** apply the A3-only patch atop the uncommitted A2
+  candidate, run `C1H12_A3_galerkin_symbolic.sh --run` on all 3 FEM inputs
+  at aggregate sizes 4/16/40, then compare ABTM to *CSR-stamp* with
+  conversion costs and peak RSS included before any production decision.
+
+## 2026-11-09 — C1-H12-A3 owner results and C1-H12-A4 native convergence pilot
+
+- Owner WSL2 Ubuntu 26.04 ran A3 on HEAD `4593c20` with uncommitted A2/A3
+  probe patches: Rust 1.99.1 example 3/3 unit tests, strict Clippy, release
+  build, 9/9 exact Boolean Galerkin pattern and numerical-reference gates
+  PASS. All three FEM matrices and three aggregate sizes (4/16/40) were
+  tested. Owner raw logs: `~/c1h11_evidence/c1h12_a3_galerkin_3Qs0BC/`.
+- Optimized CSR-stamp symbolic construction beats ABTM word-OR in all nine
+  A3 cases, excluding ABTM's additional 0.947–1.432 ms preparation and
+  conversion. A2 showed only one isolated ABTM kernel gain (rotated
+  anisotropy two-hop), insufficient to offset conversion. Accept exactness,
+  **not** a general ABTM acceleration. The owner-observed results and limits
+  are transcribed in `docs/C1H12_A2_A3_REAL_FEM_EVIDENCE.md`; raw files and
+  corpus matrix hashes have **not** been copied into the repository.
+- C1-H12-A4 is a **new opt-in native numerical pilot**, not a production
+  AMG implementation: existing two-level preconditioner with 3 aggregation
+  policies × 2 transfer bases, F64 transfer, plus Jacobi control; same n144
+  3-case manufactured RHS, tolerance 1e-10, 600 iterations. Extended the
+  existing `fem_coarse_crosscheck` without changing its defaults.
+- A4 runner saves all 21 raw process outcomes, verifies independent true
+  residual/solution error and fails on status inconsistencies; nonconverged
+  yet numerically honest results remain valid evidence. The owner's WSL2
+  A4 numerical sweep is **NOT RUN**. Do not claim a rescue, speedup,
+  multilevel AMG, PETSc dependence or an automatic routing change.
+- **Next one action:** apply A4-only patch atop A2+A3; run
+  `benchmarks/scripts/C1H12_A4_native_coarse_pilot.sh --dry-run`, then
+  `--run`; inspect true-relative convergence and setup/factor memory before
+  selecting the next native AMG algorithm change.
+
+## 2026-11-09 — C1-H12-A4 owner WSL evidence and A5 certification candidate
+
+- Owner applied A4 `--dry-run` / `--apply` cleanly on uncommitted A2+A3;
+  source hash/rustfmt and Python 10/10 tests PASS, Release strict Clippy
+  and example build PASS; 21/21 native-PCG processes exited 0.
+- **Numerical A4 gate FAIL: 15/21 accepted.** All six `multi_patch`
+  coarse arms declared recursive `Converged` in 94–342 iterations but
+  independent true residuals remained 3.42e-10 to 7.16e-10, above
+  tol=1e-10. Jacobi MaxIterations (600; true=1.152e-9). No false success
+  should be admitted. Best manufactured solution error 7.80e-12 does not
+  supersede the strict true residual certificate.
+- `rotated_anisotropy`: Jacobi MaxIterations (600; true=1.957e-7);
+  5/6 coarse variants truly Converged (300–547 iterations), while
+  contiguous+piecewise reached MaxIterations (true=2.686e-10). `island_shell`
+  Jacobi Converged (387; true=9.429e-11) and six coarse arms Converged.
+- Raw WSL A4 results are preserved at
+  `~/c1h11_evidence/c1h12_a4_native_OPAkkT/`, **not** ingested. Transcript
+  numbers and limits documented in
+  `docs/C1H12_A4_OWNER_NUMERICAL_EVIDENCE.md`.
+- A5 candidate **opt-in** `--certified-restart` in example only: call
+  native PCG, independently certify original CSR true residual, reject
+  false recursive convergence and safely restart PCG from current `x`
+  within remaining global iteration budget. Production `hybit::pcg`,
+  default example, API/FFI and any AMG routing remain unchanged.
+- A5 owner WSL numerical run is **NOT RUN**, no convergence rescue or
+  speedup claimed. Next: run A5 21-arm matched A4 pilot and evaluate
+  true residual, extra iterations, restart count and costs. See
+  `docs/C1H12_A5_CERTIFIED_PCG_PILOT.md`.
+
+## 2026-11-09 — C1-H12-A2–A5 owner WSL evidence accepted
+
+- A2 3/3, A3 9/9 exact symbolic; A4 15/21 numerical gate (six false Converged), A5 21/21
+  true-residual certified/log/provenance PASS: 18 Converged, 3 MaxIterations.
+- Owner raw logs: A2 `/home/michioga/c1h11_evidence/c1h12_a2_symbolic_FH3k8I`; A3 `/home/michioga/c1h11_evidence/c1h12_a3_galerkin_3Qs0BC`; A4 `/home/michioga/c1h11_evidence/c1h12_a4_native_OPAkkT`; A5 `/home/michioga/c1h11_evidence/c1h12_a5_certified_QGyKD6`.
+- Raw log/time SHA-256 manifest and machine-readable 54 records are recorded under
+  `benchmarks/evidence/`; source HEAD `4593c2010722876b2b66bda83b78b62827ace77a`.
+- No native multilevel AMG, whole-solve speedup or new production PCG routing claim.
+- Next one action: A6 experimental periodic true-residual/drift pilot before production changes.
