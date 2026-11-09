@@ -302,7 +302,7 @@ def document(directories: dict[str, Path], matrix_manifest_hash: str,
         "- All six `multi_patch` coarse arms were repaired using opt-in certified restarts",
         "  with the unchanged total 600-iteration budget; native PCG defaults are untouched.",
         "- No multilevel AMG, PETSc/hypre linkage, automatic routing, or whole-solve speedup claim.", "",
-        "| multi_patch arm | A4 iterations | A4 true rel | A5 iterations | A5 true rel | certified restarts |", 
+        "| multi_patch arm | A4 iterations | A4 true rel | A5 iterations | A5 true rel | certified restarts |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     a4 = {r["arm"]: r for r in pcg if r["stage"] == "A4" and r["case"] == "multi_patch"}
