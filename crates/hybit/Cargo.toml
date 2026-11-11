@@ -17,6 +17,7 @@ publish = ["crates-io"]
 default = []
 mpi = ["dep:hybit-distributed", "hybit-distributed/mpi", "dep:mpi"]
 ilu0-abtm-experiments = ["hybit-precond/ilu0-abtm-experiments"]
+p2-certified-restart = ["hybit-auto/p2-certified-restart"]
 [dependencies]
 hybit-distributed = { version = "0.10.0", path = "../hybit-distributed", optional = true }
 mpi = { version = "=0.8.0", default-features = false, optional = true }

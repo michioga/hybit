@@ -12,6 +12,12 @@ categories.workspace = true
 description = "Adaptive solver policy, algebraic coarse control, and selective-direct escalation for HyBIT"
 publish = ["crates-io"]
 
+[features]
+default = []
+# P2-A research opt-in: a single bounded original-CSR-certified PCG restart
+# after a recursively converged solve fails its final independent certificate.
+p2-certified-restart = []
+
 [dependencies]
 hybit-core = { version = "0.10.0", path = "../hybit-core" }
 hybit-matrix = { version = "0.10.0", path = "../hybit-matrix" }

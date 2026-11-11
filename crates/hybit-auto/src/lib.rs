@@ -1169,8 +1169,12 @@ impl HybitPreparedSystem {
         self.workspace.set_kernel_profiling(enabled);
         let mut report = self.solve_inner(matrix, b, x)?;
         report.pcg_kernel_profile = self.workspace.kernel_profile();
+        #[cfg(feature = "p2-certified-restart")]
+        let recursive_converged = report.status == SolveStatus::Converged;
         let start = Instant::now();
         certify_final_residual(matrix, b, x, self.options, &mut report)?;
+        #[cfg(feature = "p2-certified-restart")]
+        self.try_p2_certified_restart(matrix, b, x, &mut report, recursive_converged)?;
         // Do not cache a factor from recursive convergence when the
         // independent original-CSR residual rejects that solve.
         if self.hybrid_options.abtm_weighted_routing_enabled
@@ -1182,6 +1186,99 @@ impl HybitPreparedSystem {
         }
         report.solve_seconds += start.elapsed().as_secs_f64();
         Ok(report)
+    }
+
+    /// P2-A is an opt-in, single retry from the current solution. It does not
+    /// re-enter the escalation controller or change the prepared preconditioner.
+    /// Only the last fixed SPD PCG preconditioner is used, with original CSR
+    /// operator arithmetic and the *remaining* global iteration allowance.
+    #[cfg(feature = "p2-certified-restart")]
+    fn try_p2_certified_restart(
+        &mut self,
+        matrix: &Csr32Matrix,
+        b: &[f64],
+        x: &mut [f64],
+        report: &mut SolveReport,
+        recursive_converged: bool,
+    ) -> Result<(), HybitError> {
+        if !recursive_converged
+            || report.status != SolveStatus::Breakdown
+            || self.problem_class != MatrixProblemClass::Spd
+            || self.backend != MatrixBackend::Csr32
+            || !matches!(
+                self.execution_policy,
+                ExecutionPolicy::Auto | ExecutionPolicy::Cpu
+            )
+            || self.hybrid_options.abtm_weighted_routing_enabled
+            || self.hybrid_options.profile_pcg_kernels
+            || self.hybrid_options.shadow_trial_iterations != 0
+            || report.iterations >= self.options.max_iterations
+            || !matches!(
+                (report.solver, report.preconditioner),
+                (SolverKind::Pcg, PreconditionerKind::Jacobi)
+                    | (SolverKind::Hybrid, PreconditionerKind::Hybrid)
+            )
+        {
+            return Ok(());
+        }
+
+        let rhs_norm = scaled_l2_norm(b.iter().copied());
+        let target = self
+            .options
+            .absolute_tolerance
+            .max(self.options.relative_tolerance * rhs_norm.max(f64::MIN_POSITIVE));
+        // Certification can also reject nonfinite arithmetic or an overflowed
+        // tolerance. Those errors are not evidence for a safe PCG restart.
+        if !rhs_norm.is_finite()
+            || !target.is_finite()
+            || !report.final_residual.is_finite()
+            || report.final_residual <= target
+        {
+            return Ok(());
+        }
+
+        let mut restart_options = self.options;
+        restart_options.max_iterations -= report.iterations;
+        let restart_started = Instant::now();
+        let outcome = match (report.solver, report.preconditioner) {
+            (SolverKind::Pcg, PreconditionerKind::Jacobi)
+                if self.hybrid.is_none() && self.algebraic_coarse.is_none() =>
+            {
+                let jacobi = self.jacobi.as_ref().ok_or(HybitError::InvalidArgument(
+                    "P2 restart requires the prepared Jacobi preconditioner",
+                ))?;
+                pcg_with_workspace(matrix, jacobi, b, x, restart_options, &mut self.workspace)?
+            }
+            (SolverKind::Hybrid, PreconditionerKind::Hybrid) => {
+                if let Some(local) = self.hybrid.as_ref() {
+                    run_hybrid_pcg(
+                        matrix,
+                        self.algebraic_coarse.as_ref(),
+                        local,
+                        b,
+                        x,
+                        restart_options,
+                        &mut self.workspace,
+                    )?
+                } else if let Some(coarse) = self.algebraic_coarse.as_ref() {
+                    pcg_with_workspace(matrix, coarse, b, x, restart_options, &mut self.workspace)?
+                } else {
+                    return Ok(());
+                }
+            }
+            _ => return Ok(()),
+        };
+        report.restart_seconds += restart_started.elapsed().as_secs_f64();
+        report.iterations += outcome.iterations;
+        report.status = outcome.status;
+        certify_final_residual(matrix, b, x, self.options, report)?;
+        // A retry that reaches its limit is still a failed *certified* solve.
+        // Preserve the original reliability failure instead of silently
+        // relabeling it as an ordinary MaxIterations result.
+        if report.status != SolveStatus::Converged {
+            report.status = SolveStatus::Breakdown;
+        }
+        Ok(())
     }
 
     fn solve_inner(
@@ -5289,6 +5386,179 @@ mod tests {
         assert_eq!(report.final_residual, b[0]);
         assert_eq!(report.relative_residual, 1.0);
         assert_eq!(x, [0.0]);
+    }
+
+    #[cfg(feature = "p2-certified-restart")]
+    #[test]
+    fn p2_restarts_from_original_csr_after_certified_false_convergence() {
+        // Deterministic fault injection tests the recovery contract; this is
+        // NOT evidence that this small matrix suffers natural residual drift.
+        let a = poisson_1d(8);
+        let b = vec![1.0; 8];
+        let mut x = vec![0.0; 8];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 16,
+        };
+        let mut solver = HybitSolver::new();
+        solver.set_backend_policy(BackendPolicy::Csr32);
+        solver.set_options(options).unwrap();
+        solver
+            .set_hybrid_options(HybridOptions {
+                enabled: false,
+                ..HybridOptions::default()
+            })
+            .unwrap();
+        let mut prepared = solver.prepare(&a).unwrap();
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::Converged,
+                iterations: 1,
+                initial_residual: l2_norm(&b),
+                final_residual: 0.0,
+            },
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, options, &mut report).unwrap();
+        assert_eq!(report.status, SolveStatus::Breakdown);
+
+        prepared
+            .try_p2_certified_restart(&a, &b, &mut x, &mut report, true)
+            .unwrap();
+        assert_eq!(report.status, SolveStatus::Converged);
+        assert!(report.iterations > 1 && report.iterations <= options.max_iterations);
+        assert!(report.final_residual <= options.relative_tolerance * l2_norm(&b));
+        assert!(report.restart_seconds.is_finite());
+        assert!(x.iter().any(|&value| value != 0.0));
+    }
+
+    #[cfg(feature = "p2-certified-restart")]
+    #[test]
+    fn p2_rejects_zero_progress_and_exhausted_iteration_budget() {
+        let a = poisson_1d(1);
+        let b = [1.0e-200];
+        let mut x = [0.0];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-8,
+            absolute_tolerance: 0.0,
+            max_iterations: 4,
+        };
+        let mut solver = HybitSolver::new();
+        solver.set_backend_policy(BackendPolicy::Csr32);
+        solver.set_options(options).unwrap();
+        let mut prepared = solver.prepare(&a).unwrap();
+
+        let make_report = |iterations| {
+            report_from_outcome(
+                KrylovOutcome {
+                    status: SolveStatus::Converged,
+                    iterations,
+                    initial_residual: 0.0,
+                    final_residual: 0.0,
+                },
+                SolverKind::Pcg,
+                PreconditionerKind::Jacobi,
+                MatrixBackend::Csr32,
+                &b,
+                ReportMetrics::default(),
+            )
+        };
+        let mut report = make_report(0);
+        certify_final_residual(&a, &b, &x, options, &mut report).unwrap();
+        prepared
+            .try_p2_certified_restart(&a, &b, &mut x, &mut report, true)
+            .unwrap();
+        // PCG's squared recursive norm still underflows on the retry. It is
+        // certified once and rejected: no unbounded retry loop or false PASS.
+        assert_eq!(report.status, SolveStatus::Breakdown);
+        assert_eq!(report.iterations, 0);
+        assert_eq!(report.final_residual, b[0]);
+        assert_eq!(x, [0.0]);
+
+        let mut exhausted = make_report(options.max_iterations);
+        certify_final_residual(&a, &b, &x, options, &mut exhausted).unwrap();
+        prepared
+            .try_p2_certified_restart(&a, &b, &mut x, &mut exhausted, true)
+            .unwrap();
+        assert_eq!(exhausted.status, SolveStatus::Breakdown);
+        assert_eq!(exhausted.iterations, options.max_iterations);
+        assert_eq!(x, [0.0]);
+    }
+
+    #[cfg(feature = "p2-certified-restart")]
+    #[test]
+    fn p2_reuses_the_prepared_local_direct_factor_on_restart() {
+        let a = poisson_1d(8);
+        let b = vec![1.0; 8];
+        let mut x = vec![0.0; 8];
+        let options = SolverOptions {
+            relative_tolerance: 1.0e-12,
+            absolute_tolerance: 0.0,
+            max_iterations: 16,
+        };
+        let mut solver = HybitSolver::new();
+        solver.set_backend_policy(BackendPolicy::Csr32);
+        solver.set_options(options).unwrap();
+        let mut prepared = solver.prepare(&a).unwrap();
+        prepared.hybrid =
+            Some(HybridPreconditioner::from_csr32(&a, vec![(0..8).collect()]).unwrap());
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::Converged,
+                iterations: 1,
+                initial_residual: l2_norm(&b),
+                final_residual: 0.0,
+            },
+            SolverKind::Hybrid,
+            PreconditionerKind::Hybrid,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, options, &mut report).unwrap();
+        prepared
+            .try_p2_certified_restart(&a, &b, &mut x, &mut report, true)
+            .unwrap();
+        assert_eq!(report.status, SolveStatus::Converged);
+        assert!(report.iterations <= options.max_iterations);
+        assert!(report.final_residual <= options.relative_tolerance * l2_norm(&b));
+        assert_eq!(prepared.hybrid.as_ref().unwrap().region_count(), 1);
+    }
+
+    #[cfg(feature = "p2-certified-restart")]
+    #[test]
+    fn p2_does_not_restart_an_uncertified_krylov_status() {
+        let a = poisson_1d(8);
+        let b = vec![1.0; 8];
+        let mut x = vec![0.0; 8];
+        let mut solver = HybitSolver::new();
+        solver.set_backend_policy(BackendPolicy::Csr32);
+        let mut prepared = solver.prepare(&a).unwrap();
+        let mut report = report_from_outcome(
+            KrylovOutcome {
+                status: SolveStatus::MaxIterations,
+                iterations: 1,
+                initial_residual: l2_norm(&b),
+                final_residual: l2_norm(&b),
+            },
+            SolverKind::Pcg,
+            PreconditionerKind::Jacobi,
+            MatrixBackend::Csr32,
+            &b,
+            ReportMetrics::default(),
+        );
+        certify_final_residual(&a, &b, &x, solver.options(), &mut report).unwrap();
+        prepared
+            .try_p2_certified_restart(&a, &b, &mut x, &mut report, false)
+            .unwrap();
+        assert_eq!(report.status, SolveStatus::MaxIterations);
+        assert_eq!(report.iterations, 1);
+        assert!(x.iter().all(|&value| value == 0.0));
     }
 
     #[test]
