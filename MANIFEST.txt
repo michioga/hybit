@@ -50,6 +50,8 @@ benchmarks/scripts/C1H12_A10C6_shadow_gate.py
 benchmarks/scripts/C1H12_A10C6_shadow_pilot.sh
 benchmarks/scripts/C1H12_A10C7_matched_gate.py
 benchmarks/scripts/C1H12_A10C7_matched_pilot.sh
+benchmarks/scripts/C1H12_A10C8A_profile_gate.py
+benchmarks/scripts/C1H12_A10C8A_profile_pilot.sh
 benchmarks/scripts/C1H12_A2_A5_evidence_accept.py
 benchmarks/scripts/C1H12_A2_abtm_symbolic.sh
 benchmarks/scripts/C1H12_A3_galerkin_symbolic.sh
@@ -178,6 +180,7 @@ benchmarks/scripts/test_C1H12_A10C4_reliable_gate.py
 benchmarks/scripts/test_C1H12_A10C5_adaptive_gate.py
 benchmarks/scripts/test_C1H12_A10C6_shadow_gate.py
 benchmarks/scripts/test_C1H12_A10C7_matched_gate.py
+benchmarks/scripts/test_C1H12_A10C8A_profile_gate.py
 benchmarks/scripts/test_C1H12_A2_A5_evidence_accept.py
 benchmarks/scripts/test_C1H12_A4_numerical_gate.py
 benchmarks/scripts/test_C1H12_A5_certification_gate.py
@@ -321,6 +324,7 @@ crates/hybit/examples/c1h12_a10c4_reliable_update_probe.rs
 crates/hybit/examples/c1h12_a10c5_adaptive_probe.rs
 crates/hybit/examples/c1h12_a10c6_shadow_probe.rs
 crates/hybit/examples/c1h12_a10c7_matched_timing_probe.rs
+crates/hybit/examples/c1h12_a10c8a_profile_probe.rs
 crates/hybit/examples/c1h12_a2_abtm_symbolic_probe.rs
 crates/hybit/examples/c1h12_a3_galerkin_symbolic_probe.rs
 crates/hybit/examples/c1h12_a7_symmetric_composite_probe.rs
@@ -416,6 +420,7 @@ docs/C1H12_A10C4_RELIABLE_RESIDUAL_RESTART_PILOT.md
 docs/C1H12_A10C5_ADAPTIVE_RELIABLE_RESTART_PILOT.md
 docs/C1H12_A10C6_SHADOW_STAGNATION_PILOT.md
 docs/C1H12_A10C7_MATCHED_TIMING_PILOT.md
+docs/C1H12_A10C8A_PCG_PHASE_PROFILE.md
 docs/C1H12_A2_A3_REAL_FEM_EVIDENCE.md
 docs/C1H12_A2_A5_ACCEPTED_EVIDENCE.md
 docs/C1H12_A2_ABTM_SYMBOLIC_COMPARISON.md

@@ -1,8 +1,8 @@
 use hybit::{
     Csr32Matrix, HybitError, HybitSolver, ParallelRigidBodyTwoLevelPreconditioner, Preconditioner,
     PreconditionerKind, RigidBodyAggregation, RigidBodyTwoLevelBlockJacobiPreconditioner,
-    SolverOptions, StructuralOptions, StructuralPcgVectorPolicy, StructuralPreconditionerPolicy,
-    StructuralSpmvPolicy,
+    SolveStatus, SolverOptions, StructuralOptions, StructuralPcgVectorPolicy,
+    StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
 
 fn identity_3d_nodes(nodes: usize) -> Csr32Matrix {
@@ -429,6 +429,72 @@ fn structural_resident_rayon_matches_legacy_parallel_path() {
 
     assert!(prepared.resident_workspace_allocated());
     assert_eq!(prepared.krylov_workspace_bytes(), 12 * n * 8);
+}
+
+#[test]
+fn structural_resident_rayon_reports_independent_original_csr_residual() {
+    let a = connected_cube_matrix();
+    let coords = cube_coordinates();
+    // Deliberately nonuniform RHS and a one-step budget: the returned
+    // residual must describe the actual x, even on MaxIterations.
+    let b: Vec<f64> = (0..a.nrows())
+        .map(|i| ((i * 7 + 3) % 17) as f64 - 8.0)
+        .collect();
+
+    let mut solver = HybitSolver::new();
+    solver
+        .set_options(SolverOptions {
+            relative_tolerance: 1.0e-14,
+            absolute_tolerance: 0.0,
+            max_iterations: 1,
+        })
+        .unwrap();
+    solver
+        .set_structural_options(StructuralOptions {
+            target_coarse_dimension: 6,
+            aggregation: RigidBodyAggregation::Graph,
+            spmv_policy: StructuralSpmvPolicy::Parallel,
+            preconditioner_policy: StructuralPreconditionerPolicy::Parallel,
+            pcg_vector_policy: StructuralPcgVectorPolicy::Parallel,
+        })
+        .unwrap();
+    let analysis = solver.analyze_csr32(&a).unwrap();
+    let mut prepared = solver
+        .prepare_structural_csr32(&a, &analysis, &coords)
+        .unwrap();
+
+    let mut x = vec![0.0; a.nrows()];
+    let report = prepared.solve_resident_rayon(&a, &b, &mut x).unwrap();
+    assert_eq!(report.status, SolveStatus::MaxIterations);
+    assert_eq!(report.iterations, 1);
+
+    let ax = a.spmv(&x).unwrap();
+    let csr_residual: Vec<f64> = b.iter().zip(&ax).map(|(&bi, &axi)| bi - axi).collect();
+    // Reproduce the numerically scaled norm contract on the original CSR
+    // output. Bit-exact reporting checks that it is not the recursive norm.
+    let scaled_norm = |values: &[f64]| {
+        let mut scale = 0.0_f64;
+        let mut sumsq = 1.0_f64;
+        for &value in values {
+            let magnitude = value.abs();
+            if magnitude > scale {
+                let ratio = scale / magnitude;
+                sumsq = 1.0 + sumsq * ratio * ratio;
+                scale = magnitude;
+            } else if magnitude != 0.0 {
+                let ratio = magnitude / scale;
+                sumsq += ratio * ratio;
+            }
+        }
+        scale * sumsq.sqrt()
+    };
+    let true_norm = scaled_norm(&csr_residual);
+    let rhs_norm = scaled_norm(&b);
+    assert_eq!(report.final_residual.to_bits(), true_norm.to_bits());
+    assert_eq!(
+        report.relative_residual.to_bits(),
+        (true_norm / rhs_norm).to_bits()
+    );
 }
 
 #[test]

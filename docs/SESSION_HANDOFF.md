@@ -1494,3 +1494,13 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
   `benchmarks/evidence/`; source HEAD `4593c2010722876b2b66bda83b78b62827ace77a`.
 - No native multilevel AMG, whole-solve speedup or new production PCG routing claim.
 - Next one action: A6 experimental periodic true-residual/drift pilot before production changes.
+
+## 2026-11-11 — P1 production CSR certification path audit (candidate; owner validation pending)
+
+- Exact source archive: committed `develop/0.10.0` at `2c5cbc6` (A10C1–A10C7 committed/pushed). Owner also reported a successful, separate A10C8-A phase-profile pilot, uncommitted at this checkpoint.
+- Audited entry points: `hybit::solve`, `HybitSolver::solve_csr32`, prepared SPD/GeneralSquare `solve`, prepared structural `solve`, and FFI prepared `solve` all traverse the existing final original-CSR `certify_final_residual` guard. **Do not duplicate this production functionality.**
+- Found one omission: the explicitly experimental public `HybitPreparedStructuralSystem::solve_resident_rayon` returned its PCG recursive status/residual without this guard. P1 candidate reuses the existing certification before return, charges certification time to `solve_seconds`, and adds a one-iteration, nonuniform-RHS structural regression verifying the reported residual against original CSR.
+- This patch does **not** change defaults, the production `solve` route, PCG recurrences, preconditioners, ABTM execution, public Rust/C types, or ABI. ABTM remains a selectively measured topology/Boolean preparation engine, not a preconditioner.
+- **Owner WSL validation PENDING:** Rust 1.99.1 `cargo fmt --check`, targeted structural public API tests, `hybit-auto` regression, strict Clippy, source SHA integrity. Do not commit or label this candidate PASS until these gates complete.
+- Separate future audit: MPI final certification uses an unscaled squared norm and a `true_norm > threshold` comparison; check finite/overflow behavior independently under native MPI before changing it. Do not bundle distributed numerical changes into this serial P1 correction.
+- **Next one action:** apply/verify the narrowly guarded P1 structural-resident certification patch on owner WSL, preserving the independent A10C8-A evidence and all untracked user files.

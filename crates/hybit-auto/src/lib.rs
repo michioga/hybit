@@ -2300,7 +2300,9 @@ impl HybitPreparedStructuralSystem {
     /// This uses the same prepared rigid-body two-level preconditioner and the
     /// same parallel CSR/preconditioner implementations as `solve`, but runs
     /// the PCG recurrence through `RayonKrylovExecution` and a reusable
-    /// `ResidentPcgWorkspace`. Production `solve` behavior is unchanged.
+    /// `ResidentPcgWorkspace`. The returned status and residual are certified
+    /// against the original CSR matrix, just like the production `solve` path.
+    /// Production `solve` behavior is unchanged.
     pub fn solve_resident_rayon(
         &mut self,
         matrix: &Csr32Matrix,
@@ -2381,14 +2383,18 @@ impl HybitPreparedStructuralSystem {
             ..ReportMetrics::default()
         };
 
-        Ok(report_from_outcome(
+        let mut report = report_from_outcome(
             outcome,
             SolverKind::Pcg,
             PreconditionerKind::RigidBodyTwoLevel,
             self.backend,
             b,
             metrics,
-        ))
+        );
+        let certification_start = Instant::now();
+        certify_final_residual(matrix, b, x, self.options, &mut report)?;
+        report.solve_seconds += certification_start.elapsed().as_secs_f64();
+        Ok(report)
     }
     pub fn solve(
         &mut self,
