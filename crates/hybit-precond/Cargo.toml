@@ -16,6 +16,8 @@ publish = ["crates-io"]
 default = []
 # Research-only ABTM ILU(0) construction variants; no default routing change.
 ilu0-abtm-experiments = []
+# P3-B research opt-in: diagonal-congruence equilibration of local Cholesky.
+p3-equilibrated-local-cholesky = []
 
 [dependencies]
 hybit-core = { version = "0.10.0", path = "../hybit-core" }

@@ -13,7 +13,7 @@ cd "$REPO"
 MANIFEST=${2:-benchmarks/scripts/P2B_cases.tsv}
 [[ -r $MANIFEST ]] || { echo "missing case manifest: $MANIFEST" >&2; exit 1; }
 [[ $(git branch --show-current) == 'develop/0.10.0' ]] || { echo 'wrong branch' >&2; exit 1; }
-[[ $(git rev-parse --short=7 HEAD) == '39cfae4' ]] || { echo 'P2-B requires exact HEAD 39cfae4' >&2; exit 1; }
+git merge-base --is-ancestor fdb047e8af63d38abe8af34e33b7f5a5b7e0b799 HEAD || { echo 'P2-B requires descendant of fdb047e' >&2; exit 1; }
 [[ -z $(git diff --cached --name-only) ]] || { echo 'staged changes exist' >&2; exit 1; }
 sha256sum --check --strict --quiet SOURCE_SHA256.txt
 python3 -B -m unittest -q benchmarks.scripts.test_P2B_gate

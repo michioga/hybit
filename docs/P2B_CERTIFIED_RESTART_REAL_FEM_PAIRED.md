@@ -1,6 +1,6 @@
 # P2-B: production PCG certified-restart paired evidence — candidate
 
-Source owner checkpoint: `develop/0.10.0` at `39cfae4` (2026-11-11); toolchain MSRV 1.99.1. **Not yet run on owner WSL.** This work adds only isolated evidence harness files; it does not alter production PCG, default options, numerical backends, ABTM, ABI, or any frozen A10C raw data.
+P2-B source baseline: `develop/0.10.0` at `fdb047e` (2026-11-12); toolchain MSRV 1.99.1. **Owner WSL P2-B paired numerical gate PASS (2026-11-12):** 3 difficult SPD-FEM cases converged in both feature OFF and ON, with 0 natural rescues and 0 certified-convergence regressions. Evidence: `~/c1h11_evidence/p2b_paired_ayLJ1D`. Zero-RHS relative-only nonzero-initial-x remained `MaxIterations` (observation, not success). This work adds only isolated evidence harness files; it does not alter production PCG, default options, numerical backends, ABTM, ABI, or any frozen A10C raw data.
 
 ## Experimental question and scope
 
@@ -23,9 +23,8 @@ A separate 1D SPD Laplacian `p2b_zero_rhs_probe` uses **no hybrid escalation** t
 
 ```bash
 cd ~/hybit
-PACKAGE='/mnt/c/Users/michi/Downloads/hybit_p2b_paired_evidence_20261112'
-bash "$PACKAGE/P2B_apply.sh" --dry-run "$PWD"
-bash "$PACKAGE/P2B_apply.sh" --apply "$PWD"
+# Source harness is already committed in fdb047e. Apply P2B FIX1 separately
+# before running the validation commands below; do not reapply an old package.
 
 cargo +1.99.1 fmt --all -- --check
 sha256sum --check --strict --quiet SOURCE_SHA256.txt

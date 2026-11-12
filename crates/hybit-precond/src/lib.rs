@@ -3752,6 +3752,8 @@ impl Preconditioner for ParallelRigidBodyTwoLevelPreconditioner<'_> {
 pub struct LocalCholeskyRegion {
     indices: Vec<usize>,
     lower: Vec<f64>,
+    #[cfg(feature = "p3-equilibrated-local-cholesky")]
+    inv_sqrt_diagonal: Vec<f64>,
 }
 
 impl LocalCholeskyRegion {
@@ -3818,30 +3820,76 @@ impl LocalCholeskyRegion {
             }
         }
 
-        // Local direct correction is currently an SPD path. Require the local
-        // principal matrix to be numerically symmetric before factorization.
-        let mut scale = 0.0f64;
-        for (&lower_value, &upper_value) in lower.iter().zip(&upper) {
-            scale = scale.max(lower_value.abs()).max(upper_value.abs());
-        }
-
-        let symmetry_tol = 1.0e-11 * scale.max(1.0);
-        for i in 0..n {
-            for j in 0..i {
-                let ij = packed_lower_index(i, j);
-                if (lower[ij] - upper[ij]).abs() > symmetry_tol {
-                    return Err(HybitError::InvalidMatrix(
-                        "local Cholesky region is not symmetric",
-                    ));
+        // Preserve the established numerical behavior when P3-B is disabled.
+        // New feature remains opt-in until real FEM / solve-many gates are met.
+        #[cfg(not(feature = "p3-equilibrated-local-cholesky"))]
+        let pivot_tol = {
+            let mut scale = 0.0f64;
+            for (&lower_value, &upper_value) in lower.iter().zip(&upper) {
+                scale = scale.max(lower_value.abs()).max(upper_value.abs());
+            }
+            let symmetry_tol = 1.0e-11 * scale.max(1.0);
+            for i in 0..n {
+                for j in 0..i {
+                    let ij = packed_lower_index(i, j);
+                    if (lower[ij] - upper[ij]).abs() > symmetry_tol {
+                        return Err(HybitError::InvalidMatrix(
+                            "local Cholesky region is not symmetric",
+                        ));
+                    }
                 }
             }
-        }
+            drop(upper);
+            1.0e-14 * scale.max(1.0)
+        };
 
-        // The upper half is no longer required. Reuse the packed lower matrix
-        // as the Cholesky factor buffer.
-        drop(upper);
-
-        let pivot_tol = 1.0e-14 * scale.max(1.0);
+        // B = D^-1 A_R D^-1, D_ii = sqrt(A_R,ii).
+        // In B all diagonal elements are one, so pivot and symmetry thresholds
+        // are independent of absolute units and of individual DOF scales.
+        #[cfg(feature = "p3-equilibrated-local-cholesky")]
+        let (inv_sqrt_diagonal, pivot_tol) = {
+            let mut inv = Vec::with_capacity(n);
+            for i in 0..n {
+                let d = lower[packed_lower_index(i, i)];
+                if !d.is_finite() || d <= 0.0 {
+                    return Err(HybitError::NumericalBreakdown(
+                        "local Cholesky requires positive finite diagonal",
+                    ));
+                }
+                let inv_sqrt = 1.0 / d.sqrt();
+                if !inv_sqrt.is_finite() {
+                    return Err(HybitError::NumericalBreakdown(
+                        "local Cholesky diagonal equilibration is non-finite",
+                    ));
+                }
+                inv.push(inv_sqrt);
+            }
+            for i in 0..n {
+                for j in 0..i {
+                    let ij = packed_lower_index(i, j);
+                    let lo = (lower[ij] * inv[i]) * inv[j];
+                    let hi = (upper[ij] * inv[i]) * inv[j];
+                    if !lo.is_finite() || !hi.is_finite() {
+                        return Err(HybitError::NumericalBreakdown(
+                            "local Cholesky equilibrated coefficient is non-finite",
+                        ));
+                    }
+                    // Require *pair-relative* symmetry in normalized units.
+                    // A global-scale floor silently accepts tiny asymmetric A.
+                    if (lo - hi).abs() > 1.0e-11 * lo.abs().max(hi.abs()) {
+                        return Err(HybitError::InvalidMatrix(
+                            "local Cholesky region is not symmetric",
+                        ));
+                    }
+                    // Averaging equal-within-tolerance halves prevents a tiny
+                    // input asymmetry from entering a nominally SPD factor.
+                    lower[ij] = 0.5 * lo + 0.5 * hi;
+                }
+                lower[packed_lower_index(i, i)] = 1.0;
+            }
+            drop(upper);
+            (inv, 1.0e-14)
+        };
         for i in 0..n {
             for j in 0..=i {
                 let ij = packed_lower_index(i, j);
@@ -3867,6 +3915,8 @@ impl LocalCholeskyRegion {
         Ok(Self {
             indices: canonical,
             lower,
+            #[cfg(feature = "p3-equilibrated-local-cholesky")]
+            inv_sqrt_diagonal,
         })
     }
 
@@ -3890,6 +3940,10 @@ impl LocalCholeskyRegion {
         // Forward substitution: L y = rhs.
         for i in 0..n {
             let mut sum = rhs[i];
+            #[cfg(feature = "p3-equilibrated-local-cholesky")]
+            {
+                sum *= self.inv_sqrt_diagonal[i];
+            }
             for (k, &yk) in out.iter().take(i).enumerate() {
                 sum -= self.lower[packed_lower_index(i, k)] * yk;
             }
@@ -3904,11 +3958,24 @@ impl LocalCholeskyRegion {
             }
             out[i] = sum / self.lower[packed_lower_index(i, i)];
         }
+        // Undo the diagonal congruence after L^-T L^-1 (D^-1 rhs).
+        #[cfg(feature = "p3-equilibrated-local-cholesky")]
+        for (value, &inv) in out.iter_mut().zip(&self.inv_sqrt_diagonal) {
+            *value *= inv;
+        }
     }
 
     pub fn factor_bytes(&self) -> usize {
-        self.indices.len() * std::mem::size_of::<usize>()
-            + self.lower.len() * std::mem::size_of::<f64>()
+        let base = self.indices.len() * std::mem::size_of::<usize>()
+            + self.lower.len() * std::mem::size_of::<f64>();
+        #[cfg(feature = "p3-equilibrated-local-cholesky")]
+        {
+            base + self.inv_sqrt_diagonal.len() * std::mem::size_of::<f64>()
+        }
+        #[cfg(not(feature = "p3-equilibrated-local-cholesky"))]
+        {
+            base
+        }
     }
 }
 
@@ -3985,6 +4052,13 @@ impl HybridPreconditioner {
                 })
                 .ok_or(HybitError::SizeOverflow)?;
 
+            #[cfg(feature = "p3-equilibrated-local-cholesky")]
+            let region_bytes = region_bytes
+                .checked_add(
+                    n.checked_mul(std::mem::size_of::<f64>())
+                        .ok_or(HybitError::SizeOverflow)?,
+                )
+                .ok_or(HybitError::SizeOverflow)?;
             bytes = bytes
                 .checked_add(region_bytes)
                 .ok_or(HybitError::SizeOverflow)?;
@@ -4230,7 +4304,13 @@ mod tests {
         assert_eq!(region.lower.len(), packed_len);
         assert_eq!(
             region.factor_bytes(),
-            n * std::mem::size_of::<usize>() + packed_len * std::mem::size_of::<f64>()
+            n * std::mem::size_of::<usize>()
+                + packed_len * std::mem::size_of::<f64>()
+                + if cfg!(feature = "p3-equilibrated-local-cholesky") {
+                    n * std::mem::size_of::<f64>()
+                } else {
+                    0
+                }
         );
     }
 
