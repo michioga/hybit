@@ -1,0 +1,4 @@
+# case<TAB>matrix<TAB>rhs<TAB>xref  -- $HOME prefix supported; comments ignored
+island_shell	$HOME/mtx/c1g/c1g_p1_island_shell_n72.mtx	$HOME/mtx/c1g/c1g_p1_island_shell_n72.rhs.txt	$HOME/mtx/c1g/c1g_p1_island_shell_n72.xref.txt
+multi_patch	$HOME/mtx/c1g/c1g_p1_multi_patch_n72.mtx	$HOME/mtx/c1g/c1g_p1_multi_patch_n72.rhs.txt	$HOME/mtx/c1g/c1g_p1_multi_patch_n72.xref.txt
+rotated_anisotropy	$HOME/mtx/c1g/c1g_p1_rotated_anisotropy_n72.mtx	$HOME/mtx/c1g/c1g_p1_rotated_anisotropy_n72.rhs.txt	$HOME/mtx/c1g/c1g_p1_rotated_anisotropy_n72.xref.txt

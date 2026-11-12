@@ -80,6 +80,9 @@ benchmarks/scripts/C1H7_sensitivity.py
 benchmarks/scripts/C1H8_natural_region.py
 benchmarks/scripts/C1H8_run_natural_region.sh
 benchmarks/scripts/C1H9_run_prepared_reuse.sh
+benchmarks/scripts/P2B_cases.tsv
+benchmarks/scripts/P2B_gate.py
+benchmarks/scripts/P2B_pilot.sh
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -191,6 +194,7 @@ benchmarks/scripts/test_C1H12_A9_rhs_gate.py
 benchmarks/scripts/test_C1H3_shadow_policy.py
 benchmarks/scripts/test_C1H7_sensitivity.py
 benchmarks/scripts/test_C1H8_natural_region.py
+benchmarks/scripts/test_P2B_gate.py
 benchmarks/scripts/test_fem_hybrid_cost_audit.py
 benchmarks/scripts/test_fem_hybrid_crossover.py
 benchmarks/scripts/test_fem_linear_system_probe.py
@@ -379,6 +383,7 @@ crates/hybit/examples/mpi_two_level_experiment.rs
 crates/hybit/examples/mtx_fem_audit.rs
 crates/hybit/examples/mtx_fem_spectral.rs
 crates/hybit/examples/multiregion.rs
+crates/hybit/examples/p2b_zero_rhs_probe.rs
 crates/hybit/examples/prepared.rs
 crates/hybit/src/lib.rs
 crates/hybit/tests/c1h9_prepared_weighted_reuse.rs
@@ -502,6 +507,7 @@ docs/HYBIT_DECISION_LOG.md
 docs/HYBIT_LONG_TERM_ARCHITECTURE.md
 docs/HYBIT_VALIDATION_BASELINE_2026-10-13.md
 docs/HYBRID_MATH.md
+docs/P2B_CERTIFIED_RESTART_REAL_FEM_PAIRED.md
 docs/PREPARED_API.md
 docs/PROJECT_CHARTER.md
 docs/PUBLISHING.md
