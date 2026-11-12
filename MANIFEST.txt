@@ -85,6 +85,7 @@ benchmarks/scripts/P2B_gate.py
 benchmarks/scripts/P2B_pilot.sh
 benchmarks/scripts/P3A_gate.py
 benchmarks/scripts/P3B_gate.py
+benchmarks/scripts/P3C_gate.py
 benchmarks/scripts/bench-abtm-adaptive-dual-numeric-g2e.ps1
 benchmarks/scripts/bench-abtm-dual-numeric-g2d.ps1
 benchmarks/scripts/bench-abtm-dual-topology-g2c.ps1
@@ -199,6 +200,7 @@ benchmarks/scripts/test_C1H8_natural_region.py
 benchmarks/scripts/test_P2B_gate.py
 benchmarks/scripts/test_P3A_gate.py
 benchmarks/scripts/test_P3B_gate.py
+benchmarks/scripts/test_P3C_gate.py
 benchmarks/scripts/test_fem_hybrid_cost_audit.py
 benchmarks/scripts/test_fem_hybrid_crossover.py
 benchmarks/scripts/test_fem_linear_system_probe.py
@@ -303,6 +305,7 @@ crates/hybit-matrix/src/topology.rs
 crates/hybit-precond/Cargo.toml
 crates/hybit-precond/LICENSE
 crates/hybit-precond/examples/p3a_local_scale_probe.rs
+crates/hybit-precond/examples/p3c_mixed_dof_probe.rs
 crates/hybit-precond/src/lib.rs
 crates/hybit-precond/tests/p3b_equilibration.rs
 crates/hybit/Cargo.toml
@@ -516,6 +519,7 @@ docs/HYBRID_MATH.md
 docs/P2B_CERTIFIED_RESTART_REAL_FEM_PAIRED.md
 docs/P3A_LOCAL_CHOLESKY_SCALE_AUDIT.md
 docs/P3B_LOCAL_CHOLESKY_EQUILIBRATION.md
+docs/P3C_MIXED_DOF_PRECONDITIONER_AUDIT.md
 docs/PREPARED_API.md
 docs/PROJECT_CHARTER.md
 docs/PUBLISHING.md
