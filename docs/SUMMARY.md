@@ -23,6 +23,7 @@
 
 - [FEM benchmark](FEM_BENCHMARK.md)
 - [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
+- [C1-G4 current-HEAD multilevel AMG rebaseline](C1G4_AMG_REBASELINE_20261113.md)
 - [FEM-host-neutral integration (FrontISTR first)](FEM_HOST_INTEGRATION_0.10.0.md)
 - [C1-H2 ABTM residual topology observer](C1H2_ABTM_RESIDUAL_OBSERVER.md)
 - [C1-H3 ABTM shadow stall guard](C1H3_SHADOW_STALL_GUARD.md)

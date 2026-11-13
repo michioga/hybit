@@ -22,10 +22,15 @@ benchmarks/README.md
 benchmarks/data/cube8_identity.coords
 benchmarks/data/cube8_identity.mtx
 benchmarks/data/poisson5.mtx
+benchmarks/evidence/C1G4_AMG_20261113_comparison.csv
+benchmarks/evidence/C1G4_AMG_20261113_raw_sha256.csv
+benchmarks/evidence/C1G4_AMG_20261113_summary.json
 benchmarks/evidence/C1H12_A2_A5_native_pcg.csv
 benchmarks/evidence/C1H12_A2_A5_raw_sha256.csv
 benchmarks/evidence/C1H12_A2_A5_symbolic.csv
 benchmarks/export-example.md
+benchmarks/scripts/C1G4_checkpoint.py
+benchmarks/scripts/C1G4_current_head_verify.py
 benchmarks/scripts/C1H10_analyze.py
 benchmarks/scripts/C1H10_run_rhs_amortization.sh
 benchmarks/scripts/C1H11_real_fem_evidence.py
@@ -175,6 +180,8 @@ benchmarks/scripts/make-k8a-spd-grid.ps1
 benchmarks/scripts/make-k8b-fem-spring.ps1
 benchmarks/scripts/make-k8c-large-fem-spring.ps1
 benchmarks/scripts/make-k8d1-fem-spring.ps1
+benchmarks/scripts/test_C1G4_checkpoint.py
+benchmarks/scripts/test_C1G4_current_head_verify.py
 benchmarks/scripts/test_C1H10_analyze.py
 benchmarks/scripts/test_C1H11_real_fem_evidence.py
 benchmarks/scripts/test_C1H12_A10A_accuracy_gate.py
@@ -419,6 +426,7 @@ docs/C1G3_A4_A1_PHASE_COST_EVIDENCE.md
 docs/C1G3_A4_A1_SHADOW_PHASE_COST.md
 docs/C1G3_A4_A2_BASELINE_REUSE.md
 docs/C1G3_A4_A2_BASELINE_REUSE_EVIDENCE.md
+docs/C1G4_AMG_REBASELINE_20261113.md
 docs/C1G_COARSE_AGGREGATION_COMPARISON.md
 docs/C1G_COARSE_RESCUE_EVIDENCE.md
 docs/C1G_FORWARD_ERROR.md
