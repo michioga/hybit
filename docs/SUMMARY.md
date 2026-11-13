@@ -22,6 +22,7 @@
 # Validation and project status
 
 - [FEM benchmark](FEM_BENCHMARK.md)
+- [C1-G5 autonomous solver selection — design decision](C1G5_AUTONOMOUS_SOLVER_SELECTION.md)
 - [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
 - [C1-G4 current-HEAD multilevel AMG rebaseline](C1G4_AMG_REBASELINE_20261113.md)
 - [FEM-host-neutral integration (FrontISTR first)](FEM_HOST_INTEGRATION_0.10.0.md)

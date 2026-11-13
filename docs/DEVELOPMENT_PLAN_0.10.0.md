@@ -29,6 +29,10 @@ adapters. The defining objective is **numerically correct convergence rescue
 under a memory budget**, not universal Hybrid speedup on already-convergent
 Jacobi-PCG cases. See `docs/FEM_HOST_INTEGRATION_0.10.0.md`.
 
+## C1-G5 — 自律選択の設計決定（2026-11-13）
+
+C1-G コーパスの目的は特定方式の高速化ではなく、同一条件で複数方式の数値的成否・総費用・メモリを比較し、HyBIT が最も適切な方式を自律選択するための検証可能な規則を得ること。静的選択、収束観測に基づく動的切替え、各方式の準備費・複数RHS再利用、元CSRの真残差と前進誤差リスク、行列ファミリー単位の held-out 検証を不可分の設計要件とする。未実装の native Multilevel を本番 Auto に直接昇格させない。詳細：[C1-G5 自律選択設計決定](C1G5_AUTONOMOUS_SOLVER_SELECTION.md)。
+
 ## What 0.10.0 must demonstrate
 
 1. **Correctness is non-negotiable.** High-level solver reports independently
