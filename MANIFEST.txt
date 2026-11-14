@@ -615,3 +615,13 @@ tools/release/0.8/real-fem-release-gate.ps1
 tools/release/0.8/release-candidate-gate.ps1
 tools/release/0.8/release-gate.ps1
 tools/release/0.8/workspace-metadata-gate.ps1
+crates/hybit-auto/src/c1g5f_feature_audit.rs
+crates/hybit/tests/c1g5f_feature_audit_api.rs
+crates/hybit/examples/c1g5f_feature_audit.rs
+docs/C1G5F_RUNTIME_FEATURE_AUDIT.md
+benchmarks/evidence/C1G5F_20261114_features.csv
+benchmarks/evidence/C1G5F_20261114_raw_sha256.csv
+benchmarks/evidence/C1G5F_20261114_summary.json
+benchmarks/scripts/C1G5F_feature_evidence.py
+benchmarks/scripts/test_C1G5F_feature_evidence.py
+docs/C1G5F_SIX_MATRIX_FEATURE_EVIDENCE_20261114.md

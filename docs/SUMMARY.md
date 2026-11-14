@@ -28,6 +28,8 @@
 - [C1-G5D embedded standard / optional external model](C1G5D_SELECTION_MODEL_POLICY.md)
 - [C1-G5E independent triangular elasticity four-arm research](C1G5E_TRIANGULAR_ELASTICITY_CORPUS.md)
 - [C1-G5E four-arm owner evidence and outcomes](C1G5E_FOUR_ARM_EVIDENCE_20261114.md)
+- [C1-G5F library-resident feature audit](C1G5F_RUNTIME_FEATURE_AUDIT.md)
+- [C1-G5F six-matrix owner feature evidence](C1G5F_SIX_MATRIX_FEATURE_EVIDENCE_20261114.md)
 - [C1-G5B matched Jacobi / monitored-Hybrid evidence](C1G5B_MATCHED_JACOBI_HYBRID_20261114.md)
 - [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
 - [C1-G4 current-HEAD multilevel AMG rebaseline](C1G4_AMG_REBASELINE_20261113.md)

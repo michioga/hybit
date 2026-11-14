@@ -1573,3 +1573,17 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - 48/48 independent four-arm processes validated on owner WSL2; 32 converged, 16 non-converged; 12 complete problem groups. Jacobi 7/12, Hybrid 5/12, Two-Level 8/12, native research Multilevel 12/12. Hybrid activation 11/12, regressions 2 and rescues 0.
 - Freeze original owner raw 147-file SHA-256 index plus 48-row data, outcome CSV/JSON and documentation; all research-only; original logs remain under owner evidence directory.
 - No trained selector, no production Auto/model/FFI/default change; one synthetic elasticity family with four-way measurements; external physical FEM and held-out validation remain required.
+
+## 2026-11-14 — C1-G5F runtime feature audit (candidate)
+
+- Baseline `fc32f4a` (C1-G5E committed/pushed). One feature-gated Rust module and a Rust-only facade integration test observe offdiagonal coupling, diagonal dominance and signed structure on real CSR/RHS inputs; a research CLI can contrast six owner-side matrices.
+- Two constructed generator families now have evidence, only elasticity has same-harness four-arm outcomes (48 runs, 32 converged). Zero external physical families and no held-out trained model. The frozen C1-G5C historical counter is intentionally unchanged.
+- The V1 embedded/external model format and existing shadow results are unchanged; no trained selection rule, no production/FFI/default change. Run installer `--dry-run`, `--apply`, `--gate`, then the separate six-matrix feature probe.
+
+## 2026-11-14 — C1-G5F six-matrix owner feature evidence checkpoint
+
+- Owner WSL2 C1-G5F FIX1 FINAL GATE PASS: 74 feature-on tests, 58 feature-off tests, one facade API test, format and Clippy PASS.
+- Six owner raw feature logs verified byte-for-byte; two constructed generator families, three matrices each, manufactured `b=A*ones` (not physical loads). Machine-local raw logs retained under `~/c1h11_evidence`; SHA-256 and lengths frozen.
+- Results: scalar island/multi-patch 0 nondominant rows; scalar rotated anisotropy 20448/20736; elasticity 3240/3280, 3240/3280, 3243/3280. Strong-link fraction is descriptive and must not be used as a trained gate.
+- Feature evidence and validation code in `benchmarks/evidence/C1G5F_20261114_*` and `benchmarks/scripts/C1G5F_feature_evidence.py`; `docs/C1G5F_SIX_MATRIX_FEATURE_EVIDENCE_20261114.md`.
+- No training, no approved model, no production / ABI / default solver changes. Existing C1-G5C/D model continues fail-closed.

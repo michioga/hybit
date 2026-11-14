@@ -8,6 +8,8 @@ mod c1g5c_shadow;
 #[cfg(feature = "c1g5c-shadow")]
 mod c1g5d_selection_model;
 #[cfg(feature = "c1g5c-shadow")]
+mod c1g5f_feature_audit;
+#[cfg(feature = "c1g5c-shadow")]
 pub use c1g5c_shadow::{
     C1G5C_EVIDENCE_20261114, ShadowEvidenceQualification, ShadowReason, ShadowRuntimeFeatures,
     ShadowSelectionObservation, ShadowSolverCandidate,
@@ -16,6 +18,11 @@ pub use c1g5c_shadow::{
 pub use c1g5d_selection_model::{
     ModelShadowObservation, SELECTION_MODEL_SCHEMA_V1, SelectionCostWeights, SelectionModel,
     SelectionModelError, SelectionModelOrigin,
+};
+#[cfg(feature = "c1g5c-shadow")]
+pub use c1g5f_feature_audit::{
+    C1G5F_CORPUS_COVERAGE_20261114, ShadowCorpusCoverage, ShadowCouplingFeatures,
+    ShadowFeatureAudit,
 };
 
 use hybit_core::{

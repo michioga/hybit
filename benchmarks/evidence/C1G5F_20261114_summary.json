@@ -1,0 +1,22 @@
+{
+  "embedded_standard_promoted": false,
+  "generator_families": 2,
+  "generator_matrices": 6,
+  "independent_heldout_passed": false,
+  "measured_observations": 6,
+  "observation_cases": [
+    "scalar_island_shell",
+    "scalar_multi_patch",
+    "scalar_rotated_anisotropy",
+    "elastic_uniform",
+    "elastic_stiff_lens",
+    "elastic_shear_layers"
+  ],
+  "origin_head": "fc32f4aeb4ee3e76f85d7db7b05db1a8e2dac509",
+  "original_evidence_files": 8,
+  "production_promotion_allowed": false,
+  "raw_logs_preserved_outside_git": true,
+  "rhs": "manufactured b=A*ones; expected_rhs_reuse=1; not C1-G5E four-RHS benchmark",
+  "schema": "C1G5F_FEATURE_EVIDENCE_V1",
+  "training_performed": false
+}

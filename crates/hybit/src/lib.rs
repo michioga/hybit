@@ -50,6 +50,11 @@ pub use hybit_auto::{
 
 #[cfg(feature = "c1g5c-shadow")]
 pub use hybit_auto::{
+    C1G5F_CORPUS_COVERAGE_20261114, ShadowCorpusCoverage, ShadowCouplingFeatures,
+    ShadowFeatureAudit,
+};
+#[cfg(feature = "c1g5c-shadow")]
+pub use hybit_auto::{
     ModelShadowObservation, SELECTION_MODEL_SCHEMA_V1, SelectionCostWeights, SelectionModel,
     SelectionModelError, SelectionModelOrigin,
 };
