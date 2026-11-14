@@ -1587,3 +1587,10 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Results: scalar island/multi-patch 0 nondominant rows; scalar rotated anisotropy 20448/20736; elasticity 3240/3280, 3240/3280, 3243/3280. Strong-link fraction is descriptive and must not be used as a trained gate.
 - Feature evidence and validation code in `benchmarks/evidence/C1G5F_20261114_*` and `benchmarks/scripts/C1G5F_feature_evidence.py`; `docs/C1G5F_SIX_MATRIX_FEATURE_EVIDENCE_20261114.md`.
 - No training, no approved model, no production / ABI / default solver changes. Existing C1-G5C/D model continues fail-closed.
+
+## 2026-11-14 — C1-G5G matched scalar four-arm corpus (candidate)
+
+- Parent HEAD a2df4d8. Independent research-only example cloned from the exact byte-verified C1-G5E four-arm source; the parent A9 and C1-G5E examples remain unchanged. Only the strict case labels, dimensional constraint and output prefix differ.
+- Scalar P1 diffusion family: three frozen SHA-256-identified 20736-DOF matrices; each with the same four deterministic RHS and four arm settings as C1-G5E; original CSR/Kahan true residuals and failed preparations retained, maximum 600 iterations, relative tolerance 1e-10.
+- Four-way independent-process observations are not equivalent to held-out family model validation. Native Multilevel remains a research example, not a production hybit-auto candidate. Repeated trials and physical external FEM are still required.
+- No training, no embedded model promotion, no default solver, feature, FFI, or production routing modifications. Original raw run evidence stays outside Git.

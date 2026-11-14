@@ -55,3 +55,4 @@
 - [Roadmap](ROADMAP.md)
 - [Publishing discipline](PUBLISHING.md)
 - [ABTM G3 closeout](ABTM_G3_CLOSEOUT.md)
+- [C1-G5G scalar diffusion matched four-arm validation](C1G5G_SCALAR_FOUR_ARM_COMPARABILITY.md)

@@ -625,3 +625,7 @@ benchmarks/evidence/C1G5F_20261114_summary.json
 benchmarks/scripts/C1G5F_feature_evidence.py
 benchmarks/scripts/test_C1G5F_feature_evidence.py
 docs/C1G5F_SIX_MATRIX_FEATURE_EVIDENCE_20261114.md
+benchmarks/scripts/C1G5G_scalar_four_arm_evidence.py
+benchmarks/scripts/test_C1G5G_scalar_four_arm_evidence.py
+crates/hybit/examples/c1g5g_scalar_four_arm_probe.rs
+docs/C1G5G_SCALAR_FOUR_ARM_COMPARABILITY.md
