@@ -227,6 +227,8 @@ book.toml
 crates/hybit-auto/Cargo.toml
 crates/hybit-auto/LICENSE
 crates/hybit-auto/src/abtm_weighted_routing.rs
+crates/hybit-auto/src/c1g5c_shadow.rs
+crates/hybit-auto/src/c1g5d_selection_model.rs
 crates/hybit-auto/src/lib.rs
 crates/hybit-core/Cargo.toml
 crates/hybit-core/LICENSE
@@ -414,6 +416,8 @@ crates/hybit/examples/multiregion.rs
 crates/hybit/examples/p2b_zero_rhs_probe.rs
 crates/hybit/examples/prepared.rs
 crates/hybit/src/lib.rs
+crates/hybit/tests/c1g5c_shadow_api.rs
+crates/hybit/tests/c1g5d_model_api.rs
 crates/hybit/tests/c1h9_prepared_weighted_reuse.rs
 crates/hybit/tests/dense_block_public_api.rs
 crates/hybit/tests/hybrid_public_api.rs
@@ -441,6 +445,8 @@ docs/C1G3_A4_A2_BASELINE_REUSE_EVIDENCE.md
 docs/C1G4_AMG_REBASELINE_20261113.md
 docs/C1G5A_UNIFIED_CORPUS_LEDGER.md
 docs/C1G5B_MATCHED_JACOBI_HYBRID_20261114.md
+docs/C1G5C_RUNTIME_SHADOW_LIBRARY.md
+docs/C1G5D_SELECTION_MODEL_POLICY.md
 docs/C1G5_AUTONOMOUS_SOLVER_SELECTION.md
 docs/C1G_COARSE_AGGREGATION_COMPARISON.md
 docs/C1G_COARSE_RESCUE_EVIDENCE.md

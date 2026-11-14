@@ -42,6 +42,18 @@ pub use hybit_auto::{
     STRUCTURAL_PARALLEL_SPMV_MIN_NNZ, StructuralOptions, StructuralPcgVectorPolicy,
     StructuralPreconditionerPolicy, StructuralSpmvPolicy,
 };
+#[cfg(feature = "c1g5c-shadow")]
+pub use hybit_auto::{
+    C1G5C_EVIDENCE_20261114, ShadowEvidenceQualification, ShadowReason, ShadowRuntimeFeatures,
+    ShadowSelectionObservation, ShadowSolverCandidate,
+};
+
+#[cfg(feature = "c1g5c-shadow")]
+pub use hybit_auto::{
+    ModelShadowObservation, SELECTION_MODEL_SCHEMA_V1, SelectionCostWeights, SelectionModel,
+    SelectionModelError, SelectionModelOrigin,
+};
+
 pub use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,
     LinearOperator, MatrixBackend, MatrixProblemClass, PcgKernelPhaseProfile, PcgKernelProfile,

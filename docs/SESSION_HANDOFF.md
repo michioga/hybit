@@ -1545,3 +1545,18 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Original retained logs: `/home/michioga/c1h11_evidence/c1g5b_matched_cO8GmT`. Exact 48 raw-log/time hashes, 24 CSV records and paired summary frozen in `benchmarks/evidence/C1G5B_20261114_*`.
 - C1-G5A ledger/Shadow Control remains a separate frozen historical artifact; A9 and G5B time boundaries not merged into an oracle. Only one constructed family measured.
 - Next: independent validated SPD families, representative nontrivial/physical RHS, fair same-code-path cost comparison; no selector training/promotion yet. See `docs/C1G5B_MATCHED_JACOBI_HYBRID_20261114.md`.
+
+## 2026-11-14 — C1-G5C library-resident selection shadow (candidate)
+
+- Base: committed/pushed C1-G5B `e6e96a7`. The owner clarified that **runtime algorithm selection must reside inside the HyBIT Rust library; external scripts are never part of production solve execution**.
+- Adds opt-in Cargo feature `c1g5c-shadow` in `hybit-auto` and `hybit`. Library-side `shadow_select_csr32` extracts features from live CSR/RHS, with a frozen qualification state from C1-G4/G5B (72 + 24 outcomes, one measured matrix family, two Hybrid regressions, zero local rescues). The current qualification gate is **BLOCKED**, so the shadow returns `recommended=None` and does not claim a model exists.
+- `solve_csr32_with_selection_shadow` emits observation alongside unchanged numerical solve output. Production `hybit::solve` and `HybitSolver::solve_csr32`/FFI/default features are unchanged. No Python/CSV loader in the library.
+- Gate: feature-on/off Rust tests, strict Clippy, rustfmt, source hashes. No commit/push until owner WSL verification. Later: independent family-held-out runtime feature/cost training and a Rust-embedded frozen model; only then consider bounded opt-in routing.
+
+## 2026-11-14 — C1-G5D model storage decision (candidate)
+
+- Owner decision: **embedded standard model, optional explicit external model, full training/validation corpus outside the Rust library**. Production `hybit::solve` never invokes scripts or opens data files.
+- Requires C1-G5C applied (uncommitted) over e6e96a7; preserve the original C1-G5C 11-file delta and add a separate, feature-gated Rust module `c1g5d_selection_model.rs`.
+- Embedded V1 is explicitly **untrained / abstaining**. External V1 (strict fixed 180-byte binary, little endian, FNV corruption check) is **research diagnostic only**, not an approved selector; file contents cannot claim held-out validation or turn on production routing.
+- `HybitSolver::shadow_select_csr32_with_model` and `solve_csr32_with_model_shadow` evaluate models inside `hybit-auto`. The original C1-G5C `recommended=None` safety gate remains in force; no public `SolveReport`, FFI, default feature, numeric algorithm, or routing change.
+- WSL gate: model unit/integration tests, feature-off/on tests, Cargo fmt + Clippy, SHA-256 integrity, and exact file allowlist. No commit/push until owner verifies. See `docs/C1G5D_SELECTION_MODEL_POLICY.md`.

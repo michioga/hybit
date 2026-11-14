@@ -33,6 +33,8 @@ Jacobi-PCG cases. See `docs/FEM_HOST_INTEGRATION_0.10.0.md`.
 
 C1-G コーパスの目的は特定方式の高速化ではなく、同一条件で複数方式の数値的成否・総費用・メモリを比較し、HyBIT が最も適切な方式を自律選択するための検証可能な規則を得ること。静的選択、収束観測に基づく動的切替え、各方式の準備費・複数RHS再利用、元CSRの真残差と前進誤差リスク、行列ファミリー単位の held-out 検証を不可分の設計要件とする。未実装の native Multilevel を本番 Auto に直接昇格させない。詳細：[C1-G5 自律選択設計決定](C1G5_AUTONOMOUS_SOLVER_SELECTION.md)。
 
+**C1-G5Dモデル保存方針（2026-11-14）**：標準選択モデルをRustライブラリに内蔵し、任意の外部モデルは明示ロードのみ。学習用の全コーパスはライブラリ外に維持する。未認証モデルはShadow診断のみで、本番Autoや数値安全ゲートには接続しない。詳細：[C1-G5Dモデル設計](C1G5D_SELECTION_MODEL_POLICY.md)。
+
 ## What 0.10.0 must demonstrate
 
 1. **Correctness is non-negotiable.** High-level solver reports independently

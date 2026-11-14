@@ -3,6 +3,21 @@ use std::time::Instant;
 
 mod abtm_weighted_routing;
 
+#[cfg(feature = "c1g5c-shadow")]
+mod c1g5c_shadow;
+#[cfg(feature = "c1g5c-shadow")]
+mod c1g5d_selection_model;
+#[cfg(feature = "c1g5c-shadow")]
+pub use c1g5c_shadow::{
+    C1G5C_EVIDENCE_20261114, ShadowEvidenceQualification, ShadowReason, ShadowRuntimeFeatures,
+    ShadowSelectionObservation, ShadowSolverCandidate,
+};
+#[cfg(feature = "c1g5c-shadow")]
+pub use c1g5d_selection_model::{
+    ModelShadowObservation, SELECTION_MODEL_SCHEMA_V1, SelectionCostWeights, SelectionModel,
+    SelectionModelError, SelectionModelOrigin,
+};
+
 use hybit_core::{
     ExecutionTarget, HybitError, HybridEscalationStageReport, HybridProgressMonitorSample,
     LinearOperator, MatrixBackend, MatrixProblemClass, Preconditioner, PreconditionerKind,
