@@ -1,0 +1,141 @@
+{
+  "checkpoint": "C1-G5B matched Jacobi/monitored-Hybrid pilot",
+  "source_head": "f121d6327414dad8830c50c770fe33650a932c5d",
+  "runs": 24,
+  "paired_problems": 12,
+  "matrix_family_count": 1,
+  "numerical_contract": {
+    "tol": 1e-10,
+    "max_iterations": 600,
+    "threads": 1,
+    "rhs_hash": "frozen A9 exact bitwise match"
+  },
+  "outcomes": {
+    "BOTH_CONVERGED": 2,
+    "BOTH_NOT_CONVERGED": 8,
+    "HYBRID_REGRESSION": 2
+  },
+  "pairs": [
+    {
+      "case": "island_shell",
+      "rhs_mode": "ones",
+      "outcome": "HYBRID_REGRESSION",
+      "hybrid_local_factor_active": true,
+      "jacobi_relative": "9.429489065320e-11",
+      "hybrid_relative": "2.279002474814e-7",
+      "jacobi_work_ms": "39.252839",
+      "hybrid_work_ms": "101.984139"
+    },
+    {
+      "case": "island_shell",
+      "rhs_mode": "index_smooth",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": true,
+      "jacobi_relative": "3.703019230403e-6",
+      "hybrid_relative": "7.205151153682e-8",
+      "jacobi_work_ms": "60.839407",
+      "hybrid_work_ms": "81.547351"
+    },
+    {
+      "case": "island_shell",
+      "rhs_mode": "seeded_random",
+      "outcome": "BOTH_CONVERGED",
+      "hybrid_local_factor_active": false,
+      "jacobi_relative": "9.889969673741e-11",
+      "hybrid_relative": "9.889969673741e-11",
+      "jacobi_work_ms": "38.066128",
+      "hybrid_work_ms": "43.103575"
+    },
+    {
+      "case": "island_shell",
+      "rhs_mode": "point_load",
+      "outcome": "BOTH_CONVERGED",
+      "hybrid_local_factor_active": false,
+      "jacobi_relative": "9.343893727528e-11",
+      "hybrid_relative": "9.343893727528e-11",
+      "jacobi_work_ms": "39.135737",
+      "hybrid_work_ms": "43.502774"
+    },
+    {
+      "case": "multi_patch",
+      "rhs_mode": "ones",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": true,
+      "jacobi_relative": "1.152374938405e-9",
+      "hybrid_relative": "1.742869135085e-5",
+      "jacobi_work_ms": "58.557727",
+      "hybrid_work_ms": "103.670479"
+    },
+    {
+      "case": "multi_patch",
+      "rhs_mode": "index_smooth",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": true,
+      "jacobi_relative": "1.010312382187e-8",
+      "hybrid_relative": "2.355336527278e-4",
+      "jacobi_work_ms": "58.303824",
+      "hybrid_work_ms": "92.022624"
+    },
+    {
+      "case": "multi_patch",
+      "rhs_mode": "seeded_random",
+      "outcome": "HYBRID_REGRESSION",
+      "hybrid_local_factor_active": true,
+      "jacobi_relative": "9.837296698266e-11",
+      "hybrid_relative": "4.420605086698e-8",
+      "jacobi_work_ms": "57.057012",
+      "hybrid_work_ms": "93.580732"
+    },
+    {
+      "case": "multi_patch",
+      "rhs_mode": "point_load",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": true,
+      "jacobi_relative": "3.588792571483e-7",
+      "hybrid_relative": "7.113312556840e-4",
+      "jacobi_work_ms": "58.344894",
+      "hybrid_work_ms": "99.148329"
+    },
+    {
+      "case": "rotated_anisotropy",
+      "rhs_mode": "ones",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": false,
+      "jacobi_relative": "1.956624440314e-7",
+      "hybrid_relative": "1.956624440314e-7",
+      "jacobi_work_ms": "67.817941",
+      "hybrid_work_ms": "73.160703"
+    },
+    {
+      "case": "rotated_anisotropy",
+      "rhs_mode": "index_smooth",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": false,
+      "jacobi_relative": "1.869184368127e-7",
+      "hybrid_relative": "1.869184368127e-7",
+      "jacobi_work_ms": "65.414428",
+      "hybrid_work_ms": "73.101563"
+    },
+    {
+      "case": "rotated_anisotropy",
+      "rhs_mode": "seeded_random",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": false,
+      "jacobi_relative": "9.015471044449e-10",
+      "hybrid_relative": "9.015471044449e-10",
+      "jacobi_work_ms": "66.828163",
+      "hybrid_work_ms": "72.943031"
+    },
+    {
+      "case": "rotated_anisotropy",
+      "rhs_mode": "point_load",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "hybrid_local_factor_active": false,
+      "jacobi_relative": "3.110254393531e-8",
+      "hybrid_relative": "3.110254393531e-8",
+      "jacobi_work_ms": "65.725953",
+      "hybrid_work_ms": "72.818678"
+    }
+  ],
+  "limits": "Standalone paired pilot; all RHS algebraic/manufactured, no external held-out FEM. A9 time and G5B time were measured in separate experiment code paths; do not merge timing into a production oracle or claim speedup. Some monitored-Hybrid runs do not activate local factors."
+}

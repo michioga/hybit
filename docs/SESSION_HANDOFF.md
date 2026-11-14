@@ -1537,3 +1537,11 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - C1-G5A ledger: 72 measured Two-Level/Multilevel candidates, 24 explicitly NOT_RUN Jacobi/Hybrid placeholders, 12 operator/RHS groups; three SuiteSparse matrix-only inputs flagged `SPD_UNVERIFIED` without physical RHS. Only **one measured generator family**, so independent held-out family validation is BLOCKED.
 - Offline observed-best comparison is over the six measured research configurations and in-process total wall only. The Shadow Control is fixed `two_level:graph_piecewise` and learns nothing; result labels, measured times, RHS-mode identifiers and manufactured forward errors are excluded from its input. Not a production recommendation or statistical speedup.
 - Validation acceptance: owner `--dry-run` / `--apply` / `--gate` and Python negative tests before commit/push. Next: matched Jacobi/Hybrid coverage, memory/reuse contracts, independent held-out FEM families and conservative offline oracle, before any learned rule or production promotion. See `docs/C1G5A_UNIFIED_CORPUS_LEDGER.md`.
+
+## 2026-11-14 — C1-G5B matched Jacobi/Hybrid evidence frozen
+
+- Base `f121d63`, isolated example, no production changes; owner WSL 24/24 Python, 2/2 Rust, strict Clippy and 24/24 original-CSR/RHS matched processes PASS.
+- 12 cases: 2 BOTH_CONVERGED, 8 BOTH_NOT_CONVERGED, 2 HYBRID_REGRESSION; 0 LOCAL_RESCUE. Failures and inactive local factors retained, no automatic routing enabled.
+- Original retained logs: `/home/michioga/c1h11_evidence/c1g5b_matched_cO8GmT`. Exact 48 raw-log/time hashes, 24 CSV records and paired summary frozen in `benchmarks/evidence/C1G5B_20261114_*`.
+- C1-G5A ledger/Shadow Control remains a separate frozen historical artifact; A9 and G5B time boundaries not merged into an oracle. Only one constructed family measured.
+- Next: independent validated SPD families, representative nontrivial/physical RHS, fair same-code-path cost comparison; no selector training/promotion yet. See `docs/C1G5B_MATCHED_JACOBI_HYBRID_20261114.md`.

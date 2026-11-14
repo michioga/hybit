@@ -29,6 +29,9 @@ benchmarks/evidence/C1G5A_20261114_ledger.csv
 benchmarks/evidence/C1G5A_20261114_matrix_inventory.csv
 benchmarks/evidence/C1G5A_20261114_shadow_audit.csv
 benchmarks/evidence/C1G5A_20261114_summary.json
+benchmarks/evidence/C1G5B_20261114_matched_results.csv
+benchmarks/evidence/C1G5B_20261114_matched_summary.json
+benchmarks/evidence/C1G5B_20261114_raw_sha256.csv
 benchmarks/evidence/C1H12_A2_A5_native_pcg.csv
 benchmarks/evidence/C1H12_A2_A5_raw_sha256.csv
 benchmarks/evidence/C1H12_A2_A5_symbolic.csv
@@ -36,6 +39,7 @@ benchmarks/export-example.md
 benchmarks/scripts/C1G4_checkpoint.py
 benchmarks/scripts/C1G4_current_head_verify.py
 benchmarks/scripts/C1G5A_corpus_ledger.py
+benchmarks/scripts/C1G5B_gate.py
 benchmarks/scripts/C1H10_analyze.py
 benchmarks/scripts/C1H10_run_rhs_amortization.sh
 benchmarks/scripts/C1H11_real_fem_evidence.py
@@ -188,6 +192,7 @@ benchmarks/scripts/make-k8d1-fem-spring.ps1
 benchmarks/scripts/test_C1G4_checkpoint.py
 benchmarks/scripts/test_C1G4_current_head_verify.py
 benchmarks/scripts/test_C1G5A_corpus_ledger.py
+benchmarks/scripts/test_C1G5B_gate.py
 benchmarks/scripts/test_C1H10_analyze.py
 benchmarks/scripts/test_C1H11_real_fem_evidence.py
 benchmarks/scripts/test_C1H12_A10A_accuracy_gate.py
@@ -342,6 +347,7 @@ crates/hybit/examples/abtm_topology_g1.rs
 crates/hybit/examples/abtm_topology_g1b.rs
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 crates/hybit/examples/basic.rs
+crates/hybit/examples/c1g5b_jacobi_hybrid_probe.rs
 crates/hybit/examples/c1h10_rhs_amortization.rs
 crates/hybit/examples/c1h12_a10a_accuracy_probe.rs
 crates/hybit/examples/c1h12_a10b_prepared_probe.rs
@@ -434,6 +440,7 @@ docs/C1G3_A4_A2_BASELINE_REUSE.md
 docs/C1G3_A4_A2_BASELINE_REUSE_EVIDENCE.md
 docs/C1G4_AMG_REBASELINE_20261113.md
 docs/C1G5A_UNIFIED_CORPUS_LEDGER.md
+docs/C1G5B_MATCHED_JACOBI_HYBRID_20261114.md
 docs/C1G5_AUTONOMOUS_SOLVER_SELECTION.md
 docs/C1G_COARSE_AGGREGATION_COMPARISON.md
 docs/C1G_COARSE_RESCUE_EVIDENCE.md
