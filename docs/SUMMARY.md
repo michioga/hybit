@@ -23,6 +23,7 @@
 
 - [FEM benchmark](FEM_BENCHMARK.md)
 - [C1-G5 autonomous solver selection — design decision](C1G5_AUTONOMOUS_SOLVER_SELECTION.md)
+- [C1-G5A unified corpus ledger and shadow control](C1G5A_UNIFIED_CORPUS_LEDGER.md)
 - [0.10.0 development and real-FEM evidence plan](DEVELOPMENT_PLAN_0.10.0.md)
 - [C1-G4 current-HEAD multilevel AMG rebaseline](C1G4_AMG_REBASELINE_20261113.md)
 - [FEM-host-neutral integration (FrontISTR first)](FEM_HOST_INTEGRATION_0.10.0.md)

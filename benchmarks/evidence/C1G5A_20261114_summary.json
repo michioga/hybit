@@ -1,0 +1,59 @@
+{
+  "checkpoint": "C1G5A_UNIFIED_CORPUS_SHADOW_20261114",
+  "source_head": "37bc52dfb265123267081afc58bd2e6e7b0b6c97",
+  "source_comparison_sha256": "56df6fd29cd717b8e14f94a42e7728b1b245f02aeb46d2ef85010352844fccab",
+  "source_original_csr_gate": "PASS_ORIGINAL_CSR_AND_GRID",
+  "scope": "SPD research only; GeneralSquare is separate; no production routing changes",
+  "matrix_inventory": {
+    "constructed_measured": 3,
+    "external_matrix_only": 3
+  },
+  "distinct_measured_families": 1,
+  "observations": {
+    "MEASURED": 72,
+    "NOT_RUN": 24,
+    "groups": 12,
+    "external_unpaired_matrices": 3
+  },
+  "measured_candidates_per_group": 6,
+  "planned_missing_candidates_per_group": 2,
+  "shadow_policy": "two_level:graph_piecewise",
+  "shadow_mode": "CONSTANT_NEGATIVE_CONTROL_NO_LEARNING_NO_PRODUCTION_RECOMMENDATION",
+  "shadow_regret_ratio_median_descriptive": 1.480437164235079,
+  "observed_best_counts_descriptive": {
+    "multilevel:graph_piecewise": 7,
+    "multilevel:strong_graph_piecewise": 2,
+    "multilevel:strong_graph_smoothed": 2,
+    "two_level:graph_piecewise": 1
+  },
+  "oracle_scope": "INCOMPLETE_OBSERVED_ONLY; one OS process/arm; in-process total_wall_ms; no true memory budget or amortized RHS",
+  "held_out_family_gate": "BLOCKED_ONLY_ONE_MEASURED_FAMILY",
+  "feature_allowlist": [
+    "matrix_contract",
+    "nrows",
+    "nnz",
+    "requested_tol",
+    "max_iterations"
+  ],
+  "forbidden_inference_features": [
+    "rhs_mode_offline_label",
+    "rhs_hash_provenance",
+    "source_head",
+    "source_csv_sha256",
+    "iterations",
+    "verified_true_relative",
+    "relative_x_error_offline_only",
+    "solve_ms",
+    "setup_ms",
+    "inprocess_total_wall_ms",
+    "peak_rss_kib",
+    "observed_best_arm"
+  ],
+  "limitations": [
+    "No Jacobi/Hybrid matched measurements; NOT_RUN is not a failure",
+    "All 3 measured matrices are one constructed-family group; no held-out validation",
+    "No external matrix SPD proof, paired physical RHS, or proven forward-error bound",
+    "No controlled repeated performance, hardware/CPU affinity record or RHS reuse benchmark",
+    "No real selection prediction: shadow is a constant sanity/control policy"
+  ]
+}
