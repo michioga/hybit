@@ -1,0 +1,159 @@
+{
+  "checkpoint": "C1-G5E independent elasticity FEM research",
+  "source_head": "04851d7317ae984e8ec15c81e6d7537d0b7144ec",
+  "family_id": "tri_p1_plane_strain_elasticity_2dof_clamped",
+  "matrices": 3,
+  "rhs_modes": 4,
+  "candidate_policies": 4,
+  "processes": 48,
+  "process_errors": 0,
+  "measured": 48,
+  "converged": 32,
+  "complete_groups": 12,
+  "families_in_new_corpus": 1,
+  "independent_families_with_C1G4": 2,
+  "promotion_allowed": false,
+  "limitations": "Synthetic elastic FEM; no external physical RHS; one run per candidate; A9 native research Multilevel, no production routing; no accuracy or speedup generalization; numerical setup errors retained; no learning/model promotion.",
+  "groups": [
+    {
+      "case": "elastic_uniform",
+      "rhs_mode": "ones",
+      "complete": true,
+      "converged_candidate_count": 4,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_uniform",
+      "rhs_mode": "index_smooth",
+      "complete": true,
+      "converged_candidate_count": 4,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_uniform",
+      "rhs_mode": "seeded_random",
+      "complete": true,
+      "converged_candidate_count": 4,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_uniform",
+      "rhs_mode": "point_load",
+      "complete": true,
+      "converged_candidate_count": 4,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_stiff_lens",
+      "rhs_mode": "ones",
+      "complete": true,
+      "converged_candidate_count": 2,
+      "valid_numerical_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_stiff_lens",
+      "rhs_mode": "index_smooth",
+      "complete": true,
+      "converged_candidate_count": 3,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_stiff_lens",
+      "rhs_mode": "seeded_random",
+      "complete": true,
+      "converged_candidate_count": 3,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_stiff_lens",
+      "rhs_mode": "point_load",
+      "complete": true,
+      "converged_candidate_count": 4,
+      "valid_numerical_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_shear_layers",
+      "rhs_mode": "ones",
+      "complete": true,
+      "converged_candidate_count": 1,
+      "valid_numerical_arms": [
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_shear_layers",
+      "rhs_mode": "index_smooth",
+      "complete": true,
+      "converged_candidate_count": 1,
+      "valid_numerical_arms": [
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_shear_layers",
+      "rhs_mode": "seeded_random",
+      "complete": true,
+      "converged_candidate_count": 1,
+      "valid_numerical_arms": [
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    },
+    {
+      "case": "elastic_shear_layers",
+      "rhs_mode": "point_load",
+      "complete": true,
+      "converged_candidate_count": 1,
+      "valid_numerical_arms": [
+        "multilevel_graph_piecewise"
+      ],
+      "blocked_for_training": true
+    }
+  ]
+}

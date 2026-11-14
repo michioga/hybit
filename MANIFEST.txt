@@ -32,6 +32,11 @@ benchmarks/evidence/C1G5A_20261114_summary.json
 benchmarks/evidence/C1G5B_20261114_matched_results.csv
 benchmarks/evidence/C1G5B_20261114_matched_summary.json
 benchmarks/evidence/C1G5B_20261114_raw_sha256.csv
+benchmarks/evidence/C1G5E_20261114_outcome_audit.csv
+benchmarks/evidence/C1G5E_20261114_outcome_audit.json
+benchmarks/evidence/C1G5E_20261114_raw_sha256.csv
+benchmarks/evidence/C1G5E_20261114_results.csv
+benchmarks/evidence/C1G5E_20261114_summary.json
 benchmarks/evidence/C1H12_A2_A5_native_pcg.csv
 benchmarks/evidence/C1H12_A2_A5_raw_sha256.csv
 benchmarks/evidence/C1H12_A2_A5_symbolic.csv
@@ -40,6 +45,9 @@ benchmarks/scripts/C1G4_checkpoint.py
 benchmarks/scripts/C1G4_current_head_verify.py
 benchmarks/scripts/C1G5A_corpus_ledger.py
 benchmarks/scripts/C1G5B_gate.py
+benchmarks/scripts/C1G5E_elasticity_corpus.py
+benchmarks/scripts/C1G5E_evidence.py
+benchmarks/scripts/C1G5E_outcome_audit.py
 benchmarks/scripts/C1H10_analyze.py
 benchmarks/scripts/C1H10_run_rhs_amortization.sh
 benchmarks/scripts/C1H11_real_fem_evidence.py
@@ -193,6 +201,8 @@ benchmarks/scripts/test_C1G4_checkpoint.py
 benchmarks/scripts/test_C1G4_current_head_verify.py
 benchmarks/scripts/test_C1G5A_corpus_ledger.py
 benchmarks/scripts/test_C1G5B_gate.py
+benchmarks/scripts/test_C1G5E_evidence.py
+benchmarks/scripts/test_C1G5E_outcome_audit.py
 benchmarks/scripts/test_C1H10_analyze.py
 benchmarks/scripts/test_C1H11_real_fem_evidence.py
 benchmarks/scripts/test_C1H12_A10A_accuracy_gate.py
@@ -350,6 +360,7 @@ crates/hybit/examples/abtm_topology_g1b.rs
 crates/hybit/examples/abtm_typed_compact_dual_g2g.rs
 crates/hybit/examples/basic.rs
 crates/hybit/examples/c1g5b_jacobi_hybrid_probe.rs
+crates/hybit/examples/c1g5e_four_arm_probe.rs
 crates/hybit/examples/c1h10_rhs_amortization.rs
 crates/hybit/examples/c1h12_a10a_accuracy_probe.rs
 crates/hybit/examples/c1h12_a10b_prepared_probe.rs
@@ -447,6 +458,8 @@ docs/C1G5A_UNIFIED_CORPUS_LEDGER.md
 docs/C1G5B_MATCHED_JACOBI_HYBRID_20261114.md
 docs/C1G5C_RUNTIME_SHADOW_LIBRARY.md
 docs/C1G5D_SELECTION_MODEL_POLICY.md
+docs/C1G5E_FOUR_ARM_EVIDENCE_20261114.md
+docs/C1G5E_TRIANGULAR_ELASTICITY_CORPUS.md
 docs/C1G5_AUTONOMOUS_SOLVER_SELECTION.md
 docs/C1G_COARSE_AGGREGATION_COMPARISON.md
 docs/C1G_COARSE_RESCUE_EVIDENCE.md

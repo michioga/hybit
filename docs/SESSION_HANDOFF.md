@@ -1560,3 +1560,16 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Embedded V1 is explicitly **untrained / abstaining**. External V1 (strict fixed 180-byte binary, little endian, FNV corruption check) is **research diagnostic only**, not an approved selector; file contents cannot claim held-out validation or turn on production routing.
 - `HybitSolver::shadow_select_csr32_with_model` and `solve_csr32_with_model_shadow` evaluate models inside `hybit-auto`. The original C1-G5C `recommended=None` safety gate remains in force; no public `SolveReport`, FFI, default feature, numeric algorithm, or routing change.
 - WSL gate: model unit/integration tests, feature-off/on tests, Cargo fmt + Clippy, SHA-256 integrity, and exact file allowlist. No commit/push until owner verifies. See `docs/C1G5D_SELECTION_MODEL_POLICY.md`.
+
+## 2026-11-14 — C1-G5E independent synthetic FEM research (candidate)
+
+- Baseline `develop/0.10.0` 04851d7; one new triangular P1 plane-strain elasticity FEM generator family (3 material variants; 3280 free DOFs with left-edge full displacement clamp). This is a mathematically grounded SPD *constructed* matrix family, not an externally provided real FEM data set or physical RHS.
+- Research example derived from SHA-pinned C1-H12-A9 native multilevel source + Jacobi and G5B-style monitored Hybrid in one Rust executable. 3 matrices x 4 deterministic RHS x 4 candidates = 48 independent candidate processes with original-CSR and compensated residual, GNU time/RSS and retained failure cohorts. No precomputed measurement, no model training or production selector promotion.
+- Development-only Python scripts generate matrices and audit evidence; production library remains Rust-only. Embedded C1-G5D model continues abstaining; no solver/ABI/default changes.
+- Owner execution: installer `--dry-run/--apply/--gate`, corpus generator and `C1G5E_run.sh --run` before freezing. Repeated measurements, external FEM/physical loads, held-out families and common reusable setup costs remain necessary. See `docs/C1G5E_TRIANGULAR_ELASTICITY_CORPUS.md`.
+
+## 2026-11-14 — C1-G5E owner four-arm evidence freeze (candidate)
+
+- 48/48 independent four-arm processes validated on owner WSL2; 32 converged, 16 non-converged; 12 complete problem groups. Jacobi 7/12, Hybrid 5/12, Two-Level 8/12, native research Multilevel 12/12. Hybrid activation 11/12, regressions 2 and rescues 0.
+- Freeze original owner raw 147-file SHA-256 index plus 48-row data, outcome CSV/JSON and documentation; all research-only; original logs remain under owner evidence directory.
+- No trained selector, no production Auto/model/FFI/default change; one synthetic elasticity family with four-way measurements; external physical FEM and held-out validation remain required.

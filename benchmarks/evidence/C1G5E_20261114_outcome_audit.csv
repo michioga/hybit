@@ -1,0 +1,13 @@
+case,rhs_mode,converged_arms,no_feasible_arm,nominal_fastest_converged_arm,nominal_fastest_wall_ms,jacobi_converged,hybrid_converged,hybrid_local_regions,hybrid_outcome_vs_jacobi
+elastic_uniform,ones,"J,H,T,M",false,jacobi_pcg,14.850600,true,true,8,BOTH_CONVERGED
+elastic_uniform,index_smooth,"J,H,T,M",false,jacobi_pcg,16.290645,true,true,8,BOTH_CONVERGED
+elastic_uniform,seeded_random,"J,H,T,M",false,jacobi_pcg,15.387890,true,true,8,BOTH_CONVERGED
+elastic_uniform,point_load,"J,H,T,M",false,jacobi_pcg,16.234184,true,true,0,BOTH_CONVERGED
+elastic_stiff_lens,ones,"T,M",false,multilevel_graph_piecewise,37.888104,false,false,8,BOTH_NOT_CONVERGED
+elastic_stiff_lens,index_smooth,"J,T,M",false,jacobi_pcg,19.021674,true,false,8,HYBRID_REGRESSION
+elastic_stiff_lens,seeded_random,"J,T,M",false,jacobi_pcg,18.061009,true,false,8,HYBRID_REGRESSION
+elastic_stiff_lens,point_load,"J,H,T,M",false,jacobi_pcg,18.467444,true,true,8,BOTH_CONVERGED
+elastic_shear_layers,ones,M,false,multilevel_graph_piecewise,54.947013,false,false,8,BOTH_NOT_CONVERGED
+elastic_shear_layers,index_smooth,M,false,multilevel_graph_piecewise,54.381984,false,false,8,BOTH_NOT_CONVERGED
+elastic_shear_layers,seeded_random,M,false,multilevel_graph_piecewise,53.152902,false,false,8,BOTH_NOT_CONVERGED
+elastic_shear_layers,point_load,M,false,multilevel_graph_piecewise,57.056841,false,false,8,BOTH_NOT_CONVERGED
