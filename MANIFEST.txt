@@ -637,3 +637,15 @@ benchmarks/evidence/C1G5G_20261115_outcome_audit.json
 benchmarks/scripts/C1G5G_postcommit_audit.py
 benchmarks/scripts/test_C1G5G_postcommit_audit.py
 docs/C1G5G_FOUR_ARM_EVIDENCE_20261115.md
+crates/hybit/examples/c1g5h_tplus_hybrid_probe.rs
+benchmarks/scripts/C1G5H_tplus_h_evidence.py
+benchmarks/scripts/test_C1G5H_tplus_h_evidence.py
+docs/C1G5H_TPLUS_HYBRID_STUDY.md
+benchmarks/evidence/C1G5H_20261115_results.csv
+benchmarks/evidence/C1G5H_20261115_summary.json
+benchmarks/evidence/C1G5H_20261115_raw_sha256.csv
+benchmarks/evidence/C1G5H_20261115_matched_48.csv
+benchmarks/evidence/C1G5H_20261115_review_summary.json
+benchmarks/scripts/C1G5H_outcome_review.py
+benchmarks/scripts/test_C1G5H_outcome_review.py
+docs/C1G5H_TPLUS_HYBRID_EVIDENCE_20261115.md

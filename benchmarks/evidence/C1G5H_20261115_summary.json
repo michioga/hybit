@@ -1,0 +1,404 @@
+{
+  "candidate_arms": 2,
+  "complete_groups": 24,
+  "converged": 38,
+  "local_used": 34,
+  "matrices": 6,
+  "nonconverged": 10,
+  "note": "Static windows are placement controls, not learned/localized physical hard patches. Single-shot cross-commit reference; no statistical timing claims.",
+  "process_errors": 0,
+  "processes": 48,
+  "production_promotion_allowed": false,
+  "regressions": 2,
+  "rescues": 0,
+  "results": [
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_island_shell",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_island_shell",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_island_shell",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_island_shell",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_island_shell",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_island_shell",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_island_shell",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_island_shell",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_multi_patch",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_multi_patch",
+      "local_used": "false",
+      "outcome": "TPLUS_H_REGRESSION",
+      "rhs_mode": "ones",
+      "status": "Breakdown"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_multi_patch",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_multi_patch",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_multi_patch",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_multi_patch",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_multi_patch",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_multi_patch",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "scalar_rotated_anisotropy",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_uniform",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_uniform",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_uniform",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_uniform",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_uniform",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_uniform",
+      "local_used": "false",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_uniform",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_uniform",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "TPLUS_H_REGRESSION",
+      "rhs_mode": "ones",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_stiff_lens",
+      "local_used": "true",
+      "outcome": "BOTH_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "Converged"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "ones",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "index_smooth",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "seeded_random",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_static",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "MaxIterations"
+    },
+    {
+      "arm": "tplus_h_adaptive",
+      "case": "elastic_shear_layers",
+      "local_used": "true",
+      "outcome": "BOTH_NOT_CONVERGED",
+      "rhs_mode": "point_load",
+      "status": "MaxIterations"
+    }
+  ],
+  "rhs_modes": 4,
+  "schema": "C1G5H_MATCHED_TPLUS_H_V1",
+  "source_head": "f8d5b6993b159a9d7ce66b47c2eb9f817227bdde",
+  "training_performed": false
+}

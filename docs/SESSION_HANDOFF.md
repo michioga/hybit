@@ -1601,3 +1601,11 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Scalar: 30/48 converged; J/H/T/M = 4/2/12/12 of 12; Hybrid two regressions, no rescues. Matched C1-G5E elasticity: 32/48, J/H/T/M = 7/5/8/12; two additional Hybrid regressions.
 - Frozen numeric CSV, raw SHA-256 index, postcommit cross-family audit JSON/CSV and audit verifier/tests under benchmarks/. Historical original logs remain in owner evidence directory.
 - Production solver/model promotion BLOCKED; no held-out physical FEM, repeated timing or certified cost model. See docs/C1G5G_FOUR_ARM_EVIDENCE_20261115.md.
+
+## 2026-11-15 — C1-G5H T+H numerical evidence checkpoint
+
+- Base f8d5b69; research-only 48 new measured runs and 24 frozen Two-Level controls, six constructed FEM matrices, four RHS, static/adaptive additive coarse+local experiments.
+- T-only 20/24 certified converged; Adaptive T+H 18/24 with 10 actual local uses, **0 local rescues, 2 regressions**; Static T+H 20/24 with 24 local uses, **0 rescues, 0 regressions**. Elastic shear layers 0/4 in T, static, and adaptive; no improvement proven.
+- Critical negative control: scalar_multi_patch / ones: T Converged in 126; Adaptive Breakdown at 116 **without local use**. Diagnose coarse-only HybitSolver/controller/certification path separately; do NOT mislabel this as local factor regression. elastic_stiff_lens / ones: T converged in 430; Adaptive MaxIterations 600 with 8 local regions.
+- Static placement is an index-space activation control, not discovered physical hard patches. Single-shot costs use earlier T baseline and cannot establish statistical speed/regret claims. Source and review SHA-256 and all 147 raw file hashes pinned in benchmarks/evidence/.
+- Production/default/FFI unchanged; standard selection model abstains. No training, no independent physical held-out qualification, no promotion. Next: isolate controller-only Breakdown, compare coarse/local spectral effects, then external FEM and safe shadow switching.
