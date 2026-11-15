@@ -56,3 +56,4 @@
 - [Publishing discipline](PUBLISHING.md)
 - [ABTM G3 closeout](ABTM_G3_CLOSEOUT.md)
 - [C1-G5G scalar diffusion matched four-arm validation](C1G5G_SCALAR_FOUR_ARM_COMPARABILITY.md)
+- [C1-G5G scalar 48-run evidence and post-commit cross-family audit](C1G5G_FOUR_ARM_EVIDENCE_20261115.md)

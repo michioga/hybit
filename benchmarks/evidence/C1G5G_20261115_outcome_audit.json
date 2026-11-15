@@ -1,0 +1,477 @@
+{
+  "analysis_commit": "5394cb4083fb04cbaa20acdcf92898ff7e28ede5",
+  "elasticity_results_sha256": "9b06a1fc0185822690d35a1b7754a5f40272aa3593a3606c090309b1cb906c2c",
+  "limitations": "Two constructed generator families, no external FEM, no held-out selection model. One measurement per candidate, no timing significance. RHS sets share names but problem scales differ. Do not compare wall-time medians across families or treat 24 groups as independent heldout datasets. The C1G5F features use b=A*ones rather than the four benchmark RHS. Native Multilevel is research-only, Hybrid setup_ms overlaps solve_ms. No measured cost should be interpreted as a production-routing guarantee.",
+  "matrix_features": {
+    "elastic_shear_layers": {
+      "diagonal_log10_spread": 2.68383152186,
+      "family": "tri_p1_plane_strain_elasticity",
+      "nondominant_fraction": 0.988719512195,
+      "positive_fraction": 0.3485259891389,
+      "strong_fraction": 0.190554693561
+    },
+    "elastic_stiff_lens": {
+      "diagonal_log10_spread": 3.30248646217,
+      "family": "tri_p1_plane_strain_elasticity",
+      "nondominant_fraction": 0.987804878049,
+      "positive_fraction": 0.3481316337905,
+      "strong_fraction": 0.156060679494
+    },
+    "elastic_uniform": {
+      "diagonal_log10_spread": 0.60390626946,
+      "family": "tri_p1_plane_strain_elasticity",
+      "nondominant_fraction": 0.987804878049,
+      "positive_fraction": 0.3479862356419,
+      "strong_fraction": 0.157175398633
+    },
+    "scalar_island_shell": {
+      "diagonal_log10_spread": 8.0,
+      "family": "scalar_p1_diffusion",
+      "nondominant_fraction": 0.0,
+      "positive_fraction": 0.0,
+      "strong_fraction": 0.790404040404
+    },
+    "scalar_multi_patch": {
+      "diagonal_log10_spread": 12.0,
+      "family": "scalar_p1_diffusion",
+      "nondominant_fraction": 0.0,
+      "positive_fraction": 0.0,
+      "strong_fraction": 0.822406759907
+    },
+    "scalar_rotated_anisotropy": {
+      "diagonal_log10_spread": 0.0,
+      "family": "scalar_p1_diffusion",
+      "nondominant_fraction": 0.986111111111,
+      "positive_fraction": 0.3341067285383,
+      "strong_fraction": 0.665893271462
+    }
+  },
+  "production_promotion_allowed": false,
+  "scalar_experiment_source_head": "a2df4d84458fdbc4f11a62454aba918556bfde0d",
+  "scalar_raw_files_checked": 147,
+  "scalar_results_sha256": "2d81474e62f98fa212ba4a90ed76bbe4973587da7b027ff4ad04b20b256e80d8",
+  "schema": "C1G5G_POSTCOMMIT_OUTCOME_AUDIT_V1",
+  "scopes": {
+    "elasticity": {
+      "cases": 3,
+      "converged": 32,
+      "dof": 3280,
+      "family": "tri_p1_plane_strain_elasticity",
+      "groups": [
+        {
+          "case": "elastic_uniform",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 14.8506,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "ones"
+        },
+        {
+          "case": "elastic_uniform",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 16.290645,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "index_smooth"
+        },
+        {
+          "case": "elastic_uniform",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 15.38789,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "seeded_random"
+        },
+        {
+          "case": "elastic_uniform",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 16.234184,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "point_load"
+        },
+        {
+          "case": "elastic_stiff_lens",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 37.888104,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "ones"
+        },
+        {
+          "case": "elastic_stiff_lens",
+          "converged_arms": [
+            "jacobi_pcg",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 19.021674,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "HYBRID_REGRESSION",
+          "no_feasible_arm": false,
+          "rhs_mode": "index_smooth"
+        },
+        {
+          "case": "elastic_stiff_lens",
+          "converged_arms": [
+            "jacobi_pcg",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 18.061009,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "HYBRID_REGRESSION",
+          "no_feasible_arm": false,
+          "rhs_mode": "seeded_random"
+        },
+        {
+          "case": "elastic_stiff_lens",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 18.467444,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "point_load"
+        },
+        {
+          "case": "elastic_shear_layers",
+          "converged_arms": [
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 54.947013,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "ones"
+        },
+        {
+          "case": "elastic_shear_layers",
+          "converged_arms": [
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 54.381984,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "index_smooth"
+        },
+        {
+          "case": "elastic_shear_layers",
+          "converged_arms": [
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 53.152902,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "seeded_random"
+        },
+        {
+          "case": "elastic_shear_layers",
+          "converged_arms": [
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 57.056841,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "point_load"
+        }
+      ],
+      "per_arm": [
+        {
+          "arm": "jacobi_pcg",
+          "converged": 7,
+          "hybrid_factors_activated": 0,
+          "median_converged_iterations": 484,
+          "median_converged_peak_rss_kib": 7960,
+          "median_converged_wall_ms": 16.290645,
+          "unconverged": 5
+        },
+        {
+          "arm": "hybrid_local_cholesky",
+          "converged": 5,
+          "hybrid_factors_activated": 11,
+          "median_converged_iterations": 575,
+          "median_converged_peak_rss_kib": 7848,
+          "median_converged_wall_ms": 57.200294,
+          "unconverged": 7
+        },
+        {
+          "arm": "two_level_graph_piecewise",
+          "converged": 8,
+          "hybrid_factors_activated": 0,
+          "median_converged_iterations": 385.5,
+          "median_converged_peak_rss_kib": 8144.0,
+          "median_converged_wall_ms": 84.849842,
+          "unconverged": 4
+        },
+        {
+          "arm": "multilevel_graph_piecewise",
+          "converged": 12,
+          "hybrid_factors_activated": 0,
+          "median_converged_iterations": 270.0,
+          "median_converged_peak_rss_kib": 7972.0,
+          "median_converged_wall_ms": 36.039337,
+          "unconverged": 0
+        }
+      ],
+      "unconverged": 16
+    },
+    "scalar": {
+      "cases": 3,
+      "converged": 30,
+      "dof": 20736,
+      "family": "scalar_p1_diffusion",
+      "groups": [
+        {
+          "case": "scalar_island_shell",
+          "converged_arms": [
+            "jacobi_pcg",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 48.256586,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "HYBRID_REGRESSION",
+          "no_feasible_arm": false,
+          "rhs_mode": "ones"
+        },
+        {
+          "case": "scalar_island_shell",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 47.483713,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "index_smooth"
+        },
+        {
+          "case": "scalar_island_shell",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 44.252036,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "seeded_random"
+        },
+        {
+          "case": "scalar_island_shell",
+          "converged_arms": [
+            "jacobi_pcg",
+            "hybrid_local_cholesky",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "jacobi_pcg",
+          "fastest_wall_ms": 51.090807,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "point_load"
+        },
+        {
+          "case": "scalar_multi_patch",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 69.55293,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "ones"
+        },
+        {
+          "case": "scalar_multi_patch",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 47.454912,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "index_smooth"
+        },
+        {
+          "case": "scalar_multi_patch",
+          "converged_arms": [
+            "jacobi_pcg",
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 42.007398,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "HYBRID_REGRESSION",
+          "no_feasible_arm": false,
+          "rhs_mode": "seeded_random"
+        },
+        {
+          "case": "scalar_multi_patch",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 48.058843,
+          "hybrid_local_regions": 8,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "point_load"
+        },
+        {
+          "case": "scalar_rotated_anisotropy",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 94.102711,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "ones"
+        },
+        {
+          "case": "scalar_rotated_anisotropy",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 98.915694,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "index_smooth"
+        },
+        {
+          "case": "scalar_rotated_anisotropy",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 101.620575,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "seeded_random"
+        },
+        {
+          "case": "scalar_rotated_anisotropy",
+          "converged_arms": [
+            "two_level_graph_piecewise",
+            "multilevel_graph_piecewise"
+          ],
+          "fastest_converged": "multilevel_graph_piecewise",
+          "fastest_wall_ms": 120.634087,
+          "hybrid_local_regions": 0,
+          "hybrid_vs_jacobi": "BOTH_NOT_CONVERGED",
+          "no_feasible_arm": false,
+          "rhs_mode": "point_load"
+        }
+      ],
+      "per_arm": [
+        {
+          "arm": "jacobi_pcg",
+          "converged": 4,
+          "hybrid_factors_activated": 0,
+          "median_converged_iterations": 394.0,
+          "median_converged_peak_rss_kib": 8004.0,
+          "median_converged_wall_ms": 52.5202265,
+          "unconverged": 8
+        },
+        {
+          "arm": "hybrid_local_cholesky",
+          "converged": 2,
+          "hybrid_factors_activated": 6,
+          "median_converged_iterations": 394.0,
+          "median_converged_peak_rss_kib": 8008.0,
+          "median_converged_wall_ms": 53.5393795,
+          "unconverged": 10
+        },
+        {
+          "arm": "two_level_graph_piecewise",
+          "converged": 12,
+          "hybrid_factors_activated": 0,
+          "median_converged_iterations": 116.5,
+          "median_converged_peak_rss_kib": 11306.0,
+          "median_converged_wall_ms": 72.480718,
+          "unconverged": 0
+        },
+        {
+          "arm": "multilevel_graph_piecewise",
+          "converged": 12,
+          "hybrid_factors_activated": 0,
+          "median_converged_iterations": 77.5,
+          "median_converged_peak_rss_kib": 11858.0,
+          "median_converged_wall_ms": 56.766156,
+          "unconverged": 0
+        }
+      ],
+      "unconverged": 18
+    }
+  },
+  "training_performed": false
+}

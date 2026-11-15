@@ -1,0 +1,158 @@
+{
+  "candidate_arms": 4,
+  "checkpoint": "C1-G5G scalar matched four-arm research",
+  "complete_groups": 12,
+  "converged": 30,
+  "families_with_matched_four_arm_evidence_if_complete": 2,
+  "family_id": "scalar_p1_diffusion",
+  "groups": [
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_island_shell",
+      "complete": true,
+      "converged_arms": [
+        "jacobi_pcg",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "ones"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_island_shell",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "index_smooth"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_island_shell",
+      "complete": true,
+      "converged_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "seeded_random"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_island_shell",
+      "complete": true,
+      "converged_arms": [
+        "jacobi_pcg",
+        "hybrid_local_cholesky",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "jacobi_pcg",
+      "rhs_mode": "point_load"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_multi_patch",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "ones"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_multi_patch",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "index_smooth"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_multi_patch",
+      "complete": true,
+      "converged_arms": [
+        "jacobi_pcg",
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "seeded_random"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_multi_patch",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "point_load"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_rotated_anisotropy",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "ones"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_rotated_anisotropy",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "index_smooth"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_rotated_anisotropy",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "seeded_random"
+    },
+    {
+      "blocked_for_model_training": true,
+      "case": "scalar_rotated_anisotropy",
+      "complete": true,
+      "converged_arms": [
+        "two_level_graph_piecewise",
+        "multilevel_graph_piecewise"
+      ],
+      "nominal_fastest_converged": "multilevel_graph_piecewise",
+      "rhs_mode": "point_load"
+    }
+  ],
+  "limitations": "Two constructed families; one candidate run per RHS; no physical external FEM; different DOFs across families; no held-out model or timing repeat; native Multilevel remains research-only; failures retained.",
+  "matrices": 3,
+  "measured": 48,
+  "process_errors": 0,
+  "processes": 48,
+  "production_promotion_allowed": false,
+  "rhs_modes": 4,
+  "source_head": "a2df4d84458fdbc4f11a62454aba918556bfde0d",
+  "trained_selector": false,
+  "unconverged_measured": 18
+}

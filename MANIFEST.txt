@@ -629,3 +629,11 @@ benchmarks/scripts/C1G5G_scalar_four_arm_evidence.py
 benchmarks/scripts/test_C1G5G_scalar_four_arm_evidence.py
 crates/hybit/examples/c1g5g_scalar_four_arm_probe.rs
 docs/C1G5G_SCALAR_FOUR_ARM_COMPARABILITY.md
+benchmarks/evidence/C1G5G_20261114_results.csv
+benchmarks/evidence/C1G5G_20261114_summary.json
+benchmarks/evidence/C1G5G_20261115_raw_sha256.csv
+benchmarks/evidence/C1G5G_20261115_outcome_audit.csv
+benchmarks/evidence/C1G5G_20261115_outcome_audit.json
+benchmarks/scripts/C1G5G_postcommit_audit.py
+benchmarks/scripts/test_C1G5G_postcommit_audit.py
+docs/C1G5G_FOUR_ARM_EVIDENCE_20261115.md

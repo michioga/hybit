@@ -1594,3 +1594,10 @@ format/Clippy/test and mdBook/Cargo package gates. Do not tag/publish.
 - Scalar P1 diffusion family: three frozen SHA-256-identified 20736-DOF matrices; each with the same four deterministic RHS and four arm settings as C1-G5E; original CSR/Kahan true residuals and failed preparations retained, maximum 600 iterations, relative tolerance 1e-10.
 - Four-way independent-process observations are not equivalent to held-out family model validation. Native Multilevel remains a research example, not a production hybit-auto candidate. Repeated trials and physical external FEM are still required.
 - No training, no embedded model promotion, no default solver, feature, FFI, or production routing modifications. Original raw run evidence stays outside Git.
+
+## 2026-11-15 - C1-G5G scalar 48-run evidence and cross-family descriptive freeze
+
+- Experiment at a2df4d8, source committed at 5394cb4; owner revalidated 147 raw process artifacts after commit without falsifying the original run HEAD.
+- Scalar: 30/48 converged; J/H/T/M = 4/2/12/12 of 12; Hybrid two regressions, no rescues. Matched C1-G5E elasticity: 32/48, J/H/T/M = 7/5/8/12; two additional Hybrid regressions.
+- Frozen numeric CSV, raw SHA-256 index, postcommit cross-family audit JSON/CSV and audit verifier/tests under benchmarks/. Historical original logs remain in owner evidence directory.
+- Production solver/model promotion BLOCKED; no held-out physical FEM, repeated timing or certified cost model. See docs/C1G5G_FOUR_ARM_EVIDENCE_20261115.md.
