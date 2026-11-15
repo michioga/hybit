@@ -1,0 +1,13 @@
+case,family,arm,status,iterations,true_relative,kahan_relative,reported_relative,baseline_T_status,baseline_T_iterations,rhs_hash,local_regions,local_bytes,coarse_bytes,escalations,wall_ms,elapsed_s,peak_rss_kib,rc
+scalar_multi_patch,scalar,two_level_graph_piecewise,Converged,126,5.473644267743e-11,5.472022470071e-11,3.086690463920e-11,Converged,126,cc8b6856aa58926e,0,0,0,0,77.057031,0.08,11308,0
+scalar_multi_patch,scalar,tplus_h_adaptive,Breakdown,116,3.925231781887e-10,3.925725122287e-10,3.925231781887e-10,Converged,126,cc8b6856aa58926e,0,0,2412552,0,75.802403,0.07,12212,0
+scalar_multi_patch,scalar,c1g5i_coarse_no_segment,Breakdown,116,3.925231781887e-10,3.925725122287e-10,3.925231781887e-10,Converged,126,cc8b6856aa58926e,0,0,2412552,0,73.878336,0.07,12344,0
+scalar_multi_patch,scalar,c1g5i_coarse_observe,Breakdown,116,3.925231781887e-10,3.925725122287e-10,3.925231781887e-10,Converged,126,cc8b6856aa58926e,0,0,2412552,0,76.214435,0.07,12296,0
+elastic_stiff_lens,elasticity,two_level_graph_piecewise,Converged,430,8.675448239553e-11,8.675028344400e-11,8.671442759848e-11,Converged,430,464d794f47479c9d,0,0,0,0,92.026427,0.09,8376,0
+elastic_stiff_lens,elasticity,tplus_h_adaptive,MaxIterations,600,2.663960698220e-10,2.663995056917e-10,2.663960698220e-10,Converged,430,464d794f47479c9d,8,567712,1857456,1,154.816081,0.15,8424,0
+elastic_stiff_lens,elasticity,c1g5i_coarse_no_segment,Breakdown,429,1.000107258137e-10,9.999067209588e-11,1.000107258137e-10,Converged,430,464d794f47479c9d,0,0,1857456,0,93.374008,0.09,8464,0
+elastic_stiff_lens,elasticity,c1g5i_coarse_observe,Breakdown,429,1.000107258137e-10,9.999067209588e-11,1.000107258137e-10,Converged,430,464d794f47479c9d,0,0,1857456,0,94.031780,0.09,8352,0
+elastic_shear_layers,elasticity,two_level_graph_piecewise,MaxIterations,600,9.092695679538e-8,9.092695675980e-8,9.092695665482e-8,MaxIterations,600,ed0fe37ccad1b9bd,0,0,0,0,123.816188,0.12,8332,0
+elastic_shear_layers,elasticity,tplus_h_adaptive,MaxIterations,600,1.377106302179e-7,1.377106302381e-7,1.377106302179e-7,MaxIterations,600,ed0fe37ccad1b9bd,8,567712,1857456,1,139.422048,0.14,8364,0
+elastic_shear_layers,elasticity,c1g5i_coarse_no_segment,MaxIterations,600,9.092695679538e-8,9.092695675980e-8,9.092695679538e-8,MaxIterations,600,ed0fe37ccad1b9bd,0,0,1857456,0,130.005661,0.13,8204,0
+elastic_shear_layers,elasticity,c1g5i_coarse_observe,MaxIterations,600,9.092695679538e-8,9.092695675980e-8,9.092695679538e-8,MaxIterations,600,ed0fe37ccad1b9bd,0,0,1857456,0,125.405124,0.12,8392,0

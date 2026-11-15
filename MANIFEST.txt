@@ -649,3 +649,17 @@ benchmarks/evidence/C1G5H_20261115_review_summary.json
 benchmarks/scripts/C1G5H_outcome_review.py
 benchmarks/scripts/test_C1G5H_outcome_review.py
 docs/C1G5H_TPLUS_HYBRID_EVIDENCE_20261115.md
+benchmarks/scripts/C1G5I_control.py
+benchmarks/scripts/test_C1G5I_control.py
+benchmarks/scripts/C1G5I_p2_control.py
+benchmarks/scripts/test_C1G5I_p2_control.py
+benchmarks/scripts/C1G5I_compare_p2.py
+benchmarks/scripts/test_C1G5I_compare_p2.py
+benchmarks/scripts/C1G5I_checkpoint_audit.py
+benchmarks/scripts/test_C1G5I_checkpoint_audit.py
+benchmarks/evidence/C1G5I_20261115_default_results.csv
+benchmarks/evidence/C1G5I_20261115_p2_results.csv
+benchmarks/evidence/C1G5I_20261115_matched_comparison.csv
+benchmarks/evidence/C1G5I_20261115_raw_sha256.csv
+benchmarks/evidence/C1G5I_20261115_diagnostic_summary.json
+docs/C1G5I_P2_CERTIFIED_RESTART_EVIDENCE_20261115.md

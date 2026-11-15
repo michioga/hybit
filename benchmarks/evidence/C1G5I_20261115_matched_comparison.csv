@@ -1,0 +1,13 @@
+case,arm,off_status,off_iters,on_status,on_iters,off_true,on_true,on_kahan,local_on
+scalar_multi_patch,two_level_graph_piecewise,Converged,126,Converged,126,5.473644267743e-11,5.473644267743e-11,5.472022470071e-11,false
+scalar_multi_patch,tplus_h_adaptive,Breakdown,116,Breakdown,124,3.925231781887e-10,1.301216671805e-10,1.298222240258e-10,false
+scalar_multi_patch,c1g5i_coarse_no_segment,Breakdown,116,Breakdown,124,3.925231781887e-10,1.301216671805e-10,1.298222240258e-10,false
+scalar_multi_patch,c1g5i_coarse_observe,Breakdown,116,Breakdown,124,3.925231781887e-10,1.301216671805e-10,1.298222240258e-10,false
+elastic_stiff_lens,two_level_graph_piecewise,Converged,430,Converged,430,8.675448239553e-11,8.675448239553e-11,8.6750283444e-11,false
+elastic_stiff_lens,tplus_h_adaptive,MaxIterations,600,MaxIterations,600,2.66396069822e-10,2.66396069822e-10,2.663995056917e-10,true
+elastic_stiff_lens,c1g5i_coarse_no_segment,Breakdown,429,Converged,430,1.000107258137e-10,8.675448239553e-11,8.6750283444e-11,false
+elastic_stiff_lens,c1g5i_coarse_observe,Breakdown,429,Converged,430,1.000107258137e-10,8.675448239553e-11,8.6750283444e-11,false
+elastic_shear_layers,two_level_graph_piecewise,MaxIterations,600,MaxIterations,600,9.092695679538e-08,9.092695679538e-08,9.09269567598e-08,false
+elastic_shear_layers,tplus_h_adaptive,MaxIterations,600,MaxIterations,600,1.377106302179e-07,1.377106302179e-07,1.377106302381e-07,true
+elastic_shear_layers,c1g5i_coarse_no_segment,MaxIterations,600,MaxIterations,600,9.092695679538e-08,9.092695679538e-08,9.09269567598e-08,false
+elastic_shear_layers,c1g5i_coarse_observe,MaxIterations,600,MaxIterations,600,9.092695679538e-08,9.092695679538e-08,9.09269567598e-08,false

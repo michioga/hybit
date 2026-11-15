@@ -58,3 +58,4 @@
 - [C1-G5G scalar diffusion matched four-arm validation](C1G5G_SCALAR_FOUR_ARM_COMPARABILITY.md)
 - [C1-G5G scalar 48-run evidence and post-commit cross-family audit](C1G5G_FOUR_ARM_EVIDENCE_20261115.md)
 - [C1-G5H T+H complete raw evidence and matched outcome audit](C1G5H_TPLUS_HYBRID_EVIDENCE_20261115.md)
+- [C1-G5I P2-off/on certified-restart differential and full evidence](C1G5I_P2_CERTIFIED_RESTART_EVIDENCE_20261115.md)
